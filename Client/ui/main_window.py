@@ -1,0 +1,743 @@
+"""
+Trading Terminal - Main Window
+主窗口：组装所有子组件，管理全局状态、快捷键、轮询、行情流
+"""
+
+import datetime
+import json
+import queue
+import random
+import re
+import threading
+import time
+
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+from ..constants import *
+from ..config import load_credentials, save_credentials
+from ..network.http_client import HttpClient
+from ..network.ws_client import QuoteStream
+from ..services.trading_session import TradingSession, sanitize
+from .trading_panel import TradingPanel
+from .positions_panel import PositionsPanel
+from .orders_panel import OrdersPanel
+from .log_area import LogArea
+from .login_dialog import LoginDialog
+
+
+class TradingTerminal(tk.Tk):
+    """交易终端主窗口"""
+
+    def __init__(self):
+        super().__init__()
+        self.title("\u25cf Trading Terminal")
+
+        # 窗口尺寸与居中
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w = min(1400, int(sw * 0.90))
+        h = min(920, int(sh * 0.85))
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(1400, 750)
+        self.configure(bg=DARK_BG)
+
+        # ── 先弹出登录窗口 ────────────────────────────────────────────────
+        login = LoginDialog(self)
+        creds = login.credentials
+        if not creds:
+            # 用户取消登录，关闭应用
+            self.destroy()
+            return
+
+        username, password = creds
+
+        # ── 核心组件 ────────────────────────────────────────────────────────
+        self.http = HttpClient()
+        self.session = TradingSession(self.http)
+
+        # 预初始化引用（避免属性错误）
+        self.panels: dict[int, TradingPanel] = {}
+        self.active_panel_id: int = 0
+        self.quote_queue = queue.Queue()
+        self.sub_queue = queue.Queue()
+        self.current_quote: dict[str, dict] = {}
+        self.mock_base: dict[str, float] = {}
+        self._stream_active: bool = False
+        self._mock_active: bool = False
+        self._ws_stream: QuoteStream | None = None
+        self._last_pos_time: float = 0
+        self._last_orders_time: float = 0
+        self._last_heartbeat: float = 0
+        self.positions_panel: PositionsPanel | None = None
+        self.orders_panel: OrdersPanel | None = None
+        self.status_var: tk.StringVar = None
+        self.status_lbl: tk.Label = None
+        self.time_var: tk.StringVar = None
+
+        # 构建UI（不含顶栏登录区）
+        self._apply_style()
+        self._build_ui_no_login()
+        self.log_area = LogArea(self)
+        self._build_log_bar()
+        self._setup_hotkeys()
+
+        # 执行登录认证
+        self.log_area.log("Authenticating\u2026", "inf")
+        ok, msg = self.session.login(username, password)
+        self.status_var.set("\u25cf Connected" if ok else "\u25cf Not connected")
+        self.status_lbl.config(fg=ACCENT_GREEN if ok else ACCENT_RED)
+        if ok:
+            save_credentials(username, password)
+            self.log_area.log(sanitize(msg), "ok")
+            self._start_mock_stream()
+            self._poll()
+            self._tick_clock()
+            self.after(600, self._refresh_positions)
+            self.after(900, self._refresh_orders)
+        else:
+            self.log_area.log(sanitize(msg), "err")
+
+    # ── Style ──────────────────────────────────────────────────────────────
+
+    def _apply_style(self):
+        s = ttk.Style(self)
+        s.theme_use("clam")
+        s.configure("Treeview", background=PANEL_BG, foreground=TEXT_PRIMARY,
+                    fieldbackground=PANEL_BG, rowheight=28,
+                    font=FONT_MONO_SM, borderwidth=0, relief="flat")
+        s.configure("Treeview.Heading", background=DARK_BG, foreground=TEXT_DIM,
+                    font=FONT_BOLD, relief="flat")
+        s.map("Treeview", background=[("selected", "#1e2b45")],
+              foreground=[("selected", ACCENT_BLUE)])
+        s.configure("TScrollbar", background=BORDER, troughcolor=DARK_BG, borderwidth=0)
+        s.configure("TPanedwindow", background=BORDER)
+
+    # ── UI Build ───────────────────────────────────────────────────────────
+
+    def _build_ui_no_login(self):
+        """构建完整UI（登录已通过，不含登录表单）"""
+        self._build_top_bar()
+        self._build_trading_panels()
+        self._build_body()
+
+    def _build_top_bar(self):
+        """顶部栏：标题 + 状态 + 时间（登录已完成）"""
+        top = tk.Frame(self, bg=TOP_BAR_BG, height=56)
+        top.pack(fill="x")
+        top.pack_propagate(False)
+
+        tk.Label(top, text="\u25cf TRADING TERMINAL",
+                 bg=TOP_BAR_BG, fg=ACCENT_BLUE,
+                 font=FONT_TITLE).pack(side="left", padx=14)
+
+        # 连接状态
+        self.status_var = tk.StringVar(value="\u25cf Connecting\u2026")
+        self.status_lbl = tk.Label(top, textvariable=self.status_var,
+                                   bg=TOP_BAR_BG, fg=ACCENT_YELLOW, font=FONT_UI_SM)
+        self.status_lbl.pack(side="left", padx=4)
+
+        # 时间
+        self.time_var = tk.StringVar()
+        tk.Label(top, textvariable=self.time_var, bg=TOP_BAR_BG,
+                 fg=TEXT_DIM, font=FONT_MONO).pack(side="right", padx=12)
+
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
+
+    def _build_trading_panels(self):
+        """双交易面板区域"""
+        panels_outer = tk.Frame(self, bg=DARK_BG)
+        panels_outer.pack(fill="x")
+
+        for pid in range(2):
+            panel = TradingPanel(
+                parent=panels_outer,
+                panel_id=pid,
+                on_symbol_enter_callback=self._on_symbol_enter,
+                on_activate_callback=self._activate_panel,
+                on_order_type_change_callback=self._on_order_type_change,
+            )
+            pf = panel.build(panels_outer)
+            pf.pack(side="left", fill="both", expand=True,
+                    padx=(0 if pid == 0 else 1, 0))
+
+            # 绑定按钮事件和方向键
+            panel.buy_btn.config(command=lambda i=pid: self._place_order("Buy to Open", i))
+            panel.sell_btn.config(command=lambda i=pid: self._place_order("Sell to Close", i))
+
+            # 方向键绑定
+            panel.qty_entry.bind("<Up>", lambda e, i=pid: self._adj_qty(+500, i))
+            panel.qty_entry.bind("<Down>", lambda e, i=pid: self._adj_qty(-500, i))
+            panel.qty_entry.bind("<Right>", lambda e, i=pid: self._adj_qty(+100, i))
+            panel.qty_entry.bind("<Left>", lambda e, i=pid: self._adj_qty(-100, i))
+            panel.price_entry.bind("<Up>", lambda e, i=pid: self._adj_price(+0.05, i))
+            panel.price_entry.bind("<Down>", lambda e, i=pid: self._adj_price(-0.05, i))
+            panel.price_entry.bind("<Right>", lambda e, i=pid: self._adj_price(+0.01, i))
+            panel.price_entry.bind("<Left>", lambda e, i=pid: self._adj_price(-0.01, i))
+
+            # Esc 撤单
+            for ew in (panel.sym_entry, panel.qty_entry):
+                ew.bind("<Escape>", lambda e, i=pid: self._esc_cancel_orders(i))
+
+            self.panels[pid] = panel
+
+        # 兼容旧代码引用（面板0的快捷方式）
+        p0 = self.panels[0]
+        self.sym_var = p0.sym_var
+        self.sym_entry = p0.sym_entry
+        self.q_last_var = p0.q_last_var
+        self.q_bid_var = p0.q_bid_var
+        self.q_ask_var = p0.q_ask_var
+        self.q_chg_var = p0.q_chg_var
+        self.q_vol_var = p0.q_vol_var
+        self.order_type_var = p0.order_type_var
+        self.tif_var = p0.tif_var
+        self.qty_entry = p0.qty_entry
+        self.price_entry = p0.price_entry
+        self.price_lbl = p0.price_lbl
+        self.order_sym_var = p0.order_sym_var
+        self.order_last_var = p0.order_last_var
+
+    def _build_body(self):
+        """主体区域：订单面板 + 持仓面板"""
+        body = tk.Frame(self, bg=DARK_BG)
+        body.pack(fill="both", expand=True)
+
+        pw = ttk.PanedWindow(body, orient="horizontal")
+        pw.pack(fill="both", expand=True, padx=6, pady=(6, 0))
+
+        # Orders (左)
+        self.orders_panel = OrdersPanel(pw, on_refresh_callback=self._refresh_orders,
+                                        on_cancel_callback=self._cancel_selected_order)
+        of = self.orders_panel.build()
+        pw.add(of, weight=1)
+        self.ord_tree = self.orders_panel.tree
+
+        # Positions (右)
+        self.positions_panel = PositionsPanel(pw, on_refresh_callback=self._refresh_positions,
+                                              on_select_callback=self._on_pos_row_click)
+        pos_f = self.positions_panel.build()
+        pw.add(pos_f, weight=1)
+        self.pos_tree = self.positions_panel.tree
+
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
+
+    def _build_log_bar(self):
+        """底部日志栏"""
+        log_frame = tk.Frame(self, bg=PANEL_BG, height=96)
+        log_frame.pack(fill="x")
+        log_frame.pack_propagate(False)
+        self.log_area.frame = log_frame
+        self.log_area.build()
+
+    # ── Clock & Poll ────────────────────────────────────────────────────────
+
+    def _tick_clock(self):
+        self.time_var.set(datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S"))
+        self.after(1000, self._tick_clock)
+
+    def _poll(self):
+        """150ms 主轮询循环"""
+        # 消费模拟行情队列
+        if self.session.mock_mode:
+            try:
+                while True:
+                    q = self.quote_queue.get_nowait()
+                    sym = q["symbol"]
+                    prev = self.current_quote.get(sym)
+                    self.current_quote[sym] = q
+                    self._refresh_strip(q, prev)
+            except queue.Empty:
+                pass
+
+        now = time.time()
+
+        # 每3秒更新持仓P&L（用本地行情缓存）
+        if now - self._last_pos_time > POSITIONS_INTERVAL / 1000 and self.pos_tree.get_children():
+            self.positions_panel.live_update_pnl(self.current_quote)
+            self._last_pos_time = now
+
+        # 每30秒从服务器刷新持仓+订单
+        if self.session.connected and not self.session.mock_mode:
+            if now - self._last_orders_time > ORDERS_INTERVAL / 1000:
+                self._refresh_positions()
+                self._refresh_orders()
+                self._last_orders_time = now
+
+        # 心跳检测（每10秒ping服务器）
+        if self.session.connected and not self.session.mock_mode:
+            if now - self._last_heartbeat > HEARTBEAT_INTERVAL / 1000:
+                self._last_heartbeat = now
+                def _ping():
+                    ok = self.http.health_check()
+                    if not ok:
+                        self.after(0, self._on_server_disconnect)
+                threading.Thread(target=_ping, daemon=True).start()
+
+        self.after(POLL_INTERVAL, self._poll)
+
+    # ── Symbol Handling ────────────────────────────────────────────────────
+
+    def _on_symbol_enter(self, pid: int, _=None):
+        """输入股票代码回车处理"""
+        p = self.panels[pid]
+        sym = p.sym_var.get().strip().upper()
+        if not sym:
+            return
+        p.set_symbol(sym)
+
+        if self._stream_active:
+            self.sub_queue.put(sym)
+        if sym not in self.mock_base:
+            self.mock_base[sym] = random.uniform(20, 500)
+        if sym in self.current_quote:
+            self._refresh_strip(self.current_quote[sym], None, pid)
+
+    def _sym_key_filter(self, event, pid: int = 0):
+        """
+        sym_entry 键盘过滤器：
+        只允许字母、导航键；小键盘数字设置数量；F键触发下单
+        """
+        nav_keys = {
+            "BackSpace", "Delete", "Left", "Right", "Home", "End",
+            "Return", "Tab", "Escape", "Caps_Lock", "Shift_L", "Shift_R",
+            "Control_L", "Control_R", "Alt_L", "Alt_R",
+        }
+        ks = event.keysym
+        state = event.state
+
+        numpad_map = {
+            "1": "1000", "2": "2000", "3": "3000", "4": "4000", "5": "5000",
+            "6": "6000", "7": "7000", "8": "8000", "9": "9000", "0": "1000",
+        }
+        ctrl_map = {"1": "100", "2": "200", "3": "300", "4": "400", "5": "500",
+                     "6": "600", "7": "700", "8": "800", "9": "900"}
+
+        # Ctrl+1-9 → 100-900股
+        if state & 0x4 and ks in ctrl_map:
+            self._set_qty(ctrl_map[ks], pid)
+            return "break"
+
+        # 小键盘数字 → 1000-9000股
+        if ks in numpad_map and not (state & 0x4):
+            self._set_qty(numpad_map[ks], pid)
+            return "break"
+
+        # 导航键放行
+        if ks in nav_keys:
+            return
+
+        # 字母放行
+        if event.char and event.char.isalpha():
+            return
+
+        return "break"
+
+    # ── Panel Activation ───────────────────────────────────────────────────
+
+    def _activate_panel(self, pid: int):
+        """高亮激活面板，其他恢复暗色边框"""
+        for i, p in self.panels.items():
+            p.set_active(i == pid)
+        self.active_panel_id = pid
+
+    def _get_active_panel_id(self) -> int:
+        """获取当前焦点所在的面板ID"""
+        focused = self.focus_get()
+        for pid, p in self.panels.items():
+            if focused in (p.sym_entry, p.qty_entry, p.price_entry):
+                return pid
+        return self.active_panel_id
+
+    def _get_pos_direction(self, symbol: str) -> str:
+        """查询指定标的持仓方向: long/short/none"""
+        if not hasattr(self, 'pos_tree') or not self.pos_tree:
+            return "none"
+        for row in self.pos_tree.get_children():
+            v = self.pos_tree.item(row, "values")
+            if not v or v[0] != symbol:
+                continue
+            try:
+                pos_val = int(float(v[3]))
+                if pos_val > 0:
+                    return "long"
+                if pos_val < 0:
+                    return "short"
+            except Exception:
+                pass
+        return "none"
+
+    # ── Hotkeys ────────────────────────────────────────────────────────────
+
+    def _setup_hotkeys(self):
+        """绑定F1-F4快捷键到各面板控件"""
+        def _bind_f(widget):
+            widget.bind("<F1>", lambda e: self._f_key_order("sell"))
+            widget.bind("<F2>", lambda e: self._f_key_limit("sell"))
+            widget.bind("<F3>", lambda e: self._f_key_order("buy"))
+            widget.bind("<F4>", lambda e: self._f_key_limit("buy"))
+
+        def _bind_f_sym(widget):
+            """sym框F键需要过滤字母输入冲突"""
+            def _guard(fn):
+                def _cb(e):
+                    if e.keysym in ("F1", "F2", "F3", "F4"):
+                        return fn()
+                return _cb
+            widget.bind("<F1>", _guard(lambda: self._f_key_order("sell")))
+            widget.bind("<F2>", _guard(lambda: self._f_key_limit("sell")))
+            widget.bind("<F3>", _guard(lambda: self._f_key_order("buy")))
+            widget.bind("<F4>", _guard(lambda: self._f_key_limit("buy")))
+
+        for p in self.panels.values():
+            _bind_f(p.qty_entry)
+            _bind_f(p.price_entry)
+            _bind_f_sym(p.sym_entry)
+
+        # 将sym_key_filter绑定到sym_entry
+        for pid, p in self.panels.items():
+            p.sym_entry.bind("<Key>", lambda e, i=pid: self._sym_key_filter(e, i))
+
+    def _f_key_order(self, side: str):
+        """F1=市价卖出 F3=市价买入 — 根据持仓智能选择action"""
+        pid = self._get_active_panel_id()
+        p = self.panels[pid]
+        sym = p.order_sym_var.get()
+        if sym == "\u2014":
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1a\u8bf7\u5148\u52a0\u8f7d\u80a1\u7968\u4ee3\u7801", "err")
+            return
+        try:
+            qty = int(p.qty_entry.get())
+        except Exception:
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1aqty \u65e0\u6548", "err"); return
+        if qty <= 0:
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1aqty \u5fc5\u987b\u5927\u4e8e0", "err"); return
+
+        direction = self._get_pos_direction(sym)
+        if side == "buy":
+            action = "Buy to Close" if direction == "short" else "Buy to Open"
+        else:
+            action = "Sell to Close" if direction == "long" else "Sell to Open"
+
+        tif = p.tif_var.get()
+        self.log_area.log(f"[F] {action} {qty} {sym} @ MKT | {tif}", "inf")
+        self._submit_order_bg(sym, qty, 0, action, "market", tif)
+
+    def _f_key_limit(self, side: str):
+        """F2=Limit卖就绪 F4=Limit买就绪 — 填入默认价格，焦点到price框"""
+        pid = self._get_active_panel_id()
+        p = self.panels[pid]
+        sym = p.order_sym_var.get()
+        if sym == "\u2014":
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1a\u8bf7\u5148\u52a0\u8f7d\u80a1\u7968\u4ee3\u7801", "err"); return
+
+        direction = self._get_pos_direction(sym)
+        if side == "buy":
+            action = "Buy to Close" if direction == "short" else "Buy to Open"
+            default_px = self.current_quote.get(sym, {}).get("ask", 0)
+        else:
+            action = "Sell to Close" if direction == "long" else "Sell to Open"
+            default_px = self.current_quote.get(sym, {}).get("bid", 0)
+
+        # 切换为Limit模式
+        p.order_type_var.set("Limit")
+        self._on_order_type_change(pid)
+
+        # 填入默认价格
+        p.price_entry.config(state="normal")
+        p.price_entry.delete(0, "end")
+        if default_px:
+            p.price_entry.insert(0, f"{default_px:.2f}")
+
+        p._pending_action = action
+
+        # 高亮price框并聚焦
+        hl_color = ACCENT_GREEN if side == "buy" else ACCENT_RED
+        p.price_entry.focus_set()
+        p.price_entry.config(highlightthickness=2,
+                             highlightbackground=hl_color,
+                             highlightcolor=hl_color)
+        p.price_entry.bind("<Return>", lambda e, i=pid: self._f_limit_submit(i))
+        p.price_entry.bind("<Escape>", lambda e, i=pid: self._f_limit_cancel(i))
+
+    def _f_limit_submit(self, pid: int):
+        """price框回车：提交Limit单"""
+        p = self.panels[pid]
+        sym = p.order_sym_var.get()
+        action = p._pending_action
+        if not action or sym == "\u2014":
+            return
+        try:
+            qty = int(p.qty_entry.get())
+        except Exception:
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1aqty \u65e8\u6548", "err"); return
+        try:
+            price = round(float(p.price_entry.get().strip()), 2)
+        except Exception:
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1aprice \u65e8\u6548", "err"); return
+        if price <= 0:
+            self.log_area.log("F\u952e\u4e0b\u5355\uff1aprice \u5fc5\u987b\u5927\u4e8e0", "err"); return
+
+        tif = p.tif_var.get()
+        self.log_area.log(f"[F] {action} {qty} ${price:.2f} | {tif}", "inf")
+
+        # 解绑回车/Esc，恢复状态
+        p.price_entry.unbind("<Return>")
+        p.price_entry.unbind("<Escape>")
+        p.price_entry.config(highlightthickness=0)
+        p._pending_action = None
+
+        self._submit_order_bg(sym, qty, price, action, "limit", tif)
+
+    def _f_limit_cancel(self, pid: int):
+        """Esc取消F2/F4待下单状态"""
+        p = self.panels[pid]
+        p.price_entry.unbind("<Return>")
+        p.price_entry.unbind("<Escape>")
+        p.price_entry.config(highlightthickness=0)
+        p._pending_action = None
+
+    # ── Qty / Price Adjustment ────────────────────────────────────────────
+
+    def _set_qty(self, val: str, pid: int = 0):
+        p = self.panels.get(pid, self.panels[0])
+        p.qty_entry.delete(0, "end")
+        p.qty_entry.insert(0, val)
+
+    def _adj_qty(self, delta: int, pid: int = 0) -> str:
+        p = self.panels.get(pid, self.panels[0])
+        try:
+            cur = int(p.qty_entry.get())
+        except ValueError:
+            cur = 0
+        new = max(0, cur + delta)
+        p.qty_entry.delete(0, "end")
+        p.qty_entry.insert(0, str(new))
+        return "break"
+
+    def _adj_price(self, delta: float, pid: int = 0) -> str:
+        p = self.panels.get(pid, self.panels[0])
+        try:
+            cur = round(float(p.price_entry.get()), 2)
+        except ValueError:
+            cur = 0.0
+        new = round(max(0.0, cur + delta), 2)
+        p.price_entry.delete(0, "end")
+        p.price_entry.insert(0, f"{new:.2f}")
+        return "break"
+
+    # ── Order Type Toggle ─────────────────────────────────────────────────
+
+    def _on_order_type_change(self, pid: int, _=None):
+        """切换Market/Limit时控制price框可用性"""
+        p = self.panels[pid]
+        is_mkt = p.order_type_var.get() == "Market"
+        p.price_entry.configure(state="disabled" if is_mkt else "normal",
+                               bg=DARK_BG if is_mkt else INPUT_BG)
+        p.price_lbl.configure(fg=TEXT_MUTED if is_mkt else TEXT_DIM)
+
+    # ── Login ──────────────────────────────────────────────────────────────
+
+    # ── Place Order ────────────────────────────────────────────────────────
+
+    def _place_order(self, action: str, pid: int = 0):
+        p = self.panels[pid]
+        sym = p.order_sym_var.get()
+        if sym == "\u2014":
+            messagebox.showwarning("Warning", "Please select a symbol first")
+            return
+        try:
+            qty = int(p.qty_entry.get())
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid quantity")
+            return
+        is_mkt = p.order_type_var.get() == "Market"
+        price = 0.0
+        if not is_mkt:
+            try:
+                price = round(float(p.price_entry.get().strip()), 2)
+            except ValueError:
+                messagebox.showerror("Error", "Please enter a valid price")
+                return
+            if price <= 0:
+                messagebox.showerror("Error", "Price must be greater than 0")
+                return
+        tif = p.tif_var.get()
+        price_str = "MKT" if is_mkt else f"${price:.2f}"
+        self.log_area.log(f"{action} {qty} {sym} @ {price_str} | {tif}", "inf")
+        self._submit_order_bg(sym, qty, price, action,
+                              "market" if is_mkt else "limit", tif)
+
+    def _submit_order_bg(self, symbol: str, qty: int, price: float,
+                         action: str, order_type: str, tif: str):
+        """在后台线程中提交订单"""
+        def _bg():
+            ok, msg = self.session.place_order(symbol, qty, price, action, order_type, tif=tif)
+            self.after(0, lambda: self.log_area.log(sanitize(msg), "ok" if ok else "err"))
+            if ok:
+                self.after(1500, self._refresh_positions)
+                self.after(1500, self._refresh_orders)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ── Esc Cancel ─────────────────────────────────────────────────────────
+
+    def _esc_cancel_orders(self, pid: int):
+        """Esc：先取消待下单状态，否则撤当前symbol所有live订单"""
+        p = self.panels[pid]
+        if p._pending_action:
+            self._f_limit_cancel(pid)
+            return
+        sym = p.order_sym_var.get()
+        if sym == "\u2014":
+            self.log_area.log("Esc\u64a4\u5355\uff1a\u8bf7\u5148\u52a0\u8f7d\u80a1\u7968\u4ee3\u7801", "err")
+            return
+        live_ids = []
+        if hasattr(self, 'ord_tree') and self.ord_tree:
+            for r in self.ord_tree.get_children():
+                v = self.ord_tree.item(r, "values")
+                if v and len(v) >= 1 and v[0] == sym:
+                    live_ids.append(r)
+        if not live_ids:
+            self.log_area.log(f"Esc\u64a4\u5355\uff1a{sym} \u65e0\u751f\u6548\u8ba2\u5355", "inf")
+            return
+        self.log_area.log(f"Esc\u64a4\u5355\uff1a{sym} \u64a4\u9500 {len(live_ids)} \u7b14\u8ba2\u5355", "inf")
+        def _bg():
+            for oid in live_ids:
+                ok, msg = self.session.cancel_order(oid)
+                self.after(0, lambda m=msg, o=ok: self.log_area.log(sanitize(m), "ok" if o else "err"))
+            self.after(1500, self._refresh_orders)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ── Positions ──────────────────────────────────────────────────────────
+
+    def _refresh_positions(self):
+        def _bg():
+            positions = self.session.get_today_activity()
+            err = getattr(self.session, "_pos_error", "")
+            self.after(0, lambda: self._update_positions(positions, err))
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _update_positions(self, positions: list[dict], err: str = ""):
+        if err:
+            self.log_area.log(sanitize(f"Position fetch failed: {err}"), "err")
+        if self.positions_panel:
+            self.positions_panel.update_data(positions, self.current_quote)
+
+    def _on_pos_row_click(self, symbol: str):
+        """点击持仓行，将symbol填入面板0"""
+        self.panels[0].sym_var.set(symbol)
+        self._on_symbol_enter(0)
+
+    # ── Orders ─────────────────────────────────────────────────────────────
+
+    def _refresh_orders(self):
+        mode = self.orders_panel.current_mode if self.orders_panel else "live"
+        def _bg():
+            orders = self.session.get_orders(mode)
+            self.after(0, lambda: self._update_orders(orders))
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _update_orders(self, orders: list[dict]):
+        if self.orders_panel:
+            mode = self.orders_panel.current_mode
+            self.orders_panel.update_data(orders)
+
+    def _cancel_selected_order(self, order_id: str):
+        def _bg():
+            ok, msg = self.session.cancel_order(order_id)
+            self.after(0, lambda: self.log_area.log(sanitize(msg), "ok" if ok else "err"))
+            if ok:
+                self.after(1000, self._refresh_orders)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ── Quote Stream ───────────────────────────────────────────────────────
+
+    def _refresh_strip(self, quote: dict, prev_quote: dict | None, pid: int = None):
+        """更新行情条显示"""
+        sym = quote["symbol"]
+        for i, p in self.panels.items():
+            if pid is not None and i != pid:
+                continue
+            if p.current_sym != sym:
+                continue
+            pl = prev_quote["last"] if prev_quote else quote["last"]
+            chg = round(quote["last"] - pl, 2)
+
+            p.q_last_var.set(f"{quote['last']:.2f}")
+            p.q_bid_var.set(f"{quote['bid']:.2f}")
+            p.q_ask_var.set(f"{quote['ask']:.2f}")
+            p.q_chg_var.set(f"+{chg:.2f}" if chg >= 0 else f"{chg:.2f}")
+            p.q_vol_var.set(f"{quote['volume']:,}")
+            p.order_last_var.set(f"Last: ${quote['last']:.2f}")
+
+            # 自动填充ask价格
+            if p.price_needs_fill:
+                p.fill_price_from_quote(quote["ask"],
+                                         p.order_type_var.get() == "Market")
+
+    def _start_mock_stream(self):
+        """启动模拟行情线程"""
+        self._mock_active = True
+        def _run():
+            while self._mock_active:
+                syms = set(p.current_sym for p in self.panels.values() if p.current_sym)
+                for sym in syms:
+                    if sym not in self.mock_base:
+                        self.mock_base[sym] = random.uniform(20, 500)
+                    self.mock_base[sym] = round(self.mock_base[sym] + random.uniform(-0.2, 0.2), 2)
+                    self.quote_queue.put(_mock_quote(sym, self.mock_base[sym]))
+                time.sleep(MOCK_QUOTE_INTERVAL / 1000)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _start_real_stream(self):
+        """启动真实WebSocket行情流"""
+        self._mock_active = False
+        self._stream_active = True
+        self._ws_stream = QuoteStream(
+            http_client=self.http,
+            on_quote_callback=self._handle_ws_quote,
+            on_status_callback=lambda msg: self.log_area.log(msg, "ok"),
+        )
+        self._ws_stream.start()
+
+    def _handle_ws_quote(self, quote: dict):
+        """WebSocket行情回调（通过after推送到主线程）"""
+        sym = quote["symbol"]
+        prev = self.current_quote.get(sym)
+        self.current_quote[sym] = quote
+        self.after(0, lambda _q=quote, _p=prev: self._refresh_strip(_q, _p))
+
+    def _on_server_disconnect(self):
+        """服务器断线处理"""
+        if not self.session.connected:
+            return
+        self.session.connected = False
+        self._stream_active = False
+        self._mock_active = False
+        self.status_var.set("\u25cf Not connected")
+        self.status_lbl.config(fg=ACCENT_RED)
+        self.log_area.log("Server disconnected", "err")
+
+    # ── Lifecycle ──────────────────────────────────────────────────────────
+
+    def on_close(self):
+        """窗口关闭"""
+        self._mock_active = False
+        self._stream_active = False
+        if self._ws_stream:
+            self._ws_stream.stop()
+        self.destroy()
+
+
+# ── Mock Quote Helper ────────────────────────────────────────────────────────
+
+def mock_quote(sym: str, base: float) -> dict:
+    """生成模拟行情数据"""
+    last = round(base + random.uniform(-0.3, 0.3), 2)
+    sp = random.uniform(0.01, 0.08)
+    return dict(symbol=sym, bid=round(last - sp, 2), ask=round(last + sp, 2),
+                last=last, volume=random.randint(100, 9999) * 100,
+                timestamp=datetime.datetime.now().strftime("%H:%M:%S"))
