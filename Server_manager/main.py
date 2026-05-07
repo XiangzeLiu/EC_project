@@ -100,6 +100,12 @@ templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 # 管理员会话存储（内存，重启失效；后续可迁移到 Redis）
 _admin_sessions: dict[str, dict] = {}  # {session_id: {username, created_at}}
 
+# 管理会话有效期：2 小时（与 Cookie max_age 保持一致）
+_ADMIN_SESSION_MAX_AGE = 7200
+
+# 后台清理间隔：每 30 分钟扫描一次过期 session
+_ADMIN_CLEANUP_INTERVAL = 1800
+
 _ADMIN_JSON_PATH = os.path.join(_SCRIPT_DIR, "admin.json")
 
 
@@ -117,10 +123,21 @@ def _get_session_id(request: Request) -> str | None:
     return request.cookies.get("admin_sid")
 
 
+def _is_session_expired(session: dict) -> bool:
+    """判断单个管理会话是否已过期"""
+    age = __import__("time").time() - session.get("created_at", 0)
+    return age > _ADMIN_SESSION_MAX_AGE
+
+
 def _is_admin_logged_in(request: Request) -> bool:
-    """检查管理员是否已登录"""
+    """检查管理员是否已登录（含过期检查）"""
     sid = _get_session_id(request)
     if not sid or sid not in _admin_sessions:
+        return False
+    # 懒检查：发现过期立即清除
+    if _is_session_expired(_admin_sessions[sid]):
+        del _admin_sessions[sid]
+        log.info(f"Admin session expired (lazy cleanup): {sid[:8]}...")
         return False
     return True
 
@@ -168,7 +185,7 @@ async def admin_login_submit(request: Request):
             _admin_sessions[sid] = {"username": username, "created_at": __import__("time").time()}
             log.info(f"Admin logged in: {username}")
             resp = RedirectResponse(url="/admin/dashboard", status_code=302)
-            resp.set_cookie(key="admin_sid", value=sid, max_age=86400 * 7, httponly=True)
+            resp.set_cookie(key="admin_sid", value=sid, max_age=_ADMIN_SESSION_MAX_AGE, httponly=True)
             resp.set_cookie(key="admin_last_user", value=username, max_age=86400 * 30)
             return resp
 
@@ -455,9 +472,26 @@ async def quote_websocket(ws: WebSocket):
 
 # ── 启动事件 ─────────────────────────────────────────────────────────────
 
+async def _session_cleanup_loop():
+    """后台定期清理过期的管理会话"""
+    while True:
+        await asyncio.sleep(_ADMIN_CLEANUP_INTERVAL)
+        now = __import__("time").time()
+        expired = [
+            sid for sid, data in _admin_sessions.items()
+            if (now - data.get("created_at", 0)) > _ADMIN_SESSION_MAX_AGE
+        ]
+        for s in expired:
+            del _admin_sessions[s]
+        if expired:
+            log.info(f"Cleaned {len(expired)} expired admin session(s)")
+
+
 @app.on_event("startup")
 async def startup():
     """应用启动时执行初始化"""
+    # 启动会话过期清理任务
+    asyncio.create_task(_session_cleanup_loop())
     # 初始化数据库（保留表结构，Demo 模式主要使用 JSON 用户）
     try:
         init_db()
