@@ -1,0 +1,8 @@
+# Client Requirements
+# 证券交易系统客户端依赖
+
+# WebSocket 实时行情（唯一必需的第三方库）
+websockets>=10.0
+
+# 时区支持（仅 Python < 3.9 需要安装）
+# backports.zoneinfo>=1.0.2;python_version<"3.9"

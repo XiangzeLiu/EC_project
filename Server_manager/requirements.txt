@@ -1,21 +1,27 @@
 # Server Manager Requirements
 # 证券交易系统管理服务端依赖
 
-# Web框架
-fastapi>=0.104.0
+# Web 框架
+fastapi>=0.110.0,<0.116.0
 uvicorn[standard]>=0.24.0
 
-# 模板引擎（管理后台页面）
-jinja2>=3.1.0
+# ASGI 工具（FastAPI 依赖）
+starlette>=0.36.0,<0.42.0
 
-# 券商SDK
-tastytrade>=4.0.0
+# 表单解析（登录 POST 必需）
+python-multipart>=0.0.6
 
-# IB TWS 行情源
-ibapi>=10.19.2
+# 模板引擎（管理后台页面，注意：jinja2 3.1.5+ 与 starlette 存在兼容性问题）
+jinja2>=3.1.2,<3.1.5
 
 # 数据校验
 pydantic>=2.5.0
 
-# SSL证书（可选，解决Windows证书链问题）
+# SSL 证书（可选，解决 Windows 证书链问题）
 certifi>=2023.0.0
+
+# 券商 SDK（可选，未安装时以 DEMO 模式运行）
+tastytrade>=4.0.0
+
+# IB TWS 行情源（可选）
+ibapi>=10.19.2
