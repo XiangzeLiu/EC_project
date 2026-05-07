@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Server Manager - Login</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #f0f2f5;
+      display: flex; justify-content: center; align-items: center; min-height: 100vh;
+    }
+    .login-card {
+      background: #fff; width: 400px; border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1); overflow: hidden;
+    }
+    .card-header {
+      background: #1890ff; color: #fff; text-align: center; padding: 32px 24px 24px;
+    }
+    .card-header h1 { font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+    .card-header p { font-size: 13px; opacity: 0.85; margin-top: 6px; }
+    .card-body { padding: 28px 32px 36px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label {
+      display: block; font-size: 13px; color: #555; margin-bottom: 6px; font-weight: 500;
+    }
+    .form-group input {
+      width: 100%; height: 40px; padding: 8px 12px; border: 1px solid #d9d9d9;
+      border-radius: 4px; font-size: 14px; outline: none; transition: border-color 0.2s;
+    }
+    .form-group input:focus { border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.15); }
+    .btn-login {
+      width: 100%; height: 42px; background: #1890ff; color: #fff; border: none;
+      border-radius: 4px; font-size: 15px; font-weight: 500; cursor: pointer;
+      transition: background 0.2s; margin-top: 4px;
+    }
+    .btn-login:hover { background: #40a9ff; }
+    .error-msg {
+      background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322;
+      padding: 10px 14px; border-radius: 4px; font-size: 13px; margin-bottom: 16px;
+      display: {{ 'block' if error else 'none' }};
+    }
+    .footer-note {
+      text-align: center; color: #aaa; font-size: 11px; margin-top: 18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="card-header">
+      <h1>Server Manager</h1>
+      <p>证券交易系统 · 管理控制台</p>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="/admin/login">
+        <div class="error-msg" id="error">{{ error or '' }}</div>
+        <div class="form-group">
+          <label for="username">管理员用户名</label>
+          <input type="text" id="username" name="username"
+                 value="{{ last_user or '' }}" placeholder="请输入管理员用户名" required autofocus />
+        </div>
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input type="password" id="password" name="password" placeholder="请输入密码" required />
+        </div>
+        <button type="submit" class="btn-login">登 录</button>
+      </form>
+      <div class="footer-note">Server Manager v1.0 &copy; 2025</div>
+    </div>
+  </div>
+</body>
+</html>

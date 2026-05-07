@@ -45,8 +45,12 @@ class TradingTerminal(tk.Tk):
         self.minsize(1400, 750)
         self.configure(bg=DARK_BG)
 
-        # ── 先弹出登录窗口 ────────────────────────────────────────────────
-        login = LoginDialog(self)
+        # ── 先初始化通信组件（供登录验证使用）───────────────────────
+        self.http = HttpClient()
+        self.session = TradingSession(self.http)
+
+        # ── 弹出登录窗口（内嵌验证，失败不关闭）─────────────────────
+        login = LoginDialog(self, auth_fn=self.session.login)
         creds = login.credentials
         if not creds:
             # 用户取消登录，关闭应用
@@ -55,11 +59,7 @@ class TradingTerminal(tk.Tk):
 
         username, password = creds
 
-        # ── 核心组件 ────────────────────────────────────────────────────────
-        self.http = HttpClient()
-        self.session = TradingSession(self.http)
-
-        # 预初始化引用（避免属性错误）
+        # ── 预初始化引用（避免属性错误）───────────────────────────────
         self.panels: dict[int, TradingPanel] = {}
         self.active_panel_id: int = 0
         self.quote_queue = queue.Queue()
@@ -85,9 +85,10 @@ class TradingTerminal(tk.Tk):
         self._build_log_bar()
         self._setup_hotkeys()
 
-        # 执行登录认证
+        # 执行登录认证（已在 LoginDialog 内完成验证，此处确认状态）
         self.log_area.log("Authenticating\u2026", "inf")
-        ok, msg = self.session.login(username, password)
+        ok = self.session.connected
+        msg = "Connected" if ok else "Authentication failed"
         self.status_var.set("\u25cf Connected" if ok else "\u25cf Not connected")
         self.status_lbl.config(fg=ACCENT_GREEN if ok else ACCENT_RED)
         if ok:

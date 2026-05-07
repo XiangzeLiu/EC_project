@@ -60,22 +60,11 @@ class TradingSession:
 
     def login(self, username: str, password: str) -> tuple[bool, str]:
         """
-        用户登录认证
-        临时测试账号: test_name / test_password
+        用户登录认证 — 通过 Server_manager REST 接口验证
 
         Returns:
             (success, message) 元组
         """
-        # ── 临时测试凭据校验 ──
-        _TEST_USER = "test_name"
-        _TEST_PASS = "test_password"
-        if username == _TEST_USER and password == _TEST_PASS:
-            self.http.token = "mock_token_" + username
-            self.connected = True
-            self.mock_mode = True
-            return True, "Connected (demo mode)"
-
-        # ── 真实服务器认证 ──
         status, resp = self.http.post("/auth/login", {
             "username": username,
             "password": password,

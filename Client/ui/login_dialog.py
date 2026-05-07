@@ -15,10 +15,17 @@ from ..constants import (
 
 
 class LoginDialog(tk.Toplevel):
-    """独立登录弹窗"""
+    """独立登录弹窗 — 内置验证逻辑，失败时显示错误并保持打开"""
 
-    def __init__(self, parent: tk.Widget):
+    def __init__(self, parent: tk.Widget, auth_fn=None):
+        """
+        Args:
+            parent: 父窗口
+            auth_fn: 验证函数 (username, password) -> (success: bool, message: str)
+                     若不提供则仅收集凭据不做验证
+        """
         super().__init__(parent)
+        self._auth_fn = auth_fn
 
         self.title("Login")
         self.resizable(False, False)
@@ -80,7 +87,7 @@ class LoginDialog(tk.Toplevel):
             relief="flat", bd=3,
         )
         self.username_entry.pack(fill="x", ipady=7, pady=(0, 16))
-        self.username_entry.insert(0, "test_name")
+        self.username_entry.insert(0, "test_servermanager")
 
         # Password
         tk.Label(
@@ -93,7 +100,7 @@ class LoginDialog(tk.Toplevel):
             relief="flat", bd=3, show="\u25cf",
         )
         self.password_entry.pack(fill="x", ipady=7, pady=(0, 22))
-        self.password_entry.insert(0, "test_password")
+        self.password_entry.insert(0, "pass_servermanager")
 
         # 按钮
         btn_frame = tk.Frame(form, bg=DARK_BG)
@@ -119,16 +126,60 @@ class LoginDialog(tk.Toplevel):
         self.password_entry.bind("<Return>", lambda e: self._on_login())
         self.username_entry.bind("<Return>", lambda e: self.password_entry.focus_set())
 
+        # 错误提示（初始隐藏）
+        self.error_var = tk.StringVar(value="")
+        self.error_lbl = tk.Label(
+            container, textvariable=self.error_var,
+            bg=DARK_BG, fg=ACCENT_RED, font=FONT_UI_SM, wraplength=340,
+            justify="left",
+        )
+        # 占位但不可见（pack 后用 pack_forget 隐藏）
+        self._error_packed = False
+
         # 初始焦点
         self.username_entry.select_range(0, "end")
         self.username_entry.focus_set()
+
+    def _show_error(self, message: str):
+        """在表单下方显示错误信息"""
+        self.error_var.set(message)
+        if not self._error_packed:
+            self.error_lbl.pack(fill="x", pady=(12, 0), before=self._get_btn_frame())
+            self._error_packed = True
+        self.update_idletasks()
+        self._center_window()
+
+    def _hide_error(self):
+        """隐藏错误信息"""
+        if self._error_packed:
+            self.error_lbl.pack_forget()
+            self._error_packed = False
+            self.error_var.set("")
+
+    def _get_btn_frame(self):
+        """获取按钮容器的引用"""
+        for child in self.winfo_children():
+            for sub in child.winfo_children():
+                if isinstance(sub, tk.Frame) and any(isinstance(c, tk.Button) for c in sub.winfo_children()):
+                    return sub
+        return None
 
     def _on_login(self):
         username = self.username_entry.get().strip()
         password = self.password_entry.get().strip()
         if not username or not password:
-            messagebox.showwarning("Warning", "Please enter username and password", parent=self)
+            self._show_error("Please enter both username and password")
             return
+
+        # 如果提供了验证函数，先验证再关闭
+        if self._auth_fn is not None:
+            ok, msg = self._auth_fn(username, password)
+            if not ok:
+                self._show_error(f"Login failed: {msg}")
+                return
+
+        # 验证通过或无验证函数，正常关闭
+        self._hide_error()
         self._result = (username, password)
         self.destroy()
 

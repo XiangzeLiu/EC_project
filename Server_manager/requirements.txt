@@ -1,0 +1,21 @@
+# Server Manager Requirements
+# 证券交易系统管理服务端依赖
+
+# Web框架
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# 模板引擎（管理后台页面）
+jinja2>=3.1.0
+
+# 券商SDK
+tastytrade>=4.0.0
+
+# IB TWS 行情源
+ibapi>=10.19.2
+
+# 数据校验
+pydantic>=2.5.0
+
+# SSL证书（可选，解决Windows证书链问题）
+certifi>=2023.0.0
