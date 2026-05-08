@@ -96,3 +96,223 @@
 2026-05-09 00:41:21 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_提交注册2_cde3c730
 2026-05-09 00:41:21 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
 2026-05-09 00:41:21 [server_economic] INFO: Register state cleared
+2026-05-09 00:53:23 [server_economic.heartbeat] ERROR: [#48] Heartbeat FAIL: No token available
+2026-05-09 00:53:24 [server_economic.heartbeat] ERROR: [#49] Heartbeat FAIL: No token available
+2026-05-09 00:53:26 [server_economic.heartbeat] ERROR: [#50] Heartbeat FAIL: No token available
+2026-05-09 00:53:30 [server_economic.heartbeat] ERROR: [#51] Heartbeat FAIL: No token available
+2026-05-09 00:53:38 [server_economic.heartbeat] ERROR: [#52] Heartbeat FAIL: No token available
+2026-05-09 00:53:40 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:53:40 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:53:40 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '注册测试', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:53:40 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:53:40 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:53:40 [server_economic.registration] INFO: Node info: name=注册测试, region=CN
+2026-05-09 00:53:40 [server_economic] INFO: Register state saved: req_690d664f55d443234b8a7f41
+2026-05-09 00:53:40 [server_economic.registration] INFO: Registration submitted: req_690d664f55d443234b8a7f41, expires at 2026-05-09T16:53:40.503624+00:00
+2026-05-09 00:53:40 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_690d664f55d443234b8a7f41', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:53:40.503624+00:00'}
+2026-05-09 00:53:40 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_690d664f55d443234b8a7f41
+2026-05-09 00:53:54 [server_economic.heartbeat] ERROR: [#53] Heartbeat FAIL: No token available
+2026-05-09 00:54:02 [server_economic.main] WARNING: [Await Approval] REJECTED: 
+2026-05-09 00:54:02 [server_economic] INFO: Register state cleared
+2026-05-09 00:54:09 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:54:09 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:54:09 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '注册测试', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:54:09 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:54:09 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:54:09 [server_economic.registration] INFO: Node info: name=注册测试, region=CN
+2026-05-09 00:54:09 [server_economic] INFO: Register state saved: req_c9b148b2acd02b8e2e076807
+2026-05-09 00:54:09 [server_economic.registration] INFO: Registration submitted: req_c9b148b2acd02b8e2e076807, expires at 2026-05-09T16:54:09.239537+00:00
+2026-05-09 00:54:09 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_c9b148b2acd02b8e2e076807', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:54:09.239537+00:00'}
+2026-05-09 00:54:09 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_c9b148b2acd02b8e2e076807
+2026-05-09 00:54:19 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_注册测试_2c6f65df
+2026-05-09 00:54:19 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 00:54:19 [server_economic] INFO: Register state cleared
+2026-05-09 00:54:56 [server_economic.heartbeat] WARNING: [#55] Heartbeat rejected: Invalid or expired token
+2026-05-09 00:54:57 [server_economic.heartbeat] WARNING: [#56] Heartbeat rejected: Invalid or expired token
+2026-05-09 00:54:59 [server_economic.heartbeat] WARNING: [#57] Heartbeat rejected: Invalid or expired token
+2026-05-09 00:55:03 [server_economic.heartbeat] WARNING: [#58] Heartbeat rejected: Invalid or expired token
+2026-05-09 00:57:41 [server_economic.heartbeat] ERROR: [#64] Heartbeat FAIL: No token available
+2026-05-09 00:57:42 [server_economic.heartbeat] ERROR: [#65] Heartbeat FAIL: No token available
+2026-05-09 00:57:44 [server_economic.heartbeat] ERROR: [#66] Heartbeat FAIL: No token available
+2026-05-09 00:57:48 [server_economic.heartbeat] ERROR: [#67] Heartbeat FAIL: No token available
+2026-05-09 00:57:56 [server_economic.heartbeat] ERROR: [#68] Heartbeat FAIL: No token available
+2026-05-09 00:58:12 [server_economic.heartbeat] ERROR: [#69] Heartbeat FAIL: No token available
+2026-05-09 00:58:44 [server_economic.heartbeat] ERROR: [#70] Heartbeat FAIL: No token available
+2026-05-09 00:59:44 [server_economic.heartbeat] ERROR: [#71] Heartbeat FAIL: No token available
+2026-05-09 01:00:44 [server_economic.heartbeat] ERROR: [#72] Heartbeat FAIL: No token available
+2026-05-09 01:01:44 [server_economic.heartbeat] ERROR: [#73] Heartbeat FAIL: No token available
+2026-05-09 01:02:44 [server_economic.heartbeat] ERROR: [#74] Heartbeat FAIL: No token available
+2026-05-09 01:02:55 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:02:55 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:02:55 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '注册测试', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 01:02:55 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:02:55 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:02:55 [server_economic.registration] INFO: Node info: name=注册测试, region=CN
+2026-05-09 01:02:55 [server_economic] INFO: Register state saved: req_46ac5e4c895082ab799ed916
+2026-05-09 01:02:55 [server_economic.registration] INFO: Registration submitted: req_46ac5e4c895082ab799ed916, expires at 2026-05-09T17:02:55.899935+00:00
+2026-05-09 01:02:55 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_46ac5e4c895082ab799ed916', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:02:55.899935+00:00'}
+2026-05-09 01:02:55 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_46ac5e4c895082ab799ed916
+2026-05-09 01:03:14 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_注册测试_9bbaaf32
+2026-05-09 01:03:14 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:03:14 [server_economic] INFO: Register state cleared
+2026-05-09 01:26:54 [server_economic.main] INFO: Shutting down...
+2026-05-09 01:26:54 [server_economic.heartbeat] INFO: Heartbeat stop requested
+2026-05-09 01:26:55 [server_economic.heartbeat] INFO: Heartbeat stopped. Final stats: {'total': 121, 'ok': 100, 'fail': 21, 'backoff': 1.0, 'running': False}
+2026-05-09 01:26:55 [server_economic] INFO: Shutdown requested
+2026-05-09 01:26:55 [server_economic.main] INFO: Shutdown complete.
+2026-05-09 01:26:57 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:26:57 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:26:57 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:26:57 [server_economic.registration] INFO: Restored session: server_id=node_注册测试_9bbaaf32
+2026-05-09 01:26:57 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:26:57 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:26:57 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:28:45 [server_economic.main] INFO: Shutting down...
+2026-05-09 01:28:45 [server_economic.heartbeat] INFO: Heartbeat stop requested
+2026-05-09 01:28:45 [server_economic.heartbeat] INFO: Heartbeat stopped. Final stats: {'total': 5, 'ok': 5, 'fail': 0, 'backoff': 1.0, 'running': False}
+2026-05-09 01:28:45 [server_economic] INFO: Shutdown requested
+2026-05-09 01:28:45 [server_economic.main] INFO: Shutdown complete.
+2026-05-09 01:28:45 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:28:45 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:28:45 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:28:45 [server_economic.registration] INFO: Restored session: server_id=node_注册测试_9bbaaf32
+2026-05-09 01:28:45 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:28:45 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:28:45 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:29:57 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:29:57 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:29:57 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:29:57 [server_economic.registration] INFO: Restored session: server_id=node_注册测试_9bbaaf32
+2026-05-09 01:29:57 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:29:57 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:29:57 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:30:08 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:30:08 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:30:08 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:30:08 [server_economic.registration] INFO: Restored session: server_id=node_注册测试_9bbaaf32
+2026-05-09 01:30:08 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:30:08 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:30:08 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:32:43 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:32:43 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:32:43 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:32:43 [server_economic.registration] INFO: Restored session: server_id=node_注册测试_9bbaaf32
+2026-05-09 01:32:43 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:32:43 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:32:43 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:32:43 [server_economic.heartbeat] WARNING: [#1] Heartbeat rejected: Invalid or expired token
+2026-05-09 01:32:44 [server_economic.heartbeat] WARNING: [#2] Heartbeat rejected: Invalid or expired token
+2026-05-09 01:32:44 [server_economic.heartbeat] WARNING: [#3] Heartbeat rejected: Invalid or expired token
+2026-05-09 01:32:46 [server_economic.heartbeat] WARNING: [#4] Heartbeat rejected: Invalid or expired token
+2026-05-09 01:32:50 [server_economic.heartbeat] WARNING: [#5] Heartbeat rejected: Invalid or expired token
+2026-05-09 01:32:58 [server_economic.heartbeat] WARNING: [#6] Heartbeat rejected: Invalid or expired token
+2026-05-09 01:33:06 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:33:06 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:33:06 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-09 01:33:06 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:33:06 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:33:06 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-09 01:33:06 [server_economic] INFO: Register state saved: req_b3611007d5c24eb048d5c1d2
+2026-05-09 01:33:06 [server_economic.registration] INFO: Registration submitted: req_b3611007d5c24eb048d5c1d2, expires at 2026-05-09T17:33:06.404045+00:00
+2026-05-09 01:33:06 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_b3611007d5c24eb048d5c1d2', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:33:06.404045+00:00'}
+2026-05-09 01:33:06 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_b3611007d5c24eb048d5c1d2
+2026-05-09 01:33:14 [server_economic.heartbeat] ERROR: [#7] Heartbeat FAIL: No token available
+2026-05-09 01:33:31 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_074b8aea
+2026-05-09 01:33:31 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:33:31 [server_economic] INFO: Register state cleared
+2026-05-09 01:35:40 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:35:40 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:35:40 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:35:40 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_074b8aea
+2026-05-09 01:35:40 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:35:40 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:35:40 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:35:54 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:35:54 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:35:54 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-09 01:35:54 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:35:54 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:35:54 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-09 01:35:54 [server_economic] INFO: Register state saved: req_ce4e19a96dc8574770af1836
+2026-05-09 01:35:54 [server_economic.registration] INFO: Registration submitted: req_ce4e19a96dc8574770af1836, expires at 2026-05-09T17:35:54.513849+00:00
+2026-05-09 01:35:54 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_ce4e19a96dc8574770af1836', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:35:54.513849+00:00'}
+2026-05-09 01:35:54 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_ce4e19a96dc8574770af1836
+2026-05-09 01:36:10 [server_economic.heartbeat] ERROR: [#3] Heartbeat FAIL: No token available
+2026-05-09 01:36:11 [server_economic.heartbeat] ERROR: [#4] Heartbeat FAIL: No token available
+2026-05-09 01:36:13 [server_economic.heartbeat] ERROR: [#5] Heartbeat FAIL: No token available
+2026-05-09 01:36:17 [server_economic.heartbeat] ERROR: [#6] Heartbeat FAIL: No token available
+2026-05-09 01:36:21 [server_economic.main] WARNING: [Await Approval] REJECTED: 
+2026-05-09 01:36:21 [server_economic] INFO: Register state cleared
+2026-05-09 01:36:25 [server_economic.heartbeat] ERROR: [#7] Heartbeat FAIL: No token available
+2026-05-09 01:36:26 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:36:26 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:36:26 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-09 01:36:26 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:36:26 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:36:26 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-09 01:36:26 [server_economic] INFO: Register state saved: req_92686d6441179e168a429908
+2026-05-09 01:36:26 [server_economic.registration] INFO: Registration submitted: req_92686d6441179e168a429908, expires at 2026-05-09T17:36:26.822464+00:00
+2026-05-09 01:36:26 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_92686d6441179e168a429908', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:36:26.822464+00:00'}
+2026-05-09 01:36:26 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_92686d6441179e168a429908
+2026-05-09 01:36:31 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_f37cfe2a
+2026-05-09 01:36:31 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:36:31 [server_economic] INFO: Register state cleared
+2026-05-09 01:36:41 [server_economic.heartbeat] ERROR: [#8] Heartbeat FAIL: No token available
+2026-05-09 01:37:13 [server_economic.heartbeat] ERROR: [#9] Heartbeat FAIL: No token available
+2026-05-09 01:38:13 [server_economic.heartbeat] ERROR: [#10] Heartbeat FAIL: No token available
+2026-05-09 01:38:29 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:38:29 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-09 01:38:34 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:38:34 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:38:34 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-09 01:38:34 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:38:34 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:38:34 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-09 01:38:34 [server_economic] INFO: Register state saved: req_558b29d4c7b873710b1c10a0
+2026-05-09 01:38:34 [server_economic.registration] INFO: Registration submitted: req_558b29d4c7b873710b1c10a0, expires at 2026-05-09T17:38:34.829554+00:00
+2026-05-09 01:38:34 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_558b29d4c7b873710b1c10a0', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:38:34.829554+00:00'}
+2026-05-09 01:38:34 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_558b29d4c7b873710b1c10a0
+2026-05-09 01:38:50 [server_economic.main] WARNING: [Await Approval] REJECTED: 错误信息
+2026-05-09 01:38:50 [server_economic] INFO: Register state cleared
+2026-05-09 01:39:02 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:39:02 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:39:02 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-09 01:39:02 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:39:02 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:39:02 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-09 01:39:02 [server_economic] INFO: Register state saved: req_0102aff13d7d93c80867762d
+2026-05-09 01:39:02 [server_economic.registration] INFO: Registration submitted: req_0102aff13d7d93c80867762d, expires at 2026-05-09T17:39:02.219579+00:00
+2026-05-09 01:39:02 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_0102aff13d7d93c80867762d', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:39:02.219579+00:00'}
+2026-05-09 01:39:02 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_0102aff13d7d93c80867762d
+2026-05-09 01:39:08 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_a4a0b8d8
+2026-05-09 01:39:08 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:39:08 [server_economic] INFO: Register state cleared
+2026-05-09 01:39:08 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:39:38 [server_economic.heartbeat] ERROR: [#2] Heartbeat FAIL: No token available
+2026-05-09 01:39:39 [server_economic.heartbeat] ERROR: [#3] Heartbeat FAIL: No token available
+2026-05-09 01:39:41 [server_economic.heartbeat] ERROR: [#4] Heartbeat FAIL: No token available
+2026-05-09 01:39:45 [server_economic.heartbeat] ERROR: [#5] Heartbeat FAIL: No token available
+2026-05-09 01:39:53 [server_economic.heartbeat] ERROR: [#6] Heartbeat FAIL: No token available
+2026-05-09 01:40:09 [server_economic.heartbeat] ERROR: [#7] Heartbeat FAIL: No token available
+2026-05-09 01:40:41 [server_economic.heartbeat] ERROR: [#8] Heartbeat FAIL: No token available
+2026-05-09 01:41:42 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:41:42 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-09 01:41:47 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:41:47 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 01:41:47 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-09 01:41:47 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 01:41:47 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 01:41:47 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-09 01:41:47 [server_economic] INFO: Register state saved: req_c86a68d9c8bcaa53e14921fd
+2026-05-09 01:41:47 [server_economic.registration] INFO: Registration submitted: req_c86a68d9c8bcaa53e14921fd, expires at 2026-05-09T17:41:47.872599+00:00
+2026-05-09 01:41:47 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_c86a68d9c8bcaa53e14921fd', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T17:41:47.872599+00:00'}
+2026-05-09 01:41:47 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_c86a68d9c8bcaa53e14921fd
+2026-05-09 01:41:55 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_82c3779f
+2026-05-09 01:41:55 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 01:41:55 [server_economic] INFO: Register state cleared
+2026-05-09 01:41:55 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 01:42:02 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-09 01:46:20 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 01:46:20 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-09 01:46:25 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 01:46:25 [server_economic.registration] ERROR: Ping failed: <urlopen error [Errno 61] Connection refused>

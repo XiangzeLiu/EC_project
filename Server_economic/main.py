@@ -2,25 +2,20 @@
 Server_economic — 经济数据子服务端 主入口
 
 启动方式:
-    python Server_economic/main.py
-    python -m Server_economic.main
-    uvicorn Server_economic.main:app --host 0.0.0.0 --port 8900
+    python Server_economic/main.py        # 自动启动 FastAPI + 桌面 GUI
+    python -m Server_economic.main         # 同上
+    uvicorn Server_economic.main:app      # 仅启动 API 服务（无 GUI）
 
 命令行参数:
     --manager-url   Server_manager 地址 (默认 http://127.0.0.1:8800)
     --node-name     节点名称 (默认 economic-node-01)
     --region        区域 (默认 CN)
     --ws-port       WebSocket 监听端口 (默认 8900)
-    --skip-register 跳过自动注册（使用已保存的凭证）
-    --auto-approve  非交互模式（注册后不等待审批，需已有凭证或配合 SM 自动审批）
 
 启动流程:
-  1. 初始化日志和配置
-  2. 检查本地凭证（config.json / .register_state.json）
-  3. 若无凭证 → 执行完整注册流程（ping → register → SSE wait）
-  4. 注册成功 → 启动心跳循环
-  5. 启动 FastAPI + WebSocket 服务
-  6. 进入运行状态，接受 Client 连接
+  1. 后台线程启动 FastAPI + WebSocket 服务
+  2. 主线程打开桌面控制面板 GUI
+  3. 用户通过 GUI 完成注册、查看状态、管理凭证
 """
 
 import argparse
@@ -29,6 +24,8 @@ import logging
 import os
 import signal
 import sys
+import threading
+import time
 
 # ── 包路径修正（兼容 python main.py 和 python -m 两种启动方式）──
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,8 +42,7 @@ if __name__ == "__main__" and __package__ is None:
 
 from fastapi import FastAPI, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 # 全部使用相对导入，与子模块风格一致（依赖上面的 __package__ 修正）
 from .config import (
@@ -93,24 +89,8 @@ _heartbeat: HeartbeatSender | None = None
 
 # ── HTTP API 端点 ────────────────────────────────────────────────────────
 
-# 模板文件路径
-_TEMPLATE_PATH = os.path.join(_SCRIPT_DIR, "templates", "dashboard.html")
 
-
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    """根路径 — 操作控制面板（注册 + 状态仪表盘）"""
-    if os.path.exists(_TEMPLATE_PATH):
-        with open(_TEMPLATE_PATH, "r", encoding="utf-8") as f:
-            return f.read()
-    # 降级：模板不存在时返回简单状态
-    return HTMLResponse(
-        content="<h1>Server_economic</h1><p>Template not found.</p>",
-        status_code=200,
-    )
-
-
-# ── 注册 API（供前端 UI 调用）──
+# ── 注册 API（供桌面 GUI 调用）──
 
 @app.post("/api/register/ping")
 async def api_register_ping(body: dict):
@@ -287,7 +267,7 @@ async def api_register_clear():
     state.status = "uninitialized"
     state.heartbeat_ok = False
 
-    log.info(f"Credentials cleared: {cleared}")
+    logging.getLogger("server_economic.main").info(f"Credentials cleared: {cleared}")
     return {"ok": True, "cleared": cleared, "message": "凭证已清除"}
 
 
@@ -418,7 +398,7 @@ async def on_startup():
             print("  [OK] SM 连通正常")
     else:
         print("  [*] 未发现已保存的凭证")
-        print("      请通过 Web 界面完成注册: http://0.0.0.0:%d/" % args.ws_port)
+        print("      请通过桌面控制面板完成注册")
 
     # 2) 有凭证则启动心跳循环
     if state.token and state.status in ("approved", "online", "running"):
@@ -443,8 +423,8 @@ async def on_startup():
     print("  区域     : %s" % (state.region or "(未设置)"))
     print("  SM 地址  : %s" % state.manager_url)
     print("")
-    print("  Web 控制台 : http://0.0.0.0:%d/" % ws_port)
-    print("  WS 端点   : ws://0.0.0.0:%d/ws" % ws_port)
+    print("  桌面控制台 : 已自动启动 (tkinter GUI)")
+    print("  WS 端点    : ws://0.0.0.0:%d/ws" % ws_port)
     print("  API 状态   : http://0.0.0.0:%d/api/status" % ws_port)
     print("-" * 60)
     print()
@@ -516,10 +496,26 @@ if __name__ == "__main__":
         os.environ["SE_SKIP_REGISTER"] = "1"
 
     import uvicorn
-    uvicorn.run(
-        "Server_economic.main:app",
-        host="0.0.0.0",
-        port=args.ws_port,
-        reload=False,
-        log_level="info",
+
+    # 后台线程启动 FastAPI 服务（不阻塞 GUI）
+    _server_thread = threading.Thread(
+        target=uvicorn.run,
+        args=("Server_economic.main:app",),
+        kwargs=dict(
+            host="0.0.0.0",
+            port=args.ws_port,
+            reload=False,
+            log_level="warning",  # 降低日志噪音，GUI 中查看即可
+        ),
+        daemon=True,
     )
+    _server_thread.start()
+
+    # 等待服务就绪后启动桌面窗口
+    print("[*] Starting server in background thread...")
+    time.sleep(1.5)
+
+    # 导入并启动桌面 GUI
+    from .gui.app import SEControlPanel
+    _gui = SEControlPanel()
+    _gui.mainloop()
