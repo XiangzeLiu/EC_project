@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server_economic — 控制面板</title>
+<style>
+:root{
+  --bg-primary:#0d1117;--bg-secondary:#161b22;--bg-card:#1c2128;
+  --border:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;
+  --text-muted:#6e7681;--accent:#58a6ff;--success:#3fb950;
+  --warning:#d29922;--danger:#f85149;--purple:#a371f7;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.5;min-height:100vh}
+
+.header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;z-index:100}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.header h1{font-size:18px;font-weight:600}
+.status-badge{padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;letter-spacing:.5px}
+.status-uninitialized{background:#21262d;color:var(--text-muted)}
+.status-registering{background:rgba(210,153,34,.15);color:var(--warning);animation:pulse 2s infinite}
+.status-approved,.status-running{background:rgba(63,185,80,.15);color:var(--success)}
+.status-error,.status-rejected{background:rgba(248,81,73,.15);color:var(--danger)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+.main-layout{display:grid;grid-template-columns:380px 1fr;gap:0;min-height:calc(100vh - 65px)}
+
+.sidebar{background:var(--bg-secondary);border-right:1px solid var(--border);padding:24px;overflow-y:auto}
+.sidebar-title{font-size:14px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:6px}
+.form-group label .req{color:var(--danger);margin-left:2px}
+.form-control{width:100%;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:14px;transition:border-color .2s;outline:none}
+.form-control:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+.form-control:disabled{opacity:.45;cursor:not-allowed;background:var(--bg-primary)}
+.form-control::placeholder{color:var(--text-muted)}
+select.form-control{cursor:pointer;appearance:auto}
+.hint{font-size:11px;color:var(--text-muted);margin-top:4px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:all .2s;width:100%}
+.btn-primary{background:linear-gradient(135deg,var(--accent),#1f6feb);color:#fff}
+.btn-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(88,166,255,.3)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:6px 14px;font-size:13px;width:auto}
+.btn-warning{background:linear-gradient(135deg,var(--warning),#9a6700);color:#000}
+
+.content{padding:24px;overflow-y:auto}
+.section{margin-bottom:28px}
+.section-title{font-size:15px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:8px}
+.section-title::before{content:"";display:inline-block;width:3px;height:16px;background:var(--accent);border-radius:2px}
+
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:18px;transition:transform .2s,border-color .2s}
+.card:hover{transform:translateY(-2px);border-color:rgba(88,166,255,.3)}
+.card-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;font-weight:500;margin-bottom:6px}
+.card-value{font-size:20px;font-weight:700;word-break:break-all}
+.card-value.ok{color:var(--success)}.card-value.fail{color:var(--danger)}.card-value.warn{color:var(--warning)}.card-value.info{color:var(--accent)}
+
+.data-table{width:100%;border-collapse:collapse;background:var(--bg-secondary);border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+.data-table th{background:#0d1117;padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
+.data-table td{padding:12px 16px;font-size:13px;border-top:1px solid var(--border)}
+.data-table tr:hover td{background:rgba(88,166,255,.04)}
+.indicator-name{font-family:"SF Mono",Monaco,monospace;font-weight:600;color:var(--accent)}
+.indicator-value{font-weight:600;font-variant-numeric:tabular-nums}
+
+.log-box{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px;font-family:"SF Mono",Monaco,Consolas,monospace;font-size:12px;line-height:1.7;max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.log-line-info{color:var(--text-secondary)}.log-line-ok{color:var(--success)}
+.log-line-warn{color:var(--warning)}.log-line-error{color:var(--danger)}
+.log-line-time{color:var(--text-muted)}
+
+.progress-bar{width:100%;height:4px;background:var(--bg-card);border-radius:2px;overflow:hidden;margin-top:8px;display:none}
+.progress-bar.active{display:block}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:2px;animation:progress-slide 2s ease-in-out infinite;width:40%}
+@keyframes progress-slide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+
+.waiting-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:999}
+.waiting-overlay.show{display:flex}
+.waiting-box{background:var(--bg-secondary);border:1px solid var(--border);border-radius:16px;padding:36px 48px;text-align:center;max-width:420px}
+.waiting-spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.waiting-text{font-size:16px;font-weight:500}
+.waiting-hint{font-size:13px;color:var(--text-muted);margin-top:8px}
+
+.cred-display{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:12px}
+.cred-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)}
+.cred-row:last-child{border-bottom:none}
+.cred-key{font-size:12px;color:var(--text-secondary)}
+.cred-val{font-family:"SF Mono",Monaco,monospace;font-size:13px;color:var(--text-primary);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copy-btn{background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;padding:2px 6px;border-radius:4px}
+.copy-btn:hover{background:rgba(88,166,255,.1)}
+
+.divider{height:1px;background:var(--border);margin:20px 0}
+
+.tabs{display:flex;gap:4px;background:var(--bg-card);padding:4px;border-radius:10px;margin-bottom:18px;width:fit-content}
+.tab-btn{padding:8px 18px;border:none;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:500;border-radius:7px;cursor:pointer;transition:all .2s}
+.tab-btn:hover{color:var(--text-primary);background:rgba(255,255,255,.05)}
+.tab-btn.active{background:var(--bg-secondary);color:var(--text-primary);box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.tab-content{display:none}.tab-content.active{display:block}
+
+.toast-container{position:fixed;top:80px;right:24px;z-index:1100;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;animation:toast-in .3s ease;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:360px}
+.toast-ok{background:rgba(63,185,80,.9);color:#fff}
+.toast-error{background:rgba(248,81,73,.9);color:#fff}
+@keyframes toast-in{from{transform:translateX(60px);opacity:0}to{transform:translateX(0);opacity:1}}
+
+@media(max-width:900px){.main-layout{grid-template-columns:1fr}.sidebar{border-right:none;border-bottom:1px solid var(--border)}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left"><div class="header-icon">&#9881;</div><h1>Server_economic</h1></div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <span id="status-badge" class="status-badge status-uninitialized">未初始化</span>
+    <span id="uptime" style="font-size:12px;color:var(--text-muted)">--</span>
+    <button class="btn btn-sm btn-primary" id="btn-refresh" style="width:auto">&#8635;</button>
+  </div>
+</div>
+
+<div class="main-layout">
+
+  <!-- 左侧：注册 -->
+  <div class="sidebar">
+    <div class="sidebar-title">&#128274; 节点注册</div>
+
+    <div class="form-group">
+      <label>SM 地址 <span class="req">*</span></label>
+      <input type="url" class="form-control" id="fm-mgr-url"
+             value="http://127.0.0.1:8800" placeholder="http://127.0.0.1:8800">
+    </div>
+
+    <div class="form-group">
+      <label>节点名称 <span class="req">*</span></label>
+      <input type="text" class="form-control" id="fm-node-name"
+             value="economic-node-01" placeholder="economic-node-01">
+    </div>
+
+    <div class="form-group">
+      <label>区域 <span class="req">*</span></label>
+      <select class="form-control" id="fm-region">
+        <option value="CN">中国 CN</option>
+        <option value="US">美国 US</option>
+        <option value="EU">欧洲 EU</option>
+        <option value="APAC">亚太 APAC</option>
+        <option value="JP">日本 JP</option>
+        <option value="SG">新加坡 SG</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>主机地址</label>
+      <input type="text" class="form-control" id="fm-host" readonly
+             placeholder="自动检测...">
+      <div class="hint">自动从浏览器地址检测</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <button class="btn btn-primary" id="btn-register">&#128274; 提交注册</button>
+
+    <div class="progress-bar" id="reg-progress"><div class="progress-fill"></div></div>
+
+    <!-- 日志区域：默认显示，让用户能立即看到输出 -->
+    <div class="log-box" id="reg-log" style="margin-top:16px"></div>
+
+    // 凭证面板（注册成功后显示）-->
+    <div id="cred-panel" style="display:none;margin-top:16px">
+      <div class="sidebar-title">&#9989; 注册凭证</div>
+      <div class="cred-display">
+        <div class="cred-row"><span class="cred-key">Server ID</span><span class="cred-val" id="cred-sid">-</span></div>
+        <div class="cred-row"><span class="cred-key">Token</span><span class="cred-val" id="cred-token">-</span></div>
+        <div class="cred-row"><span class="cred-key">Manager</span><span class="cred-val" id="cred-mgr">-</span></div>
+        <div class="cred-row"><span class="cred-key">状态</span><span class="cred-val" id="cred-status" style="color:var(--success)">-</span></div>
+      </div>
+      <button class="btn btn-sm btn-warning" id="btn-reregister" style="margin-top:10px;width:auto">&#8635; 重新注册</button>
+      <div class="hint" style="margin-top:6px;color:var(--danger)">重新注册将清除当前凭证，需重新审批</div>
+    </div>
+  </div>
+
+  <!-- 右侧：状态面板 -->
+  <div class="content">
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="dashboard">仪表盘</button>
+      <button class="tab-btn" data-tab="indicators">经济指标</button>
+    </div>
+
+    <div class="tab-content active" id="tab-dashboard">
+      <div class="section">
+        <div class="cards-grid" id="status-cards"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">心跳统计</div>
+        <div class="cards-grid" id="hb-cards" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+          <div class="card"><div class="card-label">总发送</div><div class="card-value info" id="hb-total">-</div></div>
+          <div class="card"><div class="card-label">成功</div><div class="card-value ok" id="hb-ok">-</div></div>
+          <div class="card"><div class="card-label">失败</div><div class="card-value fail" id="hb-fail">-</div></div>
+          <div class="card"><div class="card-label">间隔</div><div class="card-value info" id="hb-interval">-</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-indicators">
+      <table class="data-table">
+        <thead><tr><th>指标</th><th>数值</th><th>单位</th><th>周期</th></tr></thead>
+        <tbody id="indicator-tbody"></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- SSE 等待遮罩 -->
+<div class="waiting-overlay" id="waiting-overlay">
+  <div class="waiting-box">
+    <div class="waiting-spinner"></div>
+    <div class="waiting-text">等待管理员审核...</div>
+    <div class="waiting-hint">请前往 Server_manager 管理界面审批</div>
+    <br>
+    <button class="btn btn-sm btn-warning" id="btn-cancel-wait" style="width:auto;margin-top:12px">取消等待</button>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ===== 工具函数 ===== */
+function $(id){ return document.getElementById(id); }
+function esc(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function logMsg(boxId, text, level){
+  var box = $(boxId);
+  if(!box) return;
+  var t = new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  var d = document.createElement('div');
+  d.className = 'log-line-'+level;
+  d.innerHTML = '['+t+'] '+text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+function toastMsg(text, type){
+  var c = $('toast-container');
+  var el = document.createElement('div');
+  el.className = 'toast '+(type||'toast-ok');
+  el.textContent = text;
+  c.appendChild(el);
+  setTimeout(function(){ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(function(){el.remove()},300); },3500);
+}
+
+function makeCard(label, val, cls){
+  return '<div class="card"><div class="card-label">'+esc(label)+'</div>'+
+         '<div class="card-value '+(cls||'')+'">'+esc(val)+'</div></div>';
+}
+
+/* ===== 全局状态 ===== */
+var startTime = Date.now();
+var pollTimer = null;
+var abortCtrl = null;
+
+/* ===== 初始化 ===== */
+document.addEventListener("DOMContentLoaded", function(){
+  // 自动检测主机地址
+  var hostEl = $('fm-host');
+  if(hostEl){
+    var h = location.hostname || '127.0.0.1';
+    var p = location.port || '';
+    hostEl.value = p && p!=='80' && p!=='443' ? h+':'+p : h;
+  }
+  // 加载保存的表单数据
+  try{
+    var saved = localStorage.getItem('se_reg_form');
+    if(saved){
+      var data = JSON.parse(saved);
+      if(data.mgr_url && $('fm-mgr-url')) $('fm-mgr-url').value = data.mgr_url;
+      if(data.node_name && $('fm-node-name')) $('fm-node-name').value = data.node_name;
+      if(data.region && $('fm-region')) $('fm-region').value = data.region;
+    }
+  }catch(e){}
+
+  // 绑定按钮事件
+  $('btn-register').addEventListener('click', doRegister);
+  $('btn-reregister').addEventListener('click', doReregister);
+  $('btn-cancel-wait').addEventListener('click', cancelWait);
+  $('btn-refresh').addEventListener('click', function(){ refreshStatus(); });
+  // Tab 按钮
+  document.querySelectorAll('.tab-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+      document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
+      btn.classList.add('active');
+      var tabName = btn.getAttribute('data-tab');
+      $('tab-'+tabName).classList.add('active');
+      if(tabName==='indicators') loadIndicators();
+    });
+  });
+
+  // 启动轮询
+  refreshStatus();
+  loadIndicators();
+  pollTimer = setInterval(refreshStatus, 8000);
+  setInterval(updateUptime, 1000);
+});
+
+function updateUptime(){
+  var s = Math.floor((Date.now()-startTime)/1000);
+  var m = Math.floor(s/60), h = Math.floor(m/60);
+  $('uptime').textContent = h+'h '+(m%60)+'m '+(s%60)+'s';
+}
+
+/* ===== 状态刷新 ===== */
+async function refreshStatus(){
+  try {
+    var r = await fetch('/api/status');
+    var j = await r.json();
+    renderStatus(j);
+  } catch(e) { /* silent */ }
+}
+
+/** 锁定注册表单（已注册状态）*/
+function lockForm(registered){
+  var inputs = ['fm-mgr-url','fm-node-name','fm-region','fm-host'];
+  inputs.forEach(function(id){
+    var el = $(id);
+    if(el){ el.disabled = registered; }
+  });
+}
+
+function renderStatus(d){
+  var reg = d.registration || {};
+  var hb = d.heartbeat || {};
+
+  // badge
+  var badge = $('status-badge');
+  var map = {'uninitialized':['未初始化','uninitialized'],'registering':['注册中','registering'],
+             'approved':['已批准','running'],'running':['运行中','running'],
+             'online':['在线','online'],'error':['错误','error'],'rejected':['拒绝','rejected']};
+  var info = map[reg.status] || [reg.status||'?','uninitialized'];
+  badge.textContent = info[0].toUpperCase();
+  badge.className = 'status-badge status-'+info[1];
+
+  // 卡片
+  $('status-cards').innerHTML =
+    makeCard('节点名', reg.node_name||'-', 'info') +
+    makeCard('区域', reg.region||'-', 'info') +
+    makeCard('ServerID', reg.server_id||'-', 'info') +
+    makeCard('心跳', hb.ok?'OK':'--', hb.ok?'ok':'fail') +
+    makeCard('连接数', d.connections||0, 'info') +
+    makeCard('版本', d.version||'-', '');
+
+  // 心跳
+  $('hb-total').textContent = hb.total||'-';
+  $('hb-ok').textContent = hb.ok_count||hb.ok||'-';
+  $('hb-fail').textContent = hb.fail||'-';
+  $('hb-interval').textContent = (hb.interval||30)+'s';
+
+  // 已有凭证 → 锁定表单 + 显示凭证面板
+  var isRegistered = !!(
+    reg.server_id &&
+    (reg.status==='approved'||reg.status==='running'||reg.status==='online' || reg.has_credentials)
+  );
+
+  console.log('[renderStatus] status='+reg.status+' server_id='+(reg.server_id||'-')+
+              ' has_creds='+reg.has_credentials+' → isRegistered='+isRegistered);
+
+  if(isRegistered){
+    lockForm(true);
+    $('cred-panel').style.display='';
+    $('cred-sid').textContent = reg.server_id;
+    $('cred-token').textContent = '(已保存)';
+    $('cred-mgr').textContent = reg.manager_url||'';
+    // 在线状态显示
+    var stEl = $('cred-status');
+    if(hb.ok && d.connections!==undefined){
+      stEl.textContent = '在线 (心跳正常)';
+      stEl.style.color = 'var(--success)';
+    }else if(reg.status==='approved'){
+      stEl.textContent = '已批准，等待心跳启动';
+      stEl.style.color = 'var(--warning)';
+    }else{
+      stEl.textContent = reg.status||'未知';
+      stEl.style.color = 'var(--text-muted)';
+    }
+    $('btn-register').innerHTML = '&#128274; 提交注册';
+    $('btn-register').disabled = true;
+    $('btn-register').classList.add('btn-warning');
+    $('btn-register').classList.remove('btn-primary');
+  } else{
+    lockForm(false);
+    $('cred-panel').style.display='none';
+    $('btn-register').disabled = false;
+    $('btn-register').innerHTML = '&#128274; 提交注册';
+    $('btn-register').classList.remove('btn-warning');
+    $('btn-register').classList.add('btn-primary');
+  }
+}
+
+/* ===== 经济指标 ===== */
+async function loadIndicators(){
+  try{
+    var r = await fetch('/api/economic-data');
+    var d = await r.json();
+    var tbody = $('indicator-tbody');
+    if(d.ok && d.data){
+      var html='';
+      Object.keys(d.data).forEach(function(k){
+        var v = d.data[k];
+        html += '<tr><td><span class="indicator-name">'+esc(k)+'</span></td>'+
+                '<td>'+esc(v.value??'-')+'</td><td>'+esc(v.unit||'-')+'</td><td>'+esc(v.period||'-')+'</td></tr>';
+      });
+      tbody.innerHTML = html || '<tr><td colspan="4" style="color:var(--text-muted);text-align:center">暂无</td></tr>';
+    }
+  }catch(e){}
+}
+
+/* ===== 注册流程 ===== */
+async function doRegister(){
+  var logBox = $('reg-log');
+  var btn = $('btn-register');
+  var progress = $('reg-progress');
+
+  // 收集数据
+  var mgrUrl = ($('fm-mgr-url')&&$('fm-mgr-url').value||'').trim();
+  var nodeName = ($('fm-node-name')&&$('fm-node-name').value||'').trim();
+  var region = ($('fm-region')&&$('fm-region').value)||'';
+  var host = ($('fm-host')&&$('fm-host').value||'').trim();
+
+  logMsg('reg-log', '========== 开始注册 ==========', 'ok');
+
+  // 校验
+  if(!mgrUrl){ toastMsg('请填写 SM 地址','error'); logMsg('reg-log','[X] 缺少 SM 地址','error'); return; }
+  if(!nodeName){ toastMsg('请填写节点名称','error'); logMsg('reg-log','[X] 缺少节点名称','error'); return; }
+  if(!region){ toastMsg('请选择区域','error'); logMsg('reg-log','[X] 缺少区域','error'); return; }
+
+  // 保存
+  try{ localStorage.setItem('se_reg_form', JSON.stringify({mgr_url:mgrUrl,node_name:nodeName,region:region,host:host})); }catch(e){}
+
+  var payload = {manager_url:mgrUrl, node_name:nodeName, region:region, host:host};
+  logMsg('reg-log', '[1/3] 数据: '+JSON.stringify(payload), 'info');
+
+  btn.disabled = true;
+  progress.classList.add('active');
+
+  /* Step 1: Ping */
+  logMsg('reg-log', '[1/3] 测试连通性...', 'info');
+  try{
+    var resp = await fetch('/api/register/ping', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({manager_url:mgrUrl})
+    });
+    var jd = await resp.json();
+    logMsg('reg-log', '[1/3] 响应: HTTP'+resp.status+' → '+JSON.stringify(jd), 'info');
+    if(!jd.ok){ throw new Error(jd.error||'Ping 失败'); }
+    logMsg('reg-log', '[1/3] OK ('+(jd.latency||'?')+'ms)', 'ok');
+  }catch(e){
+    logMsg('reg-log', '[1/3] FAIL: '+e.message, 'error');
+    btn.disabled=false; progress.classList.remove('active');
+    return;
+  }
+
+  /* Step 2: Submit */
+  logMsg('reg-log', '[2/3] 提交注册...', 'info');
+  var reqId = '';
+  try{
+    resp = await fetch('/api/register/submit', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    jd = await resp.json();
+    logMsg('reg-log', '[2/3] 响应: HTTP'+resp.status+' → '+JSON.stringify(jd), 'info');
+    if(!jd.ok){ throw new Error(jd.error||'提交失败'); }
+    reqId = jd.request_id||'';
+    logMsg('reg-log', '[2/3] OK request_id='+reqId, 'ok');
+  }catch(e){
+    logMsg('reg-log', '[2/3] FAIL: '+e.message, 'error');
+    btn.disabled=false; progress.classList.remove('active');
+    return;
+  }
+
+  /* Step 3: SSE Wait */
+  logMsg('reg-log', '[3/3] 等待审批(SSE)...', 'warn');
+  $('waiting-overlay').classList.add('show');
+
+  try{
+    abortCtrl = new AbortController();
+    resp = await fetch('/api/register/await-approval?request_id='+encodeURIComponent(reqId), {
+      signal: abortCtrl.signal
+    });
+
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+
+    while(true){
+      var result = await reader.read();
+      if(result.done) break;
+      buf += decoder.decode(result.value, {stream:true});
+
+      while(buf.indexOf('\n\n') !== -1){
+        var idx = buf.indexOf('\n\n');
+        var block = buf.substring(0, idx);
+        buf = buf.substring(idx+2);
+
+        var evtData = '';
+        var lines = block.split('\n');
+        for(var li=0;li<lines.length;li++){
+          if(lines[li].indexOf('data:')===0) evtData = lines[li].substring(5).trim();
+        }
+
+        if(evtData){
+          var res = JSON.parse(evtData);
+          if(res.approved){
+            $('waiting-overlay').classList.remove('show');
+            logMsg('reg-log', '*** APPROVED! *** server_id='+res.server_id, 'ok');
+            toastMsg('注册审核通过!','ok');
+
+            // 保存凭证到本地显示
+            $('cred-sid').textContent = res.server_id||'';
+            $('cred-token').textContent = (res.token||'').substring(0,20)+'...';
+            $('cred-mgr').textContent = payload.manager_url||'';
+
+            btn.disabled=false; progress.classList.remove('active');
+            // 立即刷新状态 → 会触发 renderStatus 锁定表单
+            refreshStatus();
+            return;
+          }else{
+            $('waiting-overlay').classList.remove('show');
+            logMsg('reg-log', '[X] 拒绝: '+(res.reason||'未知'), 'error');
+            toastMsg('被拒绝: '+(res.reason||''),'error');
+            btn.disabled=false; progress.classList.remove('active');
+            return;
+          }
+        }
+      }
+    }
+  }catch(e){
+    if(e.name==='AbortError'){
+      logMsg('reg-log', '[SSE] 已取消', 'warn');
+    }else{
+      logMsg('reg-log', '[SSE] 错误: '+e.message, 'error');
+    }
+    $('waiting-overlay').classList.remove('show');
+    btn.disabled=false; progress.classList.remove('active');
+  }
+}
+
+function cancelWait(){
+  if(abortCtrl) abortCtrl.abort();
+  $('waiting-overlay').classList.remove('show');
+}
+
+async function doReregister(){
+  if(!confirm('重新注册将清除当前凭证，需要重新提交并等待审批。\n\n确定继续吗？')) return;
+  try{
+    var r = await fetch('/api/register/clear',{method:'POST'});
+    var d = await r.json();
+    if(d.ok){
+      toastMsg('凭证已清除，请重新提交注册','ok');
+      $('cred-panel').style.display='none';
+      $('reg-log').innerHTML = '';
+      // 解锁表单
+      lockForm(false);
+      $('btn-register').disabled = false;
+      $('btn-register').innerHTML = '&#128274; 提交注册';
+      $('btn-register').classList.add('btn-primary');
+      $('btn-register').classList.remove('btn-warning');
+      refreshStatus();
+    }else{ toastMsg(d.error||'失败','error'); }
+  }catch(e){ toastMsg(e.message,'error'); }
+}
+
+})();
+</script>
+</body>
+</html>

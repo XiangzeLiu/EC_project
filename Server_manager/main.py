@@ -50,6 +50,7 @@ from config import (
     SERVER_HOST, SERVER_PORT, session_store,
     quote_clients, subscribed_syms, is_configured, log,
 )
+import database
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.order_router import router as order_router
@@ -470,6 +471,271 @@ async def quote_websocket(ws: WebSocket):
             quote_clients.remove(ws)
 
 
+# ── 节点注册与连接管理（Server_economic → Server_manager）────────────────
+
+import secrets
+import json as _json
+
+# SSE 等待队列：{request_id: [asyncio.Queue, ...]}
+_node_sse_queues: dict[str, list] = {}
+
+# 注册请求过期清理间隔（每小时扫描一次）
+_NODE_EXPIRE_CHECK_INTERVAL = 3600
+
+
+@app.get("/ping")
+async def ping():
+    """连通性测试 — 子服务端填写注册页面前调用"""
+    return {"status": "pong"}
+
+
+@app.post("/nodes/register-request")
+async def register_request(request: Request):
+    """
+    子服务端提交注册请求
+    将信息存入暂存区（node_requests 表），等待管理员审核
+    """
+    body = await request.json()
+    node_name = (body.get("node_name") or "").strip()
+    region = (body.get("region") or "").strip()
+
+    if not node_name:
+        return {"ok": False, "error": "node_name is required"}
+
+    # 生成唯一 request_id
+    request_id = f"req_{secrets.token_hex(12)}"
+
+    result = database.create_node_request(
+        request_id=request_id,
+        node_name=node_name,
+        region=region,
+        host=(body.get("host") or "").strip(),
+        capabilities=body.get("capabilities"),
+        contact=(body.get("contact") or "").strip(),
+        description=(body.get("description") or "").strip(),
+    )
+
+    if not result:
+        return {"ok": False, "error": "Failed to create registration request"}
+
+    log.info(f"Node registration received: {node_name} ({region}) → {request_id}")
+
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "message": "\u63d0\u4ea4\u6210\u529f\uff0c\u8bf7\u7b49\u5f85\u7ba1\u7406\u5458\u5ba1\u6838",
+        "expire_at": result["expire_at"],
+    }
+
+
+@app.get("/nodes/await-approval")
+async def await_approval(request_id: str):
+    """
+    SSE 端点：子服务端被动等待管理员审核结果
+    连接后保持，管理员操作时通过队列推送事件
+    """
+    from fastapi.responses import StreamingResponse
+    import asyncio
+
+    # 验证请求是否存在且未过期
+    req = database.get_node_request_by_id(request_id)
+    if not req:
+        return StreamingResponse(
+            _sse_error_event("\u8bf7\u6c42 ID \u65e0\u6548"),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    if req["status"] != "pending":
+        # 已有结果，立即返回并关闭
+        if req["status"] == "approved":
+            data = _json.dumps({
+                "approved": True, "server_id": req["server_id"],
+                "token": req["token"], "message": "\u6ce8\u518c\u5df2\u901a\u8fc7",
+            })
+        else:
+            data = _json.dumps({
+                "approved": False, "reason": req.get("reject_reason", ""),
+                "message": f"\u6ce8\u518c{req['status']}",
+            })
+        return StreamingResponse(
+            iter([f"event: register_result\ndata: {data}\n\n"]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # 创建 SSE 队列
+    queue = asyncio.Queue(maxsize=10)
+    if request_id not in _node_sse_queues:
+        _node_sse_queues[request_id] = []
+    _node_sse_queues[request_id].append(queue)
+
+    log.info(f"SSE await-approval connected: {request_id}")
+
+    async def event_stream():
+        try:
+            # 定期发送 SSE 心跳（保持连接活跃）
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"event: register_result\ndata: {msg}\n\n"
+                    break  # 收到审核结果，结束流
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"  # SSE 注释行作为心跳
+        finally:
+            # 清理队列引用
+            if request_id in _node_sse_queues:
+                queues = _node_sse_queues[request_id]
+                if queue in queues:
+                    queues.remove(queue)
+                if not queues:
+                    del _node_sse_queues[request_id]
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/nodes/heartbeat")
+async def node_heartbeat(request: Request):
+    """已注册节点的心跳保活（需 Bearer Token）"""
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return {"status": "error", "message": "Missing or invalid Authorization header"}
+
+    token = auth_header[7:].strip()
+    node_info = database.verify_node_token(token)
+    if not node_info:
+        return {"status": "error", "message": "Invalid or expired token"}
+
+    # 获取客户端 IP
+    client_ip = request.client.host if request.client else ""
+    body = await request.json() if await request.body() else {}
+    current_ip = body.get("ip") or client_ip
+
+    database.update_node_heartbeat(node_info["server_id"], current_ip)
+
+    return {"status": "ok", "next_interval": 30}
+
+
+# ── 节点管理 API（管理员用）───────────────────────────────────────────────
+
+@app.get("/api/nodes/pending")
+async def list_pending_nodes(request: Request):
+    """获取所有待审核节点（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    pending = database.get_pending_node_requests()
+    return {"ok": True, "data": pending}
+
+
+@app.get("/api/nodes/list")
+async def list_all_nodes(request: Request):
+    """获取所有已批准节点列表（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    nodes = database.get_all_nodes()
+    return {"ok": True, "data": nodes}
+
+
+@app.post("/api/nodes/{request_id}/approve")
+async def approve_node(request: Request, request_id: str):
+    """管理员通过节点的注册请求"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+
+    result = database.approve_node_request(request_id)
+    if not result:
+        return {"ok": False, "error": "Request not found or already processed"}
+
+    # 向 SSE 等待队列推送结果
+    data = _json.dumps({
+        "approved": True,
+        "server_id": result["server_id"],
+        "token": result["token"],
+        "message": "\u6ce8\u518c\u5df2\u901a\u8fc7",
+    })
+    _push_sse_result(request_id, data)
+
+    return {
+        "ok": True,
+        "message": f"\u5df2\u901a\u8fc7\uff1a{result['server_id']}",
+        "server_id": result["server_id"],
+    }
+
+
+@app.post("/api/nodes/{request_id}/reject")
+async def reject_node(request: Request, request_id: str, reason: str = ""):
+    """管理员拒绝节点的注册请求"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+
+    ok = database.reject_node_request(request_id, reason=reason)
+    if not ok:
+        return {"ok": False, "error": "Request not found or already processed"}
+
+    # 向 SSE 等待队列推送结果
+    data = _json.dumps({
+        "approved": False,
+        "reason": reason,
+        "message": "\u6ce8\u518c\u88ab\u62d2\u7edd",
+    })
+    _push_sse_result(request_id, data)
+
+    return {"ok": True, "message": "\u5df2\u62d2\u7edd"}
+
+
+@app.post("/api/nodes/{server_id}/delete")
+async def delete_node(request: Request, server_id: str):
+    """管理员彻底删除已批准节点"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    ok = database.delete_node(server_id)
+    if not ok:
+        return {"ok": False, "error": "Node not found"}
+    return {"ok": True, "message": f"\u5df2\u5220\u9664\uff1a{server_id}"}
+
+
+@app.post("/api/nodes/{server_id}/suspend")
+async def suspend_node(request: Request, server_id: str):
+    """管理员暂停节点（停止访问，标黄）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    ok = database.suspend_node(server_id)
+    if not ok:
+        return {"ok": False, "error": "Node not found or invalid status"}
+    return {"ok": True, "message": f"\u5df2\u6682\u505c\uff1a{server_id}"}
+
+
+@app.post("/api/nodes/{server_id}/resume")
+async def resume_node(request: Request, server_id: str):
+    """管理员恢复被暂停的节点"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    ok = database.resume_node(server_id)
+    if not ok:
+        return {"ok": False, "error": "Node not found or not suspended"}
+    return {"ok": True, "message": f"\u5df2\u6062\u590d\uff1a{server_id}"}
+
+
+def _push_sse_result(request_id: str, data_json: str):
+    """向指定 request_id 的所有 SSE 连接推送消息"""
+    import asyncio
+    queues = _node_sse_queues.get(request_id, [])
+    for q in queues[:]:
+        try:
+            q.put_nowait(data_json)
+        except asyncio.QueueFull:
+            pass
+
+
+def _sse_error_event(msg: str):
+    """生成一条错误 SSE 事件后关闭"""
+    data = _json.dumps({"approved": False, "reason": msg, "message": msg})
+    yield f"event: register_result\ndata: {data}\n\n"
+
+
 # ── 启动事件 ─────────────────────────────────────────────────────────────
 
 async def _session_cleanup_loop():
@@ -487,11 +753,53 @@ async def _session_cleanup_loop():
             log.info(f"Cleaned {len(expired)} expired admin session(s)")
 
 
+async def _node_expire_cleanup_loop():
+    """后台定期清理过期的节点注册请求"""
+    while True:
+        await asyncio.sleep(_NODE_EXPIRE_CHECK_INTERVAL)
+        count = database.cleanup_expired_requests()
+        # 同时向过期请求的 SSE 队列推送超时通知
+        import json as _json_mod
+        pending = database.get_pending_node_requests()  # 清理后应无，但双重保障
+        for req in pending:
+            data = _json_mod.dumps({
+                "approved": False,
+                "reason": "\u5ba1\u6838\u8d85\u65f6(24h)",
+                "message": "\u8bf7\u91cd\u65b0\u63d0\u4ea4\u6ce8\u518c",
+            })
+            _push_sse_result(req["request_id"], data)
+
+
+# 心跳超时检测间隔（每30秒巡检一次）
+_HEARTBEAT_CHECK_INTERVAL = 30
+
+
+async def _heartbeat_monitor_loop():
+    """
+    后台定期检测心跳超时的节点，自动标记为离线
+    """
+    await asyncio.sleep(10)
+    log.info("Heartbeat monitor started (interval=%ds, timeout=%ds)" %
+             (_HEARTBEAT_CHECK_INTERVAL, database.HEARTBEAT_TIMEOUT_SECONDS))
+    while True:
+        try:
+            count = database.check_offline_nodes()
+            if count > 0:
+                log.info(f"Heartbeat monitor: {count} node(s) marked as OFFLINE")
+        except Exception as e:
+            log.error(f"Heartbeat monitor error: {e}")
+        await asyncio.sleep(_HEARTBEAT_CHECK_INTERVAL)
+
+
 @app.on_event("startup")
 async def startup():
     """应用启动时执行初始化"""
     # 启动会话过期清理任务
     asyncio.create_task(_session_cleanup_loop())
+    # 启动节点注册请求过期清理任务
+    asyncio.create_task(_node_expire_cleanup_loop())
+    # 启动心跳超时检测任务
+    asyncio.create_task(_heartbeat_monitor_loop())
     # 初始化数据库（保留表结构，Demo 模式主要使用 JSON 用户）
     try:
         init_db()

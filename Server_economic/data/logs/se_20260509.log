@@ -1,0 +1,98 @@
+2026-05-09 00:03:25 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 00:03:25 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-09 00:13:15 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:13:15 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:13:15 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:13:15 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:13:15 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:13:15 [server_economic.registration] INFO: Node info: name=提交注册, region=CN
+2026-05-09 00:13:15 [server_economic] INFO: Register state saved: req_72e78b5627d541058ebc061e
+2026-05-09 00:13:15 [server_economic.registration] INFO: Registration submitted: req_72e78b5627d541058ebc061e, expires at 2026-05-09T16:13:15.262094+00:00
+2026-05-09 00:13:15 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_72e78b5627d541058ebc061e', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:13:15.262094+00:00'}
+2026-05-09 00:16:31 [server_economic.main] INFO: Shutting down...
+2026-05-09 00:16:31 [server_economic] INFO: Shutdown requested
+2026-05-09 00:16:31 [server_economic.main] INFO: Shutdown complete.
+2026-05-09 00:16:38 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 00:16:38 [server_economic.registration] INFO: Found pending registration: req_72e78b5627d541058ebc061e, will need to resume SSE wait
+2026-05-09 00:16:59 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:16:59 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:16:59 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:16:59 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:16:59 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:16:59 [server_economic.registration] INFO: Node info: name=提交注册, region=CN
+2026-05-09 00:16:59 [server_economic] INFO: Register state saved: req_5415d1cb7859a1e66dd59d00
+2026-05-09 00:16:59 [server_economic.registration] INFO: Registration submitted: req_5415d1cb7859a1e66dd59d00, expires at 2026-05-09T16:16:59.341640+00:00
+2026-05-09 00:16:59 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_5415d1cb7859a1e66dd59d00', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:16:59.341640+00:00'}
+2026-05-09 00:16:59 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_5415d1cb7859a1e66dd59d00
+2026-05-09 00:20:25 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:20:25 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:20:25 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:20:25 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:20:25 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:20:25 [server_economic.registration] INFO: Node info: name=提交注册, region=CN
+2026-05-09 00:20:25 [server_economic] INFO: Register state saved: req_6d3bf26738a8ecd9d7a0b551
+2026-05-09 00:20:25 [server_economic.registration] INFO: Registration submitted: req_6d3bf26738a8ecd9d7a0b551, expires at 2026-05-09T16:20:25.445320+00:00
+2026-05-09 00:20:25 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_6d3bf26738a8ecd9d7a0b551', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:20:25.445320+00:00'}
+2026-05-09 00:20:25 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_6d3bf26738a8ecd9d7a0b551
+2026-05-09 00:24:42 [server_economic.main] INFO: Shutting down...
+2026-05-09 00:24:42 [server_economic] INFO: Shutdown requested
+2026-05-09 00:24:42 [server_economic.main] INFO: Shutdown complete.
+2026-05-09 00:24:46 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 00:24:46 [server_economic.registration] INFO: Found pending registration: req_6d3bf26738a8ecd9d7a0b551, will need to resume SSE wait
+2026-05-09 00:24:59 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:24:59 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:24:59 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:24:59 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:24:59 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:24:59 [server_economic.registration] INFO: Node info: name=提交注册, region=CN
+2026-05-09 00:24:59 [server_economic] INFO: Register state saved: req_a70291ec4e694b55cfb228d9
+2026-05-09 00:24:59 [server_economic.registration] INFO: Registration submitted: req_a70291ec4e694b55cfb228d9, expires at 2026-05-09T16:24:59.188584+00:00
+2026-05-09 00:24:59 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_a70291ec4e694b55cfb228d9', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:24:59.188584+00:00'}
+2026-05-09 00:24:59 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_a70291ec4e694b55cfb228d9
+2026-05-09 00:26:09 [server_economic.main] INFO: Shutting down...
+2026-05-09 00:26:09 [server_economic] INFO: Shutdown requested
+2026-05-09 00:26:09 [server_economic.main] INFO: Shutdown complete.
+2026-05-09 00:26:13 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 00:26:13 [server_economic.registration] INFO: Found pending registration: req_a70291ec4e694b55cfb228d9, will need to resume SSE wait
+2026-05-09 00:26:18 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:26:18 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:26:18 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:26:18 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:26:18 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:26:18 [server_economic.registration] INFO: Node info: name=提交注册, region=CN
+2026-05-09 00:26:18 [server_economic] INFO: Register state saved: req_94a1f797c76eed4d34ecf859
+2026-05-09 00:26:18 [server_economic.registration] INFO: Registration submitted: req_94a1f797c76eed4d34ecf859, expires at 2026-05-09T16:26:18.646498+00:00
+2026-05-09 00:26:18 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_94a1f797c76eed4d34ecf859', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:26:18.646498+00:00'}
+2026-05-09 00:26:18 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_94a1f797c76eed4d34ecf859
+2026-05-09 00:29:36 [server_economic.main] INFO: Shutting down...
+2026-05-09 00:29:36 [server_economic] INFO: Shutdown requested
+2026-05-09 00:29:36 [server_economic.main] INFO: Shutdown complete.
+2026-05-09 00:29:40 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 00:29:40 [server_economic.registration] INFO: Found pending registration: req_94a1f797c76eed4d34ecf859, will need to resume SSE wait
+2026-05-09 00:29:48 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:29:48 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:29:48 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:29:48 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:29:48 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:29:48 [server_economic.registration] INFO: Node info: name=提交注册, region=CN
+2026-05-09 00:29:48 [server_economic] INFO: Register state saved: req_cc2ddbb84bb5ca9936eed472
+2026-05-09 00:29:48 [server_economic.registration] INFO: Registration submitted: req_cc2ddbb84bb5ca9936eed472, expires at 2026-05-09T16:29:48.396999+00:00
+2026-05-09 00:29:48 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_cc2ddbb84bb5ca9936eed472', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:29:48.396999+00:00'}
+2026-05-09 00:29:48 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_cc2ddbb84bb5ca9936eed472
+2026-05-09 00:29:53 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_提交注册_9bba6f45
+2026-05-09 00:29:53 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 00:29:53 [server_economic] INFO: Register state cleared
+2026-05-09 00:29:53 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-09 00:41:09 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-09 00:41:09 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-09 00:41:09 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': '提交注册2', 'region': 'CN', 'host': '127.0.0.1:8900'}
+2026-05-09 00:41:09 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-09 00:41:09 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-09 00:41:09 [server_economic.registration] INFO: Node info: name=提交注册2, region=CN
+2026-05-09 00:41:09 [server_economic] INFO: Register state saved: req_5c2346e9807f74b339aa42cb
+2026-05-09 00:41:09 [server_economic.registration] INFO: Registration submitted: req_5c2346e9807f74b339aa42cb, expires at 2026-05-09T16:41:09.127015+00:00
+2026-05-09 00:41:09 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_5c2346e9807f74b339aa42cb', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-09T16:41:09.127015+00:00'}
+2026-05-09 00:41:09 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_5c2346e9807f74b339aa42cb
+2026-05-09 00:41:21 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_提交注册2_cde3c730
+2026-05-09 00:41:21 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-09 00:41:21 [server_economic] INFO: Register state cleared

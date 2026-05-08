@@ -1,0 +1,70 @@
+2026-05-08 23:19:03 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260508.log)
+2026-05-08 23:19:03 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-08 23:19:03 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-08 23:19:03 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-08 23:19:03 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-08 23:19:03 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-08 23:19:03 [server_economic] INFO: Register state saved: req_b2024a4d1830ec6c1ee9a3f4
+2026-05-08 23:19:03 [server_economic.registration] INFO: Registration submitted: req_b2024a4d1830ec6c1ee9a3f4, expires at 2026-05-09T15:19:03.126394+00:00
+2026-05-08 23:19:03 [server_economic.registration] INFO: Opening SSE connection: http://127.0.0.1:8800/nodes/await-approval?request_id=req_b2024a4d1830ec6c1ee9a3f4 (timeout=3600s)
+2026-05-08 23:20:43 [server_economic.registration] INFO: ★ APPROVED! server_id=node_economic-node-01_0eee99de
+2026-05-08 23:20:43 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-08 23:20:43 [server_economic] INFO: Register state cleared
+2026-05-08 23:20:43 [server_economic.registration] INFO: ==================================================
+2026-05-08 23:20:43 [server_economic.registration] INFO: REGISTRATION COMPLETE!
+2026-05-08 23:20:43 [server_economic.registration] INFO:   server_id : node_economic-node-01_0eee99de
+2026-05-08 23:20:43 [server_economic.registration] INFO:   token     : SfXt9pOAF8P042gvTrWA...
+2026-05-08 23:20:43 [server_economic.registration] INFO:   manager   : http://127.0.0.1:8800
+2026-05-08 23:20:43 [server_economic.registration] INFO: ==================================================
+2026-05-08 23:20:43 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-08 23:37:37 [server_economic.main] INFO: Shutting down...
+2026-05-08 23:37:37 [server_economic.heartbeat] INFO: Heartbeat stop requested
+2026-05-08 23:37:38 [server_economic.heartbeat] INFO: Heartbeat stopped. Final stats: {'total': 35, 'ok': 35, 'fail': 0, 'backoff': 1.0, 'running': False}
+2026-05-08 23:37:38 [server_economic] INFO: Shutdown requested
+2026-05-08 23:37:38 [server_economic.main] INFO: Shutdown complete.
+2026-05-08 23:38:27 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260508.log)
+2026-05-08 23:38:27 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-08 23:38:27 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-08 23:38:27 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_0eee99de
+2026-05-08 23:38:27 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-08 23:38:27 [server_economic.registration] ERROR: Ping failed: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:27 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-08 23:38:27 [server_economic.heartbeat] WARNING: [#1] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:28 [server_economic.heartbeat] WARNING: [#2] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:29 [server_economic.heartbeat] WARNING: [#3] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:30 [server_economic.heartbeat] WARNING: [#4] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:34 [server_economic.heartbeat] WARNING: [#5] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:42 [server_economic.heartbeat] WARNING: [#6] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:38:58 [server_economic.heartbeat] WARNING: [#7] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:39:30 [server_economic.heartbeat] WARNING: [#8] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:40:30 [server_economic.heartbeat] WARNING: [#9] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-08 23:41:30 [server_economic.heartbeat] WARNING: [#10] Heartbeat rejected: Invalid or expired token
+2026-05-08 23:42:31 [server_economic.heartbeat] ERROR: [#11] Heartbeat FAIL: No token available
+2026-05-08 23:43:31 [server_economic.heartbeat] ERROR: [#12] Heartbeat FAIL: No token available
+2026-05-08 23:44:31 [server_economic.heartbeat] ERROR: [#13] Heartbeat FAIL: No token available
+2026-05-08 23:45:31 [server_economic.heartbeat] ERROR: [#14] Heartbeat FAIL: No token available
+2026-05-08 23:45:53 [server_economic.main] INFO: Shutting down...
+2026-05-08 23:45:53 [server_economic.heartbeat] INFO: Heartbeat stop requested
+2026-05-08 23:45:54 [server_economic.heartbeat] INFO: Heartbeat stopped. Final stats: {'total': 14, 'ok': 0, 'fail': 14, 'backoff': 60.0, 'running': False}
+2026-05-08 23:45:54 [server_economic] INFO: Shutdown requested
+2026-05-08 23:45:54 [server_economic.main] INFO: Shutdown complete.
+2026-05-08 23:46:35 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260508.log)
+2026-05-08 23:46:35 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-08 23:50:58 [server_economic.main] INFO: Shutting down...
+2026-05-08 23:50:58 [server_economic] INFO: Shutdown requested
+2026-05-08 23:50:58 [server_economic.main] INFO: Shutdown complete.
+2026-05-08 23:52:32 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260508.log)
+2026-05-08 23:52:32 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-08 23:54:25 [server_economic.main] INFO: Shutting down...
+2026-05-08 23:54:25 [server_economic] INFO: Shutdown requested
+2026-05-08 23:54:25 [server_economic.main] INFO: Shutdown complete.
+2026-05-08 23:55:21 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260508.log)
+2026-05-08 23:55:21 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-08 23:58:45 [server_economic.main] INFO: Shutting down...
+2026-05-08 23:58:45 [server_economic] INFO: Shutdown requested
+2026-05-08 23:58:45 [server_economic.main] INFO: Shutdown complete.
+2026-05-08 23:58:49 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260508.log)
+2026-05-08 23:58:49 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-09 00:03:18 [server_economic.main] INFO: Shutting down...
+2026-05-09 00:03:18 [server_economic] INFO: Shutdown requested
+2026-05-09 00:03:18 [server_economic.main] INFO: Shutdown complete.

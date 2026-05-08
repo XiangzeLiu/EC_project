@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Server Manager - Dashboard</title>
   <style>
-    /* ── Reset & Base ─────────────────────────────────────── */
+    /* Reset & Base */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f0f2f5; color: #333; }
 
-    /* ── Layout ──────────────────────────────────────────── */
+    /* Layout */
     .layout { display: flex; min-height: 100vh; }
 
-    /* ── Sidebar ─────────────────────────────────────────── */
+    /* Sidebar */
     .sidebar {
       width: 220px; background: #001529; color: #fff; flex-shrink: 0;
       display: flex; flex-direction: column;
@@ -36,10 +36,10 @@
     .nav-item.active { color: #fff; background: #1890ff; border-left-color: #fff; }
     .nav-icon { width: 20px; margin-right: 10px; font-size: 16px; text-align: center; }
 
-    /* ── Main Content ────────────────────────────────────── */
+    /* Main Content */
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-    /* ── Top Bar ─────────────────────────────────────────── */
+    /* Top Bar */
     .topbar {
       height: 56px; background: #fff; border-bottom: 1px solid #e8e8e8;
       display: flex; align-items: center; justify-content: space-between; padding: 0 24px;
@@ -54,7 +54,7 @@
     }
     .btn-logout:hover { background: #ff7875; }
 
-    /* ── Page Body ───────────────────────────────────────── */
+    /* Page Body */
     .page-body { flex: 1; padding: 24px; overflow-y: auto; }
 
     /* Module Card */
@@ -87,10 +87,119 @@
     .status-dot.orange { background: #faad14; }
     .status-dot.red { background: #ff4d4f; }
 
-    /* ── Responsive ──────────────────────────────────────── */
+    /* Node Management Panel - Card Grid */
+    .node-panel { padding: 16px 24px; }
+    .node-section-title { font-size: 14px; font-weight: 600; color: #262626; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px; }
+    .node-section-title .badge { font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 10px; background: #e6f7ff; color: #1890ff; }
+    .node-section-title .badge.warn { background: #fff7e6; color: #faad14; }
+
+    .node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+
+    /* Card Base */
+    .node-card {
+      border-radius: 8px; padding: 16px; transition: all 0.2s; position: relative;
+      border: 1px solid transparent;
+    }
+    .node-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+
+    /* === Status Background Colors === */
+    .node-card.status-online {
+      background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%);
+      border-color: #b7eb8c;
+    }
+    .node-card.status-online:hover { box-shadow: 0 4px 16px rgba(82,196,26,0.25); }
+
+    .node-card.status-approved {
+      background: #f0f5ff; border-color: #d6e4ff;
+    }
+    .node-card.status-approved:hover { box-shadow: 0 4px 12px rgba(22,119,255,0.12); }
+
+    .node-card.status-suspended {
+      background: #fffbe6; border-color: #ffe58f;
+    }
+    .node-card.status-suspended:hover { box-shadow: 0 4px 12px rgba(250,173,20,0.18); }
+
+    .node-card.status-offline {
+      background: #fff1f0; border-color: #ffa39e;
+    }
+    .node-card.status-offline:hover { box-shadow: 0 4px 12px rgba(255,77,79,0.15); }
+
+    /* Card Header */
+    .nc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .nc-name { font-size: 15px; font-weight: 600; color: #262626; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .nc-status-badge {
+      font-size: 11px; padding: 2px 10px; border-radius: 12px; font-weight: 600; white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+    /* Online - green pill on green bg */
+    .nc-status-badge.online {
+      background: #52c41a; color: #fff; box-shadow: 0 2px 6px rgba(82,196,26,0.35);
+    }
+    /* Approved - blue */
+    .nc-status-badge.approved {
+      background: #1677ff; color: #fff; box-shadow: 0 2px 6px rgba(22,119,255,0.3);
+    }
+    /* Suspended - yellow/orange */
+    .nc-status-badge.suspended {
+      background: #faad14; color: #fff; box-shadow: 0 2px 6px rgba(250,173,20,0.35);
+    }
+    /* Offline - red */
+    .nc-status-badge.offline {
+      background: #ff4d4f; color: #fff; box-shadow: 0 2px 6px rgba(255,77,79,0.3);
+    }
+    /* Pending */
+    .nc-status-badge.pending {
+      background: #d48806; color: #fff; box-shadow: 0 2px 6px rgba(212,136,6,0.3);
+    }
+
+    /* Card Body - Info Rows */
+    .nc-info { margin-bottom: 12px; }
+    .nc-row { display: flex; font-size: 12px; line-height: 22px; }
+    .nc-label { color: #888; width: 60px; flex-shrink: 0; font-weight: 500; }
+    .nc-value { color: #444; word-break: break-all; flex: 1; }
+    .nc-caps { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+    .nc-cap-tag { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: rgba(22,119,255,0.08); color: #1677ff; }
+    .nc-req-id { font-family: monospace; font-size: 10px; color:#aaa; }
+
+    /* Card Footer - Actions */
+    .nc-actions { display: flex; gap: 6px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.06); flex-wrap: wrap; }
+    .btn-action { padding: 5px 12px; border-radius: 4px; font-size: 11.5px; cursor: pointer;
+      border: 1px solid #d9d9d9; background: #fff; transition: all 0.15s; white-space: nowrap;
+      font-weight: 500; }
+    .btn-action:hover { transform: translateY(-1px); }
+    .btn-action:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .btn-approve { border-color: #b7eb8c; color: #389e0d; background: #f6ffed; }
+    .btn-approve:hover { border-color: #73d13d; background: #d9f7be; }
+    .btn-reject { border-color: #ffa39e; color: #cf1322; background: #fff2f0; }
+    .btn-reject:hover { border-color: #ff7875; background: #ffccc7; }
+    .btn-detail { border-color: #d6e4ff; color: #1677ff; background: #f0f5ff; }
+    .btn-detail:hover { border-color: #59a0f0; background: #d6e4ff; }
+    .btn-danger { border-color: #ffa39e; color: #cf1322; background: #fff1f0; }
+    .btn-danger:hover { border-color: #ff7875; background: #ffa39e; color: #fff; }
+    .btn-delete { border-color: #ffccc7; color: #a8071a; background: #fff1f0; }
+    .btn-delete:hover { border-color: #ff4d4f; background: #ff4d4f; color: #fff; }
+    .btn-warn { border-color: #ffe58f; color: #d48806; background: #fffbe6; }
+    .btn-warn:hover { border-color: #ffd591; background: #ffc53d; color: #fff; }
+    .btn-success-sm { border-color: #b7eb8c; color: #389e0d; background: #f6ffed; }
+    .btn-success-sm:hover { border-color: #73d13d; background: #95de64; color: #fff; }
+
+    .btn-refresh { padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer;
+      border: 1px solid #d9d9d9; background: #fff; margin-left: auto; }
+    .btn-refresh:hover { border-color: #40a9ff; color: #1890ff; }
+
+    .empty-state { text-align: center; padding: 32px 20px; color: #bbb; font-size: 13px; grid-column: 1 / -1; }
+    .empty-state .empty-icon { font-size: 36px; margin-bottom: 8px; }
+
+    .token-copy { font-family: monospace; font-size: 11px; color:#888; cursor:pointer;
+      max-width:140px; overflow:hidden;text-overflow:ellipsis;display:inline-block;white-space:nowrap;vertical-align:middle;}
+    .token-copy:hover { color:#1677ff; }
+
+    /* Responsive */
     @media (max-width: 768px) {
-      .sidebar { position: fixed; z-index: 100; left: -100%; transition: left 0.25s; }
+      .sidebar { position: fixed; z-index:100; left:-100%; transition:left 0.25s; }
       .sidebar.open { left: 0; }
+      .node-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -149,18 +258,34 @@
           </div>
         </div>
 
-        <!-- 模块二：Server_economic 管理 -->
+        <!-- 模块二：Server_economic 节点管理 -->
         <div class="module-card" id="mod-server-economic">
           <div class="module-header">
             <div class="module-title">
               &#9881; Server_economic 管理
-              <span class="module-badge coming-soon">功能开发中</span>
+              <span class="module-badge" id="node-count">加载中...</span>
             </div>
+            <button class="btn-refresh" onclick="refreshNodes()">&#8635; 刷新</button>
           </div>
-          <div class="module-body">
-            <div class="placeholder-icon">&#128279;</div>
-            <div class="placeholder-text">Server_economic（券商服务端）管理模块</div>
-            <div class="placeholder-sub">多节点部署、状态监控、日志查看、连接配置等功能即将上线</div>
+
+          <div class="node-panel">
+            <!-- 待审核节点 -->
+            <div style="margin-bottom: 24px;">
+              <div class="node-section-title">
+                &#128992; 待审核节点
+                <span class="badge warn" id="pending-count" style="display:none;">0 条待处理</span>
+              </div>
+              <div class="node-grid" id="pending-body"></div>
+            </div>
+
+            <!-- 已批准节点 -->
+            <div>
+              <div class="node-section-title">
+                &#9989; 已注册节点
+                <span class="badge" id="online-count" style="display:none;">0 在线</span>
+              </div>
+              <div class="node-grid" id="nodes-body"></div>
+            </div>
           </div>
         </div>
 
@@ -172,6 +297,7 @@
         <span><span class="status-dot green"></span>SDK: {{ sdk_status }}</span>
         <span><span class="status-dot {{ ib_color }}"></span>IB TWS: {{ ib_status }}</span>
         <span>在线客户端: {{ active_clients }}</span>
+        <span>已注册节点: <strong id="status-node-count" style="color:#666;">-</strong></span>
       </footer>
     </main>
   </div>
@@ -182,17 +308,209 @@
       item.addEventListener('click', function(e) {
         e.preventDefault();
         var target = this.getAttribute('data-module');
-        // 切换高亮
         document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
         this.classList.add('active');
-        // 更新标题
-        var titles = { accounts: '\u8D26\u6237\u7BA1\u7406', 'server-economic': 'Server_economic \u7BA1\u7406' };
-        document.getElementById('page-title').textContent = titles[target] || '\u4EEA\u8868\u76D8';
-        // 滚动到对应模块
+        var titles = { accounts: '账户管理', 'server-economic': 'Server_economic 管理' };
+        document.getElementById('page-title').textContent = titles[target] || '仪表盘';
         var el = document.getElementById('mod-' + target);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
+
+    // 工具函数
+    function fmtTime(isoStr) { if (!isoStr||isoStr==='') return '-'; try{var d=new Date(isoStr);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return isoStr;} }
+    function escapeHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+    // 渲染待审核节点（卡片式）
+    function renderPending(nodes){
+      var container=document.getElementById('pending-body'),badge=document.getElementById('pending-count');
+      if(!nodes||nodes.length===0){
+        container.innerHTML='<div class="empty-state"><div class="empty-icon">&#128524;</div>暂无待审核的注册请求</div>';
+        badge.style.display='none';return;
+      }
+      badge.style.display='';badge.textContent=nodes.length+' 条待处理';
+      container.innerHTML=nodes.map(function(n){
+        var caps=(typeof n.capabilities==='string')?n.capabilities:JSON.stringify(n.caps||[]);try{caps=JSON.parse(caps);}catch(e){caps=[];}
+        var capTags=caps.length?caps.map(function(c){return '<span class="nc-cap-tag">'+escapeHtml(c)+'</span>';}).join(''):'<span style="color:#bbb;font-size:12px;">-</span>';
+        return '<div class="node-card status-pending">'
+          +'<div class="nc-header">'
+          +'  <div class="nc-name"><span class="nc-status-badge pending">&#9679; 待审核</span> '+escapeHtml(n.node_name)+'</div>'
+          +'</div>'
+          +'<div class="nc-info">'
+          +'<div class="nc-row"><span class="nc-label">区域</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">能力</span><span class="nc-value"><div class="nc-caps">'+capTags+'</div></span></div>'
+          +'<div class="nc-row"><span class="nc-label">主机</span><span class="nc-value">'+escapeHtml(n.host||'-')+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">联系</span><span class="nc-value">'+escapeHtml(n.contact||'-')+'</span></div>'
+          +'<div class="nc-row" style="margin-top:4px;"><span class="nc-label">ID</span><span class="nc-req-id">'+escapeHtml(n.request_id)+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">提交</span><span class="nc-value">'+fmtTime(n.created_at)+'</span></div>'
+          +'</div>'
+          +'<div class="nc-actions">'
+          +'  <button class="btn-action btn-approve" onclick="approveNode(\''+n.request_id+'\',this)">✓ 通过</button>'
+          +'  <button class="btn-action btn-reject" onclick="rejectNode(\''+n.request_id+'\',this)">✕ 拒绝</button>'
+          +'</div>'
+          +'</div>';
+      }).join('');
+    }
+
+    // 渲染已注册节点（卡片式，带状态底色）
+    function renderNodes(nodes){
+      var container=document.getElementById('nodes-body'),badge=document.getElementById('online-count'),countBadge=document.getElementById('node-count');
+      if(!nodes||nodes.length===0){
+        container.innerHTML='<div class="empty-state"><div class="empty-icon">&#128524;</div>暂无已注册节点</div>';
+        badge.style.display='none';countBadge.textContent='0 个节点';return;
+      }
+
+      // 统计各状态数量
+      var onlineCount=0,suspendedCount=0,offlineCount=0,approvedCount=0;
+      nodes.forEach(function(n){
+        if(n.req_status==='online') onlineCount++;
+        else if(n.req_status==='suspended') suspendedCount++;
+        else if(n.req_status==='offline') offlineCount++;
+        else approvedCount++;
+      });
+
+      var totalActive=onlineCount+suspendedCount+offlineCount+approvedCount;
+      var badgeParts=[onlineCount+' 在线'];
+      if(suspendedCount) badgeParts.push(suspendedCount+' 已暂停');
+      if(offlineCount) badgeParts.push(offlineCount+' 离线');
+      badge.style.display='';badge.textContent=badgeParts.join(' / ');countBadge.textContent=totalActive+' 个节点';
+
+      container.innerHTML=nodes.map(function(n){
+        var st=n.req_status||'approved';
+
+        // 状态映射：CSS类 + 徽章文字 + 颜色
+        var cardClass,stLabel;
+        if(st==='online'){cardClass='status-online';stLabel='● 运行中';}
+        else if(st==='suspended'){cardClass='status-suspended';stLabel='● 已暂停';}
+        else if(st==='offline'){cardClass='status-offline';stLabel='● 已离线';}
+        else{cardClass='status-approved';stLabel='○ 已批准';}
+
+        // 显示最后心跳时间（方便判断是否真正离线）
+        var hbInfo='';
+        if(n.last_heartbeat){
+          try{var hbD=new Date(n.last_heartbeat);hbInfo=hbD.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+          catch(e){hbInfo=n.last_heartbeat;}
+        }
+
+        var ts=n.token?n.token.substring(0,14)+'...':'-';
+
+        // 根据状态生成操作按钮组
+        var actionBtns='';
+        if(st==='online'){
+          // 运行中：详情 | 暂停 | 删除
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
+            +'<button class="btn-action btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)">⏸ 暂停</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+        }else if(st==='suspended'){
+          // 已暂停：详情 | 恢复 | 删除
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
+            +'<button class="btn-action btn-success-sm" onclick="resumeNode(\''+escapeHtml(n.server_id)+'\',this)">▶ 恢复</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+        }else if(st==='offline'){
+          // 已离线：详情 | 删除  （离线状态不支持暂停/恢复）
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+        }else{
+          // 已批准(未连接)：详情 | 暂停 | 删除
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
+            +'<button class="btn-action btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)">⏸ 暂停</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+        }
+
+        return '<div class="node-card '+cardClass+'">'
+          +'<div class="nc-header">'
+          +'  <div class="nc-name"><span class="nc-status-badge '+st+'">'+stLabel+'</span> '+escapeHtml(n.node_name)+'</div>'
+          +'</div>'
+          +'<div class="nc-info">'
+          +'<div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value" style="font-family:monospace;font-size:11px;">'+escapeHtml(n.server_id||'-')+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">区域</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">当前 IP</span><span class="nc-value">'+escapeHtml(n.current_ip||n.host||'-')+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">最后心跳</span><span class="nc-value">'+(hbInfo||'-')+'</span></div>'
+          +'<div class="nc-row"><span class="nc-label">Token</span><span class="nc-value"><span class="token-copy" title="点击复制 Token" onclick="copyToken(\''+(n.token||'')+'\',this)">'+ts+'</span></span></div>'
+          +'</div>'
+          +'<div class="nc-actions">'+actionBtns+'</div>'
+          +'</div>';
+      }).join('');
+    }
+
+    async function refreshNodes(){
+      try{
+        var[pRes,nRes]=await Promise.all([fetch('/api/nodes/pending'),fetch('/api/nodes/list')]);
+        var pData=await pRes.json(),nData=await nRes.json();
+        if(pData.ok)renderPending(pData.data);else console.warn('Failed pending:',pData);
+        if(nData.ok){renderNodes(nData.data);var sb=document.getElementById('status-node-count');if(sb)sb.textContent=(nData.data||[]).length;}
+        else console.warn('Failed nodes:',nData);
+      }catch(e){console.error('Refresh error:',e);}
+    }
+
+    async function approveNode(reqId,btn){
+      btn.disabled=true;btn.textContent='处理中...';
+      try{
+        var r=await fetch('/api/nodes/'+reqId+'/approve',{method:'POST'});
+        var d=await r.json();
+        if(d.ok){refreshNodes();}else{alert('失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='✓ 通过';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='✓ 通过';}
+    }
+
+    async function rejectNode(reqId,btn){
+      var reason=prompt('输入拒绝原因（可选）：')||'';
+      btn.disabled=true;btn.textContent='处理中...';
+      try{
+        var r=await fetch('/api/nodes/'+reqId+'/reject?reason='+encodeURIComponent(reason),{method:'POST'});
+        var d=await r.json();
+        if(d.ok){refreshNodes();}else{alert('失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='✕ 拒绝';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='✕ 拒绝';}
+    }
+
+    // 删除节点
+    async function deleteNode(serverId,btn){
+      if(!confirm('确认彻底删除节点 '+serverId+' ？\n此操作不可恢复，将同时清理数据库中的所有关联记录。'))return;
+      btn.disabled=true;btn.textContent='删除中...';
+      try{
+        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/delete',{method:'POST'});
+        var d=await r.json();
+        if(d.ok){refreshNodes();}else{alert('删除失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='🗑 删除';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='🗑 删除';}
+    }
+
+    // 暂停节点
+    async function suspendNode(serverId,btn){
+      if(!confirm('确认暂停节点 '+serverId+' ？\n暂停后该节点的访问将被拒绝。'))return;
+      btn.disabled=true;btn.textContent='暂停中...';
+      try{
+        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/suspend',{method:'POST'});
+        var d=await r.json();
+        if(d.ok){refreshNodes();}else{alert('暂停失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='⏸ 暂停';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='⏸ 暂停';}
+    }
+
+    // 恢复节点
+    async function resumeNode(serverId,btn){
+      btn.disabled=true;btn.textContent='恢复中...';
+      try{
+        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/resume',{method:'POST'});
+        var d=await r.json();
+        if(d.ok){refreshNodes();}else{alert('恢复失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='▶ 恢复';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='▶ 恢复';}
+    }
+
+    function showNodeDetail(serverId){
+      alert('节点详情\nServer ID: '+serverId+'\n\n（更多详情功能开发中）');
+    }
+
+    function copyToken(token,elem){
+      if(!token)return;
+      navigator.clipboard.writeText(token).then(function(){
+        elem.textContent='已复制!';
+        setTimeout(function(){elem.textContent=token.substring(0,14)+'...';},1500);
+      }).catch(function(){prompt('请手动复制 Token:',token);});
+    }
+
+    refreshNodes();  // 页面加载时自动刷新
   </script>
 </body>
 </html>
