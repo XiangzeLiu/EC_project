@@ -85,6 +85,12 @@ class TradingTerminal(tk.Tk):
         self._init_frame: tk.Frame | None = None
         self._init_ready = False   # 标记：全部连接成功后才构建主界面
 
+        # ── SE 重连相关状态 ──
+        self._reconnecting: bool = False          # 是否正在自动重连中
+        self._reconnect_dialog: tk.Toplevel | None = None  # 重连弹窗引用
+        self._reconnect_cancelled: bool = False   # 用户是否取消了重连
+        self._reconnect_var: tk.StringVar = tk.StringVar(value="")  # 重连状态文本
+
         # 显示初始化连接界面
         self._show_init_screen()
 
@@ -275,6 +281,7 @@ class TradingTerminal(tk.Tk):
                 host=host, port=port, token=token,
                 on_message_callback=self._on_init_se_msg,
                 on_status_callback=self._on_init_se_status,
+                reconnect_enabled=SE_RECONNECT_ENABLED,
             )
             self._se_client = se_client
             se_client.start()
@@ -408,6 +415,7 @@ class TradingTerminal(tk.Tk):
             host=host, port=port, token=token,
             on_message_callback=self._on_init_se_msg,
             on_status_callback=self._on_init_se_status,
+            reconnect_enabled=SE_RECONNECT_ENABLED,
         )
         self._se_client = se_client
         se_client.start()
@@ -492,6 +500,11 @@ class TradingTerminal(tk.Tk):
         if self._init_ready:
             return
         self._init_ready = True
+
+        # ── 将 SE 客户端回调切换为主界面版本（支持断线检测+自动重连）──
+        if self._se_client:
+            self._se_client.on_message = self._on_se_message
+            self._se_client.on_status = self._on_se_status
 
         # 销毁初始化界面
         if self._init_frame:
@@ -1198,6 +1211,7 @@ class TradingTerminal(tk.Tk):
                 host=host, port=port, token=token,
                 on_message_callback=self._on_se_message,
                 on_status_callback=self._on_se_status,
+                reconnect_enabled=SE_RECONNECT_ENABLED,  # 主界面连接启用自动重连
             )
             self._se_client.start()
 
@@ -1232,6 +1246,15 @@ class TradingTerminal(tk.Tk):
 
     def _se_disconnect(self):
         """断开 SE 连接"""
+        # 如果正在重连，先隐藏重连弹窗
+        if self._reconnecting:
+            self._reconnecting = False
+            if self._reconnect_dialog:
+                try:
+                    self._reconnect_dialog.destroy()
+                    self._reconnect_dialog = None
+                except tk.TclError:
+                    pass
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
@@ -1253,13 +1276,50 @@ class TradingTerminal(tk.Tk):
                 # 自动查询一次状态验证连接
                 if self._se_client and self._se_client.is_connected:
                     self._se_client.send_query_status()
+                # ── 重连成功 → 隐藏重连弹窗 ──
+                if self._reconnecting and self._reconnect_dialog:
+                    self._hide_reconnect_dialog()
+
+            elif "Reconnecting" in msg or "reconnecting" in msg.lower():
+                # ── 运行中自动重连中 → 显示/更新重连弹窗 ──
+                if not self._reconnecting and self._init_ready:
+                    self._reconnecting = True
+                    self._show_reconnect_dialog(msg)
+                elif self._reconnect_dialog:
+                    # 更新弹窗状态文本
+                    self._reconnect_var.set(msg)
+
             elif "Auth failed" in msg or "error" in msg.lower():
+                if self._reconnecting:
+                    # 重连过程中认证失败（如 token 过期）→ 停止重连，提示用户
+                    self._cancel_reconnect()
                 self._release_se_occupation()
                 self._se_btn.config(text="Connect SE", state="normal")
                 self.log_area.log(f"[SE] {msg}", "err")
-            elif "Connection error" in msg or not self._se_active_se():
-                self._release_se_occupation()
-                self._se_btn.config(text="Connect SE", state="normal")
+
+            elif "Connection error" in msg or (msg.startswith("Disconnected:") and not self._se_active_se()):
+                if self._init_ready and self._se_connected and not self._reconnecting:
+                    # 运行中断线且尚未进入重连 → 触发自动重连流程
+                    self._se_connected = False
+                    self.log_area.log("[SE] 子服务器连接断开，正在尝试重新连接...", "warn")
+                    self._start_se_reconnect()
+                elif self._reconnecting:
+                    # 重连彻底失败（达到最大次数或 stop 后的 Disconnected 通知）
+                    self._cancel_reconnect()
+                    self._release_se_occupation()
+                    self._se_btn.config(text="Connect SE", state="normal")
+                else:
+                    # 初始化阶段失败或手动断开
+                    self._release_se_occupation()
+                    self._se_btn.config(text="Connect SE", state="normal")
+                    self.log_area.log(f"[SE] {msg}", "err")
+
+            else:
+                # 其他状态消息（Connecting、Connected 等）
+                if self._reconnecting:
+                    self._reconnect_var.set(msg)
+                self.log_area.log(f"[SE] {msg}", "inf")
+
         self.after(0, _ui_update)
 
     def _on_se_message(self, msg: dict):
@@ -1297,12 +1357,151 @@ class TradingTerminal(tk.Tk):
         """检查 SE client 是否仍然活跃"""
         return self._se_client is not None and self._se_client.is_active
 
+    # ── SE 自动重连（运行中断线后）───────────────────────────────────────
+
+    def _start_se_reconnect(self):
+        """
+        运行中 SE 断线 → 启动自动重连流程
+        创建新的 SEWebSocketClient 并启用重连模式，后台线程自动尝试重连
+        """
+        if self._reconnecting:
+            return  # 已在重连中
+
+        self._reconnecting = True
+        self._reconnect_cancelled = False
+        target_addr = self._last_connected_se or self._se_target_address or DEFAULT_SE_HOST
+        token = self.http.token
+
+        if ':' in target_addr:
+            hp = target_addr.rsplit(':', 1)
+            host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
+        else:
+            host, port = target_addr, DEFAULT_SE_PORT
+
+        # 创建启用重连的 SE 客户端
+        se_client = SEWebSocketClient(
+            host=host, port=port, token=token,
+            on_message_callback=self._on_se_message,
+            on_status_callback=self._on_se_status,
+            reconnect_enabled=SE_RECONNECT_ENABLED,
+        )
+        self._se_client = se_client
+        se_client.start()
+
+        self.log_area.log(f"[SE] Auto-reconnecting to {host}:{port}...", "inf")
+
+    def _show_reconnect_dialog(self, initial_msg: str = ""):
+        """显示重连弹窗（覆盖主界面的模态式提示）"""
+        if self._reconnect_dialog:
+            return  # 已存在则不重复创建
+
+        dlg = tk.Toplevel(self)
+        self._reconnect_dialog = dlg
+        dlg.title("SE 重连")
+        dlg.geometry("420x240")
+        dlg.resizable(False, False)
+        dlg.configure(bg=DARK_BG)
+
+        # 居中显示
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.protocol("WM_DELETE_WINDOW", self._cancel_reconnect)
+
+        # 计算居中位置
+        dlg.update_idletasks()
+        pw = self.winfo_width()
+        ph = self.winfo_height()
+        px = self.winfo_x()
+        py = self.winfo_y()
+        x = px + (pw - 420) // 2
+        y = py + (ph - 240) // 2
+        dlg.geometry(f"+{x}+{y}")
+
+        # 标题图标
+        title_frame = tk.Frame(dlg, bg=DARK_BG)
+        title_frame.pack(fill="x", pady=(24, 8))
+        tk.Label(title_frame, text="\u26a0\ufe0f", font=("Segoe UI", 28),
+                 bg=DARK_BG, fg=ACCENT_YELLOW).pack()
+
+        # 主提示文字
+        tk.Label(dlg, text="\u5b50\u670d\u52a1\u5668\u8fde\u63a5\u5df2\u65ad\u5f00",
+                 bg=DARK_BG, fg=TEXT_PRIMARY, font=FONT_UI).pack(pady=(4, 2))
+        tk.Label(dlg, text="\u6b63\u5728\u5c1d\u91cd\u65b0\u8fde\u63a5...",
+                 bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM).pack(pady=(0, 16))
+
+        # 状态文本（动态更新）
+        self._reconnect_var.set(initial_msg or "\u7b49\u5f85\u8fde\u63a5...")
+        status_lbl = tk.Label(dlg, textvariable=self._reconnect_var,
+                               bg=DARK_BG, fg=ACCENT_YELLOW, font=FONT_MONO_SM,
+                               wraplength=380)
+        status_lbl.pack(pady=(0, 20))
+
+        # 取消按钮容器
+        btn_frame = tk.Frame(dlg, bg=DARK_BG)
+        btn_frame.pack(pady=(0, 16))
+
+        cancel_btn = tk.Button(
+            btn_frame, text="\u53d6\u6d88\u91cd\u8fde", font=FONT_UI_SM,
+            bg=PANEL_BG, fg=ACCENT_RED, activebackground=BORDER,
+            activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
+            padx=24, pady=6, command=self._cancel_reconnect,
+        )
+        cancel_btn.pack()
+
+    def _hide_reconnect_dialog(self):
+        """隐藏重连弹窗（重连成功时调用）"""
+        self._reconnecting = False
+        if self._reconnect_dialog:
+            try:
+                self._reconnect_dialog.destroy()
+            except tk.TclError:
+                pass
+            self._reconnect_dialog = None
+
+    def _cancel_reconnect(self):
+        """用户取消重连：停止客户端、释放占用、恢复 UI"""
+        if not self._reconnecting and not self._reconnect_dialog:
+            return
+
+        self._reconnecting = False
+        self._reconnect_cancelled = True
+
+        # 停止正在重连的 SE 客户端
+        if self._se_client:
+            self._se_client.stop()
+            self._se_client = None
+        self._se_connected = False
+
+        # 隐藏弹窗
+        if self._reconnect_dialog:
+            try:
+                self._reconnect_dialog.destroy()
+            except tk.TclError:
+                pass
+            self._reconnect_dialog = None
+
+        # 释放节点占用
+        self._release_se_occupation()
+
+        # 恢复 UI 状态
+        self._se_status_var.set("Disconnected")
+        self._se_btn.config(text="Connect SE", state="normal")
+        self.log_area.log("[SE] 用户取消了重连，子服务器连接已释放", "warn")
+
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
     def on_close(self):
         """窗口关闭"""
         self._mock_active = False
         self._stream_active = False
+        self._reconnecting = False  # 取消重连状态
+        # 隐藏重连弹窗
+        if self._reconnect_dialog:
+            try:
+                self._reconnect_dialog.destroy()
+            except tk.TclError:
+                pass
+            self._reconnect_dialog = None
         # 断开 SE 连接
         if self._se_client:
             self._se_client.stop()

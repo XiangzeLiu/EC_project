@@ -7,6 +7,8 @@ SE WebSocket Client
   2. 收到 CONNECT_ACK 后进入就绪状态
   3. 定时发送 PING 保持心跳
   4. 可发送 STATUS_QUERY 等查询请求
+
+支持自动重连：连接断开后按指数退避策略自动重试，直到重连成功或被显式 stop()
 """
 
 import asyncio
@@ -17,14 +19,25 @@ from typing import Callable
 
 import websockets
 
+# 导入重连配置常量（从 constants 模块）
+try:
+    from ..constants import (SE_RECONNECT_BASE_INTERVAL, SE_RECONNECT_MAX_INTERVAL,
+                            SE_RECONNECT_MAX_ATTEMPTS)
+except ImportError:
+    # 兼容单独运行时的 fallback
+    SE_RECONNECT_BASE_INTERVAL = 3
+    SE_RECONNECT_MAX_INTERVAL = 30
+    SE_RECONNECT_MAX_ATTEMPTS = 0
+
 
 class SEWebSocketClient:
-    """Server_economic WebSocket 客户端"""
+    """Server_economic WebSocket 客户端（支持自动重连）"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8900,
                  token: str = "",
                  on_message_callback: Callable[[dict], None] = None,
-                 on_status_callback: Callable[[str], None] = None):
+                 on_status_callback: Callable[[str], None] = None,
+                 reconnect_enabled: bool = False):
         self.host = host
         self.port = port
         self.token = token
@@ -32,6 +45,7 @@ class SEWebSocketClient:
         self.on_status = on_status_callback
         self._active = False
         self._connected = False
+        self._reconnect_enabled = reconnect_enabled   # 是否启用自动重连
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._ws = None
@@ -113,21 +127,75 @@ class SEWebSocketClient:
         return req_id
 
     def _run_loop(self):
-        """独立线程运行 asyncio 事件循环"""
+        """独立线程运行 asyncio 事件循环（支持自动重连）"""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        try:
-            self._loop.run_until_complete(self._connect_and_run())
-        except Exception as e:
-            if self._active and self.on_status:
-                self.on_status(f"Connection error: {e}")
-        finally:
-            self._active = False
-            self._connected = False
+
+        reconnect_attempts = 0
+        last_error = ""
+
+        # ── 重连循环：当启用重连且未被显式 stop 时持续尝试 ──
+        while True:
             try:
+                # 每次连接尝试前确保 event loop 可用
+                if self._loop.is_closed():
+                    self._loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._loop)
+
+                self._loop.run_until_complete(self._connect_and_run())
+                # 正常退出（async with 结束或认证失败返回）→ 检查是否继续重连
+                if not self._reconnect_enabled or not self._active:
+                    break
+
+            except (ConnectionRefusedError, ConnectionResetError, OSError,
+                    asyncio.TimeoutError, websockets.exceptions.ConnectionClosed,
+                    websockets.exceptions.InvalidHandshake, websockets.exceptions.WebSocketException) as e:
+                # 网络层异常 → 可重连
+                last_error = str(e)
+                if not self._reconnect_enabled or not self._active:
+                    break
+                reconnect_attempts += 1
+                if self.on_status:
+                    self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
+
+            except Exception as e:
+                # 其他异常 → 根据配置决定是否重连
+                last_error = str(e)
+                if not self._reconnect_enabled or not self._active:
+                    break
+                reconnect_attempts += 1
+                if self.on_status:
+                    self.on_status(f"Reconnecting ({reconnect_attempts})... | {e}")
+
+            finally:
+                # 本次尝试结束，标记断开状态
+                was_connected = self._connected
+                self._connected = False
+                self._ws = None
+
+            # 指数退避等待
+            delay = min(
+                SE_RECONNECT_BASE_INTERVAL * (2 ** min(reconnect_attempts - 1, 3)),
+                SE_RECONNECT_MAX_INTERVAL
+            )
+            if SE_RECONNECT_MAX_ATTEMPTS > 0 and reconnect_attempts >= SE_RECONNECT_MAX_ATTEMPTS:
+                if self.on_status:
+                    self.on_status(f"Reconnect failed after {reconnect_attempts} attempts: {last_error}")
+                break
+
+            # sleep 在 loop 外部进行，不阻塞 event loop
+            time.sleep(delay)
+
+        # 完全退出循环后的最终清理
+        self._active = False
+        self._connected = False
+        if self.on_status and last_error and not self._connected:
+            self.on_status(f"Disconnected: {last_error}")
+        try:
+            if not self._loop.is_closed():
                 self._loop.close()
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     async def _connect_and_run(self):
         """建立连接并运行主循环"""
