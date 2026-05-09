@@ -316,3 +316,13 @@
 2026-05-09 01:46:20 [server_economic.registration] INFO: No existing session found, full registration required
 2026-05-09 01:46:25 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
 2026-05-09 01:46:25 [server_economic.registration] ERROR: Ping failed: <urlopen error [Errno 61] Connection refused>
+2026-05-09 23:59:06 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260509.log)
+2026-05-09 23:59:06 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-09 23:59:15 [server_economic.ws_server] INFO: [sess_ac84d004ad900d1d] WS connected from 127.0.0.1:49651
+2026-05-09 23:59:15 [server_economic.ws_server] INFO: [sess_ac84d004ad900d1d] Auth OK, connection established
+2026-05-09 23:59:37 [server_economic.ws_server] INFO: [sess_ac84d004ad900d1d] WS disconnected by client
+2026-05-09 23:59:37 [server_economic.ws_server] INFO: [sess_ac84d004ad900d1d] Connection cleaned up (remaining connections: 0)
+2026-05-10 00:48:03 [server_economic.ws_server] INFO: [sess_8f3c79f15225c62d] WS connected from 127.0.0.1:52502
+2026-05-10 00:48:03 [server_economic.ws_server] INFO: [sess_8f3c79f15225c62d] Auth OK, connection established
+2026-05-10 00:48:09 [server_economic.ws_server] INFO: [sess_8f3c79f15225c62d] WS disconnected by client
+2026-05-10 00:48:09 [server_economic.ws_server] INFO: [sess_8f3c79f15225c62d] Connection cleaned up (remaining connections: 0)

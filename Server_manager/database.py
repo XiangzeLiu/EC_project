@@ -36,6 +36,7 @@ def init_db():
                 role TEXT DEFAULT 'trader',
                 status TEXT DEFAULT 'active',
                 allowed_brokers TEXT DEFAULT '[]',
+                se_address TEXT DEFAULT '',
                 created_at TEXT DEFAULT '',
                 updated_at TEXT DEFAULT ''
             );
@@ -83,23 +84,30 @@ def init_db():
                 created_at TEXT DEFAULT ''
             );
         """)
+        # 兼容已有数据库：添加 se_address 列（如果不存在）
+        try:
+            conn.execute("SELECT se_address FROM accounts LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE accounts ADD COLUMN se_address TEXT DEFAULT ''")
+            log.info("Added se_address column to accounts table (migration)")
+
+        # 兼容已有数据库：添加 description 列（如果不存在）
+        try:
+            conn.execute("SELECT description FROM accounts LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE accounts ADD COLUMN description TEXT DEFAULT ''")
+            log.info("Added description column to accounts table (migration)")
+
+        # 兼容已有数据库：添加节点占用字段（如果不存在）
+        try:
+            conn.execute("SELECT occupied_by FROM node_requests LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE node_requests ADD COLUMN occupied_by TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE node_requests ADD COLUMN occupied_at TEXT DEFAULT ''")
+            log.info("Added occupation columns to node_requests table (migration)")
+
         conn.commit()
         log.info(f"Database initialized: {_DB_PATH}")
-
-        # 插入默认管理员账号（如果不存在）
-        row = conn.execute(
-            "SELECT id FROM accounts WHERE username = ?", ("admin",)
-        ).fetchone()
-        if not row:
-            import hashlib
-            pw_hash = hashlib.sha256(b"admin123").hexdigest()
-            conn.execute(
-                "INSERT INTO accounts (username, password_hash, role, status, created_at) "
-                "VALUES (?, ?, 'admin', 'active', ?)",
-                ("admin", pw_hash, datetime.now(timezone.utc).isoformat()),
-            )
-            conn.commit()
-            log.info("Default admin account created (username: admin, password: admin123)")
     finally:
         conn.close()
 
@@ -116,7 +124,7 @@ def verify_account(username: str, password: str) -> dict | None:
         import hashlib
         pw_hash = hashlib.sha256(password.encode()).hexdigest()
         row = conn.execute(
-            "SELECT id, username, role, status, allowed_brokers FROM accounts "
+            "SELECT id, username, role, status, allowed_brokers, se_address FROM accounts "
             "WHERE username = ? AND password_hash = ? AND status = 'active'",
             (username, pw_hash),
         ).fetchone()
@@ -137,6 +145,77 @@ def get_broker_list() -> list[dict]:
             "SELECT name, broker_type, host, port, status FROM brokers WHERE status != 'deleted'"
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def check_se_online(se_address: str) -> dict:
+    """
+    检查指定 SE 地址是否存在对应的在线节点
+
+    Args:
+        se_address: SE 地址，如 "127.0.0.1:8900" 或 "127.0.0.1"
+
+    Returns:
+        dict: {"online": bool, "node_name": str, "server_id": str, "match_field": str,
+               "occupied_by": str, "occupied_at": str}
+              match_field 说明匹配方式: "current_ip"(精确IP匹配) / "host"(host字段匹配)
+              occupied_by 非空表示该节点已被占用
+        如果没有匹配的节点或节点不在线: {"online": False, ...}
+    """
+    conn = _get_conn()
+    try:
+        if not se_address:
+            return {"online": False, "reason": "未配置 SE 地址"}
+
+        # 解析地址（支持 "ip:port" 或纯 "ip" 格式）
+        addr_part = se_address.split(":")[0] if ":" in se_address else se_address
+        addr_part = addr_part.strip()
+
+        # 1. 精确匹配 current_ip 字段（心跳上报的实际 IP）
+        row = conn.execute("""
+            SELECT nr.server_id, nr.node_name, nr.current_ip, nr.host,
+                   b.status AS broker_status, nr.status AS req_status,
+                   nr.occupied_by, nr.occupied_at
+            FROM node_requests nr
+            LEFT JOIN brokers b ON nr.server_id = b.name
+            WHERE (nr.current_ip = ? OR nr.current_ip LIKE ?)
+              AND nr.status IN ('online', 'approved')
+            LIMIT 1
+        """, (addr_part, f"{addr_part}%")).fetchone()
+
+        if row and dict(row).get("req_status") == "online":
+            r = dict(row)
+            return {"online": True, "node_name": r["node_name"], "server_id": r["server_id"],
+                    "match_field": "current_ip", "address": se_address,
+                    "occupied_by": r.get("occupied_by", "") or "",
+                    "occupied_at": r.get("occupied_at", "") or ""}
+
+        # 2. 回退到 host 字段匹配
+        row2 = conn.execute("""
+            SELECT nr.server_id, nr.node_name, nr.current_ip, nr.host,
+                   b.status AS broker_status, nr.status AS req_status,
+                   nr.occupied_by, nr.occupied_at
+            FROM node_requests nr
+            LEFT JOIN brokers b ON nr.server_id = b.name
+            WHERE nr.host = ?
+              AND nr.status IN ('online', 'approved')
+            LIMIT 1
+        """, (addr_part,)).fetchone()
+
+        if row2 and dict(row2).get("req_status") == "online":
+            r = dict(row2)
+            return {"online": True, "node_name": r["node_name"], "server_id": r["server_id"],
+                    "match_field": "host", "address": se_address,
+                    "occupied_by": r.get("occupied_by", "") or "",
+                    "occupied_at": r.get("occupied_at", "") or ""}
+
+        return {"online": False, "reason": f"未找到与地址 '{se_address}' 匹配的在线子服务器",
+                "address": se_address, "occupied_by": "", "occupied_at": ""}
+    except Exception as e:
+        log.error(f"check_se_online failed: {e}")
+        return {"online": False, "reason": f"查询异常: {e}", "address": se_address,
+                "occupied_by": "", "occupied_at": ""}
     finally:
         conn.close()
 
@@ -469,7 +548,8 @@ def get_all_nodes() -> list[dict]:
         rows = conn.execute("""
             SELECT nr.server_id, nr.node_name, nr.region, nr.host,
                    nr.capabilities, nr.status AS req_status, nr.current_ip,
-                   nr.token, b.status AS broker_status, b.last_heartbeat
+                   nr.token, b.status AS broker_status, b.last_heartbeat,
+                   nr.occupied_by, nr.occupied_at, nr.description
             FROM node_requests nr
             LEFT JOIN brokers b ON nr.server_id = b.name
             WHERE nr.status IN ('approved', 'online', 'suspended', 'offline')
@@ -551,6 +631,248 @@ def resume_node(server_id: str) -> bool:
     finally:
         conn.close()
 
+
+# ── 节点占用管理（occupation）──────────────────────────────────────
+
+
+def occupy_node(server_id: str, username: str) -> bool:
+    """标记节点被指定账户占用（独占锁定）"""
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("""
+            UPDATE node_requests SET occupied_by=?, occupied_at=?
+            WHERE server_id = ? AND status IN ('online', 'approved')
+        """, (username, now, server_id))
+        # 同步到 brokers 表
+        conn.execute("""
+            UPDATE brokers SET last_heartbeat=last_heartbeat
+            WHERE name = ?
+        """, (server_id,))
+        conn.commit()
+        log.info(f"Node {server_id} occupied by account '{username}'")
+        return True
+    except Exception as e:
+        log.error(f"occupy_node failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def release_node(server_id: str) -> bool:
+    """释放节点的占用状态"""
+    conn = _get_conn()
+    try:
+        conn.execute("""
+            UPDATE node_requests SET occupied_by='', occupied_at=''
+            WHERE server_id = ?
+        """, (server_id,))
+        conn.commit()
+        log.info(f"Node {server_id} released (occupation cleared)")
+        return True
+    except Exception as e:
+        log.error(f"release_node failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_occupation_info(server_id: str) -> dict | None:
+    """查询节点的占用信息"""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT occupied_by, occupied_at FROM node_requests WHERE server_id = ?",
+            (server_id,),
+        ).fetchone()
+        if row and dict(row).get("occupied_by"):
+            return dict(row)
+        return None
+    finally:
+        conn.close()
+
+
+# ── 账户管理（accounts 表）───────────────────────────────────────────
+
+def create_account(username: str, password: str, se_address: str = "",
+                   broker_tag: str = "", description: str = "",
+                   role: str = "trader") -> dict | None:
+    """
+    创建新账户
+
+    Args:
+        username: 用户名（唯一）
+        password: 明文密码（将 SHA256 哈希存储）
+        se_address: Server_economic 地址 (如 127.0.0.1:8900)
+        broker_tag: 券商标签
+        description: 账户描述信息（非必填）
+        role: 角色 (trader/admin)
+
+    Returns:
+        创建的账户字典，或 None（失败，如用户名已存在）
+    """
+    import hashlib
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        brokers_json = json.dumps([broker_tag] if broker_tag else [])
+        conn.execute("""
+            INSERT INTO accounts (username, password_hash, role, status,
+                                  allowed_brokers, se_address, description, created_at, updated_at)
+            VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)
+        """, (username, pw_hash, role, brokers_json, se_address, description, now, now))
+        conn.commit()
+        row = conn.execute("SELECT * FROM accounts WHERE id = last_insert_rowid()").fetchone()
+        log.info(f"Account created: {username} (se={se_address}, broker={broker_tag})")
+        return dict(row) if row else None
+    except sqlite3.IntegrityError:
+        log.warning(f"Account create failed: username '{username}' already exists")
+        return None
+    except Exception as e:
+        log.error(f"create_account failed: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def get_all_accounts() -> list[dict]:
+    """获取所有账户列表"""
+    conn = _get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT id, username, role, status, allowed_brokers, se_address,
+                   description, created_at, updated_at
+            FROM accounts
+            ORDER BY id DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_account(account_id: int) -> bool:
+    """删除账户"""
+    conn = _get_conn()
+    try:
+        cursor = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        conn.commit()
+        ok = cursor.rowcount > 0
+        if ok:
+            log.info(f"Account deleted: id={account_id}")
+        return ok
+    except Exception as e:
+        log.error(f"delete_account failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def suspend_account(account_id: int) -> bool:
+    """暂停账户（状态设为 disabled）"""
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute("""
+            UPDATE accounts SET status='disabled', updated_at=?
+            WHERE id = ? AND status != 'disabled'
+        """, (now, account_id))
+        conn.commit()
+        ok = cursor.rowcount > 0
+        if ok:
+            log.info(f"Account suspended: id={account_id}")
+        return ok
+    except Exception as e:
+        log.error(f"suspend_account failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def resume_account(account_id: int) -> bool:
+    """恢复被暂停的账户"""
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute("""
+            UPDATE accounts SET status='active', updated_at=?
+            WHERE id = ? AND status = 'disabled'
+        """, (now, account_id))
+        conn.commit()
+        ok = cursor.rowcount > 0
+        if ok:
+            log.info(f"Account resumed: id={account_id}")
+        return ok
+    except Exception as e:
+        log.error(f"resume_account failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_account_by_id(account_id: int) -> dict | None:
+    """根据 ID 获取单个账户详情（不含密码哈希）"""
+    conn = _get_conn()
+    try:
+        row = conn.execute("""
+            SELECT id, username, role, status, allowed_brokers, se_address,
+                   description, created_at, updated_at
+            FROM accounts WHERE id = ?
+        """, (account_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_account(account_id: int, se_address: str = "", broker_tag: str = "",
+                   description: str = "", password: str = "") -> bool:
+    """
+    更新账户信息
+
+    Args:
+        account_id: 账户 ID
+        se_address: 新的 SE 地址
+        broker_tag: 新的券商标签
+        description: 新的描述信息
+        password: 新密码（为空则不修改）
+
+    Returns:
+        是否更新成功
+    """
+    import hashlib
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        brokers_json = json.dumps([broker_tag] if broker_tag else [])
+
+        if password:
+            # 包含密码修改
+            pw_hash = hashlib.sha256(password.encode()).hexdigest()
+            cursor = conn.execute("""
+                UPDATE accounts SET se_address=?, allowed_brokers=?,
+                    description=?, password_hash=?, updated_at=?
+                WHERE id = ?
+            """, (se_address, brokers_json, description, pw_hash, now, account_id))
+        else:
+            # 不改密码
+            cursor = conn.execute("""
+                UPDATE accounts SET se_address=?,
+                    allowed_brokers=?, description=?, updated_at=?
+                WHERE id = ?
+            """, (se_address, brokers_json, description, now, account_id))
+        conn.commit()
+        ok = cursor.rowcount > 0
+        if ok:
+            log.info(f"Account updated: id={account_id} (se={se_address}, broker={broker_tag})")
+        return ok
+    except Exception as e:
+        log.error(f"update_account failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+# ── 审计日志 ─────────────────────────────────────────────────────────────
 
 def _audit_log(username: str, action: str, resource: str, detail: str, ip: str = ""):
     """记录审计日志"""

@@ -63,11 +63,23 @@ async def login(req: LoginRequest):
             log.info(f"Client logged in (DB): {req.username} role={db_account.get('role')}")
             token = generate_client_token(req.username)
             brokers = [b["name"] for b in get_broker_list()]
+            # 解析账户绑定的 se_address 和 allowed_brokers
+            import json as _json
+            _se_addr = db_account.get("se_address") or ""
+            _allowed = []
+            try:
+                _ab = db_account.get("allowed_brokers")
+                if _ab:
+                    _allowed = _json.loads(_ab) if isinstance(_ab, str) else (_ab if isinstance(_ab, list) else [])
+            except Exception:
+                pass
             return LoginResponse(
                 success=True,
                 token=token,
                 broker_list=brokers if brokers else ["default"],
                 expires_in=3600,
+                se_address=_se_addr,
+                allowed_brokers=_allowed,
             )
     except Exception as e:
         log.warning(f"DB authentication failed: {e}")

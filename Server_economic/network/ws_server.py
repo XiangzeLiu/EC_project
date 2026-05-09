@@ -220,12 +220,14 @@ async def _handle_economic_query(msg: dict, sid: str) -> dict:
 
     payload = msg.get("payload", {})
     indicator = payload.get("indicator")
+    log.info(f"[{sid}] ECONOMIC_DATA_QUERY: indicator={indicator or '(all)'}")
 
     if indicator:
         data = get_indicator(indicator)
     else:
         data = get_all_indicators()
 
+    log.info(f"[{sid}] ECONOMIC_DATA_RESPONSE: {len(data) if isinstance(data, dict) else 1} indicators returned")
     return {
         "type": "ECONOMIC_DATA_RESPONSE",
         "id": msg.get("id", ""),
@@ -236,6 +238,7 @@ async def _handle_economic_query(msg: dict, sid: str) -> dict:
 
 async def _handle_status_query(msg: dict, sid: str) -> dict:
     """查询节点状态"""
+    log.info(f"[{sid}] STATUS_QUERY")
     return {
         "type": "STATUS_RESPONSE",
         "id": msg.get("id", ""),
@@ -258,6 +261,7 @@ async def _handle_status_query(msg: dict, sid: str) -> dict:
 async def _handle_summary_report(msg: dict, sid: str) -> dict:
     """获取经济数据摘要报告"""
     from ..services.economic_data import generate_summary_report
+    log.info(f"[{sid}] SUMMARY_REPORT")
     report = generate_summary_report()
 
     return {

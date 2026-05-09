@@ -94,11 +94,11 @@
     .node-section-title .badge { font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 10px; background: #e6f7ff; color: #1890ff; }
     .node-section-title .badge.warn { background: #fff7e6; color: #faad14; }
 
-    .node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+    .node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 
     /* Card Base */
     .node-card {
-      border-radius: 8px; padding: 16px; transition: all 0.2s; position: relative;
+      border-radius: 8px; padding: 14px; transition: all 0.2s; position: relative;
       border: 1px solid transparent;
     }
     .node-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
@@ -195,11 +195,114 @@
       max-width:140px; overflow:hidden;text-overflow:ellipsis;display:inline-block;white-space:nowrap;vertical-align:middle;}
     .token-copy:hover { color:#1677ff; }
 
+    /* === Occupied Status (Purple) === */
+    .node-card.status-occupied {
+      background: linear-gradient(135deg, #f9f0ff 0%, #efdbff 100%);
+      border-color: #d3adf7;
+    }
+    .node-card.status-occupied:hover { box-shadow: 0 4px 16px rgba(114,46,209,0.2); }
+    .nc-status-badge.occupied {
+      background: #722ed1; color: #fff; box-shadow: 0 2px 6px rgba(114,46,209,0.35);
+    }
+
+    /* Account Management Styles */
+    .acct-toolbar {
+      display: flex; align-items: stretch; gap: 14px; padding: 16px 24px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .acct-form-fields { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .acct-form-row { display: flex; gap: 8px; align-items: center; }
+    .acct-req-star { color: #ff4d4f; font-weight: 700; font-size: 14px; white-space: nowrap; flex-shrink: 0; }
+    .acct-input {
+      padding: 7px 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px;
+      outline: none; transition: border-color 0.15s;
+    }
+    .acct-input:focus { border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.1); }
+    .acct-input.req { width: calc(50% - 24px); flex: none; }
+    .acct-select {
+      padding: 7px 30px 7px 12px; border: 1px solid #d9d9d9; border-radius: 4px;
+      font-size: 13px; background: #fff; cursor: pointer; outline: none;
+      transition: border-color 0.15s; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%23999' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; width: calc(50% - 24px); flex: none;
+    }
+    .acct-select:focus { border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.1); }
+    .btn-create {
+      padding: 7px 20px; border-radius: 4px; font-size: 13px; cursor: pointer;
+      border: 1px solid #1677ff; background: #1677ff; color: #fff; font-weight: 500;
+      transition: all 0.15s; white-space: nowrap; line-height: 1.4;
+    }
+    .btn-create:hover { background: #4096ff; border-color: #4096ff; box-shadow: 0 2px 8px rgba(22,119,255,0.25); }
+    .btn-create-tall {
+      align-self: center; padding: 10px 18px; font-size: 13px;
+      border-radius: 6px; letter-spacing: 1px; height: fit-content;
+      background: linear-gradient(135deg, #1677ff 0%, #0958d9 100%);
+      box-shadow: 0 2px 8px rgba(22,119,255,0.2);
+    }
+    .btn-create-tall:hover {
+      background: linear-gradient(135deg, #4096ff 0%, #1677ff 100%);
+      box-shadow: 0 3px 12px rgba(22,119,255,0.35);
+      transform: translateY(-1px);
+    }
+    .inp-pwd::-ms-reveal { display: none; }
+    .inp-pwd::-webkit-credentials-auto-fill-button { visibility: hidden; pointer-events: none; }
+    .acct-desc { width: 100%; }
+
+    .acct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; padding: 14px 24px; }
+    .acct-card {
+      border-radius: 6px; padding: 12px; transition: all 0.2s; position: relative;
+      border: 1px solid #e8e8e8; background: #fff;
+    }
+    .acct-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .ac-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .ac-name { font-size: 13px; font-weight: 600; color: #262626; display: flex; align-items: center; gap: 5px; }
+    .ac-status-badge {
+      font-size: 10px; padding: 1px 8px; border-radius: 10px; font-weight: 600;
+    }
+    .ac-status-badge.active { background: #52c41a; color: #fff; }
+    .ac-status-badge.disabled { background: #ff4d4f; color: #fff; }
+    .ac-info { margin-bottom: 8px; }
+    .ac-row { display: flex; font-size: 11px; line-height: 20px; }
+    .ac-label { color: #888; width: 60px; flex-shrink: 0; font-weight: 500; }
+    .ac-value { color: #444; word-break: break-all; flex: 1; }
+    .ac-actions { display: flex; gap: 5px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.06); flex-wrap: wrap; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.45); z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal-box {
+      background: #fff; border-radius: 8px; width: 480px; max-width: 90vw;
+      max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      padding: 16px 20px; border-bottom: 1px solid #f0f0f0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-title { font-size: 16px; font-weight: 600; color: #262626; }
+    .modal-close {
+      cursor: pointer; font-size: 18px; color: #999; border: none; background: none;
+      padding: 2px 6px; border-radius: 4px; line-height: 1;
+    }
+    .modal-close:hover { color: #333; background: #f5f5f5; }
+    .modal-body { padding: 20px; }
+    .modal-footer {
+      padding: 12px 20px; border-top: 1px solid #f0f0f0;
+      display: flex; justify-content: flex-end; gap: 8px;
+    }
+    .detail-field { margin-bottom: 12px; }
+    .detail-label { font-size: 12px; color: #888; margin-bottom: 2px; }
+    .detail-value { font-size: 14px; color: #333; word-break: break-all; }
+
     /* Responsive */
     @media (max-width: 768px) {
       .sidebar { position: fixed; z-index:100; left:-100%; transition:left 0.25s; }
       .sidebar.open { left: 0; }
       .node-grid { grid-template-columns: 1fr; }
+      .acct-grid { grid-template-columns: 1fr; }
+      .acct-toolbar { flex-direction: column; }
     }
   </style>
 </head>
@@ -246,16 +349,22 @@
         <!-- 模块一：账户管理 -->
         <div class="module-card" id="mod-accounts">
           <div class="module-header">
-            <div class="module-title">
-              &#128100; 账户管理
-              <span class="module-badge coming-soon">功能开发中</span>
+            <div class="module-title">&#128100; 账户管理</div>
+            <button class="btn-refresh" onclick="refreshAccounts()">&#8635; 刷新</button>
+          </div>
+
+          <!-- 注册表单 -->
+          <div class="acct-toolbar">
+            <div class="acct-form-fields">
+              <div class="acct-form-row"><input class="acct-input req" id="inp-username" placeholder="用户名" autocomplete="off" /><span class="acct-req-star"> *</span><input class="acct-input req inp-pwd" id="inp-password" type="password" placeholder="密码" autocomplete="new-password" /><span class="acct-req-star"> *</span></div>
+              <div class="acct-form-row"><input class="acct-input req" id="inp-se-addr" placeholder="SE 地址" title="如 127.0.0.1:8900" autocomplete="off" /><span class="acct-req-star"> *</span><select class="acct-select" id="inp-broker" autocomplete="off"><option value="" disabled selected>选择券商</option><option value="IB">IB</option><option value="TEST">TEST</option></select><span class="acct-req-star"> *</span></div>
+              <div class="acct-form-row"><input class="acct-input acct-desc" id="inp-desc" placeholder="描述（选填）" autocomplete="off" /></div>
             </div>
+            <button class="btn-create btn-create-tall" onclick="createAccount()">+ 新建账户</button>
           </div>
-          <div class="module-body">
-            <div class="placeholder-icon">&#128179;</div>
-            <div class="placeholder-text">账户管理模块</div>
-            <div class="placeholder-sub">交易客户端用户账号的增删改查、权限配置、券商绑定等功能即将上线</div>
-          </div>
+
+          <!-- 账户列表 -->
+          <div class="acct-grid" id="accounts-body"></div>
         </div>
 
         <!-- 模块二：Server_economic 节点管理 -->
@@ -352,80 +461,84 @@
       }).join('');
     }
 
-    // 渲染已注册节点（卡片式，带状态底色）
+    // 渲染已注册节点（卡片式，带状态底色 + 占用状态）
     function renderNodes(nodes){
+      _nodesCache = nodes || [];  // 缓存供详情弹窗使用
       var container=document.getElementById('nodes-body'),badge=document.getElementById('online-count'),countBadge=document.getElementById('node-count');
       if(!nodes||nodes.length===0){
         container.innerHTML='<div class="empty-state"><div class="empty-icon">&#128524;</div>暂无已注册节点</div>';
         badge.style.display='none';countBadge.textContent='0 个节点';return;
       }
 
-      // 统计各状态数量
-      var onlineCount=0,suspendedCount=0,offlineCount=0,approvedCount=0;
+      var onlineCount=0,suspendedCount=0,offlineCount=0,approvedCount=0,occupiedCount=0;
       nodes.forEach(function(n){
-        if(n.req_status==='online') onlineCount++;
+        if(n.occupied_by){occupiedCount++;}
+        else if(n.req_status==='online') onlineCount++;
         else if(n.req_status==='suspended') suspendedCount++;
         else if(n.req_status==='offline') offlineCount++;
         else approvedCount++;
       });
 
-      var totalActive=onlineCount+suspendedCount+offlineCount+approvedCount;
+      var totalActive=onlineCount+suspendedCount+offlineCount+approvedCount+occupiedCount;
       var badgeParts=[onlineCount+' 在线'];
+      if(occupiedCount) badgeParts.push(occupiedCount+' 已占用');
       if(suspendedCount) badgeParts.push(suspendedCount+' 已暂停');
       if(offlineCount) badgeParts.push(offlineCount+' 离线');
       badge.style.display='';badge.textContent=badgeParts.join(' / ');countBadge.textContent=totalActive+' 个节点';
 
       container.innerHTML=nodes.map(function(n){
         var st=n.req_status||'approved';
+        var isOccupied=!!(n.occupied_by);
 
-        // 状态映射：CSS类 + 徽章文字 + 颜色
+        // 状态映射
         var cardClass,stLabel;
-        if(st==='online'){cardClass='status-online';stLabel='● 运行中';}
+        if(isOccupied){cardClass='status-occupied';stLabel='🔒 已占用';}
+        else if(st==='online'){cardClass='status-online';stLabel='● 运行中';}
         else if(st==='suspended'){cardClass='status-suspended';stLabel='● 已暂停';}
         else if(st==='offline'){cardClass='status-offline';stLabel='● 已离线';}
         else{cardClass='status-approved';stLabel='○ 已批准';}
 
-        // 显示最后心跳时间（方便判断是否真正离线）
         var hbInfo='';
         if(n.last_heartbeat){
           try{var hbD=new Date(n.last_heartbeat);hbInfo=hbD.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
           catch(e){hbInfo=n.last_heartbeat;}
         }
-
         var ts=n.token?n.token.substring(0,14)+'...':'-';
 
-        // 根据状态生成操作按钮组
-        var actionBtns='';
-        if(st==='online'){
-          // 运行中：详情 | 暂停 | 删除
+        // 操作按钮（被占用时禁用操作）
+        var actionBtns='', locked=isOccupied?'disabled':'';
+        if(isOccupied){
+          // 已占用：仅显示详情 + 释放按钮
           actionBtns=''
-            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
-            +'<button class="btn-action btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)">⏸ 暂停</button>'
-            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+            +'<span style="font-size:11px;color:#722ed1;padding:5px 8px;border:1px solid #d3adf7;background:#f9f0ff;border-radius:4px;">被 '+escapeHtml(n.occupied_by)+' 占用</span>';
+        }else if(st==='online'){
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+            +'<button class="btn-action btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>暂停</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>删除</button>';
         }else if(st==='suspended'){
-          // 已暂停：详情 | 恢复 | 删除
           actionBtns=''
-            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
-            +'<button class="btn-action btn-success-sm" onclick="resumeNode(\''+escapeHtml(n.server_id)+'\',this)">▶ 恢复</button>'
-            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+            +'<button class="btn-action btn-success-sm" onclick="resumeNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>恢复</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>删除</button>';
         }else if(st==='offline'){
-          // 已离线：详情 | 删除  （离线状态不支持暂停/恢复）
           actionBtns=''
-            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
-            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>删除</button>';
         }else{
-          // 已批准(未连接)：详情 | 暂停 | 删除
           actionBtns=''
-            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">📋 详情</button>'
-            +'<button class="btn-action btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)">⏸ 暂停</button>'
-            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)">🗑 删除</button>';
+            +'<button class="btn-action btn-detail" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+            +'<button class="btn-action btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>暂停</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteNode(\''+escapeHtml(n.server_id)+'\',this)" '+locked+'>删除</button>';
         }
 
         return '<div class="node-card '+cardClass+'">'
           +'<div class="nc-header">'
-          +'  <div class="nc-name"><span class="nc-status-badge '+st+'">'+stLabel+'</span> '+escapeHtml(n.node_name)+'</div>'
+          +'  <div class="nc-name"><span class="nc-status-badge '+(isOccupied?'occupied':st)+'">'+stLabel+'</span> '+escapeHtml(n.node_name)+'</div>'
           +'</div>'
           +'<div class="nc-info">'
+          +(isOccupied?'<div class="nc-row"><span class="nc-label">占用者</span><span class="ac-value" style="color:#722ed1;font-weight:500;">'+escapeHtml(n.occupied_by)+'</span></div>':'')
           +'<div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value" style="font-family:monospace;font-size:11px;">'+escapeHtml(n.server_id||'-')+'</span></div>'
           +'<div class="nc-row"><span class="nc-label">区域</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
           +'<div class="nc-row"><span class="nc-label">当前 IP</span><span class="nc-value">'+escapeHtml(n.current_ip||n.host||'-')+'</span></div>'
@@ -439,7 +552,10 @@
 
     async function refreshNodes(){
       try{
-        var[pRes,nRes]=await Promise.all([fetch('/api/nodes/pending'),fetch('/api/nodes/list')]);
+        var[pRes,nRes]=await Promise.all([
+          fetch('/api/nodes/pending',{credentials:'same-origin'}),
+          fetch('/api/nodes/list',{credentials:'same-origin'})
+        ]);
         var pData=await pRes.json(),nData=await nRes.json();
         if(pData.ok)renderPending(pData.data);else console.warn('Failed pending:',pData);
         if(nData.ok){renderNodes(nData.data);var sb=document.getElementById('status-node-count');if(sb)sb.textContent=(nData.data||[]).length;}
@@ -450,7 +566,7 @@
     async function approveNode(reqId,btn){
       btn.disabled=true;btn.textContent='处理中...';
       try{
-        var r=await fetch('/api/nodes/'+reqId+'/approve',{method:'POST'});
+        var r=await fetch('/api/nodes/'+reqId+'/approve',{method:'POST',credentials:'same-origin'});
         var d=await r.json();
         if(d.ok){refreshNodes();}else{alert('失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='✓ 通过';}
       }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='✓ 通过';}
@@ -460,7 +576,7 @@
       var reason=prompt('输入拒绝原因（可选）：')||'';
       btn.disabled=true;btn.textContent='处理中...';
       try{
-        var r=await fetch('/api/nodes/'+reqId+'/reject?reason='+encodeURIComponent(reason),{method:'POST'});
+        var r=await fetch('/api/nodes/'+reqId+'/reject?reason='+encodeURIComponent(reason),{method:'POST',credentials:'same-origin'});
         var d=await r.json();
         if(d.ok){refreshNodes();}else{alert('失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='✕ 拒绝';}
       }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='✕ 拒绝';}
@@ -471,7 +587,7 @@
       if(!confirm('确认彻底删除节点 '+serverId+' ？\n此操作不可恢复，将同时清理数据库中的所有关联记录。'))return;
       btn.disabled=true;btn.textContent='删除中...';
       try{
-        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/delete',{method:'POST'});
+        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/delete',{method:'POST',credentials:'same-origin'});
         var d=await r.json();
         if(d.ok){refreshNodes();}else{alert('删除失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='🗑 删除';}
       }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='🗑 删除';}
@@ -482,7 +598,7 @@
       if(!confirm('确认暂停节点 '+serverId+' ？\n暂停后该节点的访问将被拒绝。'))return;
       btn.disabled=true;btn.textContent='暂停中...';
       try{
-        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/suspend',{method:'POST'});
+        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/suspend',{method:'POST',credentials:'same-origin'});
         var d=await r.json();
         if(d.ok){refreshNodes();}else{alert('暂停失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='⏸ 暂停';}
       }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='⏸ 暂停';}
@@ -492,14 +608,60 @@
     async function resumeNode(serverId,btn){
       btn.disabled=true;btn.textContent='恢复中...';
       try{
-        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/resume',{method:'POST'});
+        var r=await fetch('/api/nodes/'+encodeURIComponent(serverId)+'/resume',{method:'POST',credentials:'same-origin'});
         var d=await r.json();
         if(d.ok){refreshNodes();}else{alert('恢复失败:'+(d.error||d.detail));btn.disabled=false;btn.textContent='▶ 恢复';}
       }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='▶ 恢复';}
     }
 
+    // 全局缓存节点数据（供详情弹窗使用）
+    var _nodesCache = [];
+
     function showNodeDetail(serverId){
-      alert('节点详情\nServer ID: '+serverId+'\n\n（更多详情功能开发中）');
+      var n = _nodesCache.find(function(x){ return x.server_id === serverId; });
+      if(!n){alert('未找到节点信息');return;}
+
+      var hbInfo='-';
+      if(n.last_heartbeat){
+        try{var hbD=new Date(n.last_heartbeat);hbInfo=hbD.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+        catch(e){hbInfo=n.last_heartbeat;}
+      }
+      var ts=n.token||'-';
+      var brokers='-';
+      try{var _b=JSON.parse(n.allowed_brokers||'[]');brokers=_b.length?_b.join(', '):'-';}catch(e){}
+
+      var stMap={'online':'运行中','suspended':'已暂停','offline':'已离线','approved':'已批准','pending':'待审核','rejected':'已拒绝'};
+      var stLabel=stMap[n.req_status]||n.req_status;
+      var stColor=n.occupied_by?'#722ed1':(
+        n.req_status==='online'?'#389e0d':
+        n.req_status==='suspended'?'#d48806':
+        n.req_status==='offline'?'#cf1322':'#1677ff'
+      );
+
+      var html=''
+        +'<div class="modal-overlay" onclick="this.remove()">'
+        +'  <div class="modal-box" onclick="event.stopPropagation()">'
+        +'    <div class="modal-header">'
+        +'      <span class="modal-title">节点详情 - '+escapeHtml(n.node_name)+'</span>'
+        +'      <button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>'
+        +'    </div>'
+        +'    <div class="modal-body">'
+        +(n.occupied_by?'<div class="detail-field"><div class="detail-label">占用状态</div><div class="detail-value" style="color:#722ed1;font-weight:600;">🔒 已被 '+escapeHtml(n.occupied_by)+' 占用</div></div>':'')
+        +'<div class="detail-field"><div class="detail-label">Server ID</div><div class="detail-value" style="font-family:monospace;font-size:12px;">'+escapeHtml(n.server_id)+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">节点名称</div><div class="detail-value">'+escapeHtml(n.node_name)+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">状态</div><div class="detail-value"><span style="display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;color:#fff;background:'+stColor+';">● '+stLabel+'</span></div></div>'
+        +'<div class="detail-field"><div class="detail-label">区域</div><div class="detail-value">'+escapeHtml(n.region||'-')+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">注册 IP</div><div class="detail-value">'+escapeHtml(n.host||'-')+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">当前 IP</div><div class="detail-value">'+escapeHtml(n.current_ip||'-')+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">最后心跳</div><div class="detail-value">'+hbInfo+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">Token</div><div class="detail-value" style="font-family:monospace;font-size:11px;word-break:break-all;"><span class="token-copy" title="点击复制 Token" onclick="copyToken(\''+(n.token||'')+'\',this)">'+ts+'</span></div></div>'
+        +'<div class="detail-field"><div class="detail-label">创建时间</div><div class="detail-value">'+fmtTime(n.created_at)+'</div></div>'
+        +'<div class="detail-field"><div class="detail-label">更新时间</div><div class="detail-value">'+fmtTime(n.updated_at)+'</div></div>'
+        +'    </div>'
+        +'    <div class="modal-footer"><button class="btn-action btn-detail" onclick="this.closest(\'.modal-overlay\').remove()">关闭</button></div>'
+        +'  </div>'
+        +'</div>';
+      document.body.insertAdjacentHTML('beforeend',html);
     }
 
     function copyToken(token,elem){
@@ -510,7 +672,219 @@
       }).catch(function(){prompt('请手动复制 Token:',token);});
     }
 
-    refreshNodes();  // 页面加载时自动刷新
+    // ════════════════════════════════════════
+    //  账户管理
+    // ════════════════════════════════════════
+
+    async function refreshAccounts(){
+      try{
+        var r=await fetch('/api/accounts/list',{credentials:'same-origin'});
+        var d=await r.json();
+        if(d.ok)renderAccounts(d.data);else console.warn('Failed accounts:',d);
+      }catch(e){console.error('Refresh accounts error:',e);}
+    }
+
+    function renderAccounts(accounts){
+      var container=document.getElementById('accounts-body');
+      if(!accounts||accounts.length===0){
+        container.innerHTML='<div class="empty-state"><div class="empty-icon">&#128100;</div>暂无注册账户</div>';
+        return;
+      }
+      container.innerHTML=accounts.map(function(a){
+        var st=a.status||'active';
+        var stBadge=st==='active'
+          ?'<span class="ac-status-badge active">● 正常</span>'
+          :'<span class="ac-status-badge disabled">● 已暂停</span>';
+
+        // 解析 allowed_brokers JSON
+        var brokers='-', seAddr=a.se_address||'-', desc=a.description||'-';
+        try{var _b=JSON.parse(a.allowed_brokers);brokers=_b.length?_b.join(', '):'-';}catch(e){}
+
+        // 操作按钮
+        var actionBtns='';
+        if(st==='active'){
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showAccountDetail('+a.id+')">详情</button>'
+            +'<button class="btn-action btn-detail" onclick="showAccountEdit('+a.id+',\''+escapeHtml(a.username)+'\',\''+escapeHtml(seAddr)+'\',\''+escapeHtml(brokers.replace(/'/g,"\\'"))+'\',\''+escapeHtml(desc.replace(/'/g,"\\"))+'\')">编辑</button>'
+            +'<button class="btn-action btn-warn" onclick="suspendAccount('+a.id+',this)">暂停</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteAccount('+a.id+',this)">删除</button>';
+        }else{
+          actionBtns=''
+            +'<button class="btn-action btn-detail" onclick="showAccountDetail('+a.id+')">详情</button>'
+            +'<button class="btn-action btn-success-sm" onclick="resumeAccount('+a.id+',this)">恢复</button>'
+            +'<button class="btn-action btn-delete" onclick="deleteAccount('+a.id+',this)">删除</button>';
+        }
+
+        return '<div class="acct-card">'
+          +'<div class="ac-header">'
+          +'  <div class="ac-name">'+stBadge+' '+escapeHtml(a.username)+'</div>'
+          +'</div>'
+          +'<div class="ac-info">'
+          +'<div class="ac-row"><span class="ac-label">角色</span><span class="ac-value">'+escapeHtml(a.role||'trader')+'</span></div>'
+          +'<div class="ac-row"><span class="ac-label">SE 地址</span><span class="ac-value">'+escapeHtml(seAddr)+'</span></div>'
+          +'<div class="ac-row"><span class="ac-label">券商</span><span class="ac-value">'+escapeHtml(brokers)+'</span></div>'
+          +'<div class="ac-row"><span class="ac-label">描述</span><span class="ac-value">'+escapeHtml(desc)+'</span></div>'
+          +'<div class="ac-row"><span class="ac-label">创建时间</span><span class="ac-value">'+fmtTime(a.created_at)+'</span></div>'
+          +'</div>'
+          +'<div class="ac-actions">'+actionBtns+'</div>'
+          +'</div>';
+      }).join('');
+    }
+
+    async function createAccount(){
+      try {
+        var uEl=document.getElementById('inp-username');
+        var pEl=document.getElementById('inp-password');
+        var sEl=document.getElementById('inp-se-addr');
+        var bEl=document.getElementById('inp-broker');
+        var dEl=document.getElementById('inp-desc');
+
+        var username=uEl.value.trim();
+        var password=pEl.value.trim();
+        var seAddress=sEl.value.trim();
+        var broker=bEl.value.trim();
+        var description=dEl.value.trim();
+
+        if(!username){alert('请输入用户名');return;}
+        if(!password){alert('请输入密码');return;}
+        if(!seAddress){alert('请输入 SE 地址');return;}
+        if(!broker){alert('请输入券商');return;}
+
+        var r=await fetch('/api/accounts/create',{
+          method:'POST',
+          credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({username:username,password:password,se_address:seAddress,broker_tag:broker,description:description})
+        });
+        var res=await r.json();
+        if(res.ok){
+          alert(res.message||'创建成功');
+          document.getElementById('inp-username').value='';
+          document.getElementById('inp-password').value='';
+          document.getElementById('inp-se-addr').value='';
+          document.getElementById('inp-broker').value='';
+          document.getElementById('inp-desc').value='';
+          refreshAccounts();
+        }else{alert('创建失败:'+(res.error||'未知错误'));}
+      }catch(err){
+        alert('网络错误:'+err.message);
+      }
+    }
+
+    async function deleteAccount(id,btn){
+      if(!confirm('确认删除该账户？此操作不可恢复。'))return;
+      btn.disabled=true;btn.textContent='删除中...';
+      try{
+        var r=await fetch('/api/accounts/'+id+'/delete',{method:'POST',credentials:'same-origin'});
+        var d=await r.json();
+        if(d.ok){refreshAccounts();}else{alert('删除失败:'+(d.error||''));btn.disabled=false;btn.textContent='删除';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='删除';}
+    }
+
+    async function suspendAccount(id,btn){
+      if(!confirm('确认暂停该账户？暂停后该账户将无法登录。'))return;
+      btn.disabled=true;btn.textContent='处理中...';
+      try{
+        var r=await fetch('/api/accounts/'+id+'/suspend',{method:'POST',credentials:'same-origin'});
+        var d=await r.json();
+        if(d.ok){refreshAccounts();}else{alert('失败:'+(d.error||''));btn.disabled=false;btn.textContent='暂停';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='暂停';}
+    }
+
+    async function resumeAccount(id,btn){
+      btn.disabled=true;btn.textContent='恢复中...';
+      try{
+        var r=await fetch('/api/accounts/'+id+'/resume',{method:'POST',credentials:'same-origin'});
+        var d=await r.json();
+        if(d.ok){refreshAccounts();}else{alert('失败:'+(d.error||''));btn.disabled=false;btn.textContent='恢复';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='恢复';}
+    }
+
+    function showAccountDetail(id){
+      fetch('/api/accounts/'+id+'/detail',{credentials:'same-origin'})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(!d.ok){alert('获取详情失败:'+(d.error||''));return;}
+          var a=d.data;
+          try{var _b=JSON.parse(a.allowed_brokers);a._brokerStr=_b.length?_b.join(', '):'-';}catch(e){a._brokerStr='-';}
+          var html=''
+            +'<div class="modal-overlay" onclick="this.remove()">'
+            +'  <div class="modal-box" onclick="event.stopPropagation()">'
+            +'    <div class="modal-header">'
+            +'      <span class="modal-title">账户详情 - '+escapeHtml(a.username)+'</span>'
+            +'      <button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>'
+            +'    </div>'
+            +'    <div class="modal-body">'
+            +'      <div class="detail-field"><div class="detail-label">ID</div><div class="detail-value">'+a.id+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">用户名</div><div class="detail-value">'+escapeHtml(a.username)+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">角色</div><div class="detail-value">'+escapeHtml(a.role)+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">状态</div><div class="detail-value">'+(a.status==='active'?'正常':'已暂停')+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">SE 地址</div><div class="detail-value">'+escapeHtml(a.se_address||'-')+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">券商</div><div class="detail-value">'+escapeHtml(a._brokerStr)+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">描述</div><div class="detail-value">'+escapeHtml(a.description||'-')+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">创建时间</div><div class="detail-value">'+fmtTime(a.created_at)+'</div></div>'
+            +'      <div class="detail-field"><div class="detail-label">更新时间</div><div class="detail-value">'+fmtTime(a.updated_at)+'</div></div>'
+            +'    </div>'
+            +'    <div class="modal-footer"><button class="btn-action btn-detail" onclick="this.closest(\'.modal-overlay\').remove()">关闭</button></div>'
+            +'  </div>'
+            +'</div>';
+          document.body.insertAdjacentHTML('beforeend',html);
+        })
+        .catch(function(e){alert('网络错误:'+e.message);});
+    }
+
+    function showAccountEdit(id,username,seAddr,broker,desc){
+      var html=''
+        +'<div class="modal-overlay" onclick="this.remove()">'
+        +'  <div class="modal-box" onclick="event.stopPropagation()">'
+        +'    <div class="modal-header">'
+        +'      <span class="modal-title">编辑账户 - '+escapeHtml(username)+'</span>'
+        +'      <button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>'
+        +'    </div>'
+        +'    <div class="modal-body">'
+        +'      <div style="margin-bottom:12px;"><div class="detail-label">用户名（不可改）</div><div class="detail-value" style="background:#f5f5f5;padding:6px 10px;border-radius:4px;">'+escapeHtml(username)+'</div></div>'
+        +'      <div style="margin-bottom:12px;"><div class="detail-label">SE 地址 *</div><input class="acct-input req" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" style="width:100%;" /></div>'
+        +'      <div style="margin-bottom:12px;"><div class="detail-label">券商 *</div><input class="acct-input req" id="edit-broker" value="'+escapeHtml(broker)+'" style="width:100%;" /></div>'
+        +'      <div style="margin-bottom:12px;"><div class="detail-label">描述</div><input class="acct-input opt" id="edit-desc" value="'+escapeHtml(desc)+'" style="width:100%;" /></div>'
+        +'      <div style="margin-bottom:12px;"><div class="detail-label">新密码（留空不修改）</div><input class="acct-input opt" type="password" id="edit-pwd" placeholder="留空则不修改密码" style="width:100%;" /></div>'
+        +'    </div>'
+        +'    <div class="modal-footer">'
+        +'      <button class="btn-action btn-detail" onclick="this.closest(\'.modal-overlay\').remove()">取消</button>'
+        +'      <button class="btn-create" onclick="doUpdateAccount('+id+',this)">保存修改</button>'
+        +'    </div>'
+        +'  </div>'
+        +'</div>';
+      document.body.insertAdjacentHTML('beforeend',html);
+    }
+
+    async function doUpdateAccount(id,btn){
+      var seAddress=document.getElementById('edit-se-addr').value.trim();
+      var broker=document.getElementById('edit-broker').value.trim();
+      var desc=document.getElementById('edit-desc').value.trim();
+      var pwd=document.getElementById('edit-pwd').value;
+
+      if(!seAddress){alert('请输入 SE 地址');return;}
+      if(!broker){alert('请输入券商');return;}
+
+      btn.disabled=true;btn.textContent='保存中...';
+      try{
+        var r=await fetch('/api/accounts/'+id+'/update',{
+          method:'POST',
+          credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({se_address:seAddress,broker_tag:broker,description:desc,password:pwd})
+        });
+        var d=await r.json();
+        if(d.ok){
+          document.querySelector('.modal-overlay').remove();
+          refreshAccounts();
+          alert(d.message||'更新成功');
+        }else{alert('更新失败:'+(d.error||''));btn.disabled=false;btn.textContent='保存修改';}
+      }catch(e){alert('网络错误:'+e.message);btn.disabled=false;btn.textContent='保存修改';}
+    }
+
+    refreshNodes();
+    refreshAccounts();  // 页面加载时同时刷新账户列表
   </script>
 </body>
 </html>

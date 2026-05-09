@@ -719,6 +719,179 @@ async def resume_node(request: Request, server_id: str):
     return {"ok": True, "message": f"\u5df2\u6062\u590d\uff1a{server_id}"}
 
 
+@app.post("/api/nodes/{server_id}/occupy")
+async def occupy_node(request: Request, server_id: str):
+    """客户端连接 SE 成功后，标记节点被占用（需登录 token）"""
+    from auth import active_client_tokens
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not token or token not in active_client_tokens:
+        return {"ok": False, "error": "Unauthorized"}
+
+    body = await request.json() if await request.body() else {}
+    username = body.get("username", "")
+
+    # 检查是否已被其他账户占用
+    occ = database.get_occupation_info(server_id)
+    if occ and occ.get("occupied_by") and occ["occupied_by"] != username:
+        return {"ok": False, "error": "occupied",
+                "message": f"\u8282\u70b9\u5df2\u88ab\u8d26\u6237 '{occ['occupied_by']}' \u5360\u7528"}
+
+    ok = database.occupy_node(server_id, username)
+    if not ok:
+        return {"ok": False, "error": "\u5360\u7528\u5931\u8d25"}
+    return {"ok": True, "message": f"\u8282\u70b9\u5df2\u88ab '{username}' \u5360\u7528"}
+
+
+@app.post("/api/nodes/{server_id}/release")
+async def release_node(request: Request, server_id: str):
+    """客户端断开 SE 连接后，释放节点占用（需登录 token）"""
+    from auth import active_client_tokens
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not token or token not in active_client_tokens:
+        return {"ok": False, "error": "Unauthorized"}
+
+    database.release_node(server_id)
+    return {"ok": True, "message": f"\u5df2\u91ca\u653e\u8282\u70b9"}
+
+
+# ── 账户管理 API（管理员用）────────────────────────────────────────────
+
+@app.get("/api/accounts/list")
+async def list_accounts(request: Request):
+    """获取所有账户列表（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    accounts = database.get_all_accounts()
+    return {"ok": True, "data": accounts}
+
+
+@app.post("/api/accounts/create")
+async def create_account(request: Request):
+    """创建新账户（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    se_address = (body.get("se_address") or "").strip()
+    broker_tag = (body.get("broker_tag") or "").strip()
+    description = (body.get("description") or "").strip()
+
+    # 四项必填校验
+    if not username:
+        return {"ok": False, "error": "用户名不能为空"}
+    if not password:
+        return {"ok": False, "error": "密码不能为空"}
+    if not se_address:
+        return {"ok": False, "error": "SE 地址不能为空"}
+    if not broker_tag:
+        return {"ok": False, "error": "券商不能为空"}
+
+    result = database.create_account(
+        username=username,
+        password=password,
+        se_address=se_address,
+        broker_tag=broker_tag,
+        description=description,
+    )
+    if not result:
+        return {"ok": False, "error": f"创建失败（用户名 '{username}' 可能已存在）"}
+    # 隐藏密码哈希
+    result.pop("password_hash", None)
+    return {"ok": True, "data": result, "message": f"账户 {username} 创建成功"}
+
+
+@app.post("/api/accounts/{account_id}/delete")
+async def delete_account(request: Request, account_id: int):
+    """删除账户（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    ok = database.delete_account(account_id)
+    if not ok:
+        return {"ok": False, "error": "删除失败（可能不存在或受保护账号）"}
+    return {"ok": True, "message": f"账户已删除 (id={account_id})"}
+
+
+@app.post("/api/accounts/{account_id}/suspend")
+async def suspend_account(request: Request, account_id: int):
+    """暂停账户（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    ok = database.suspend_account(account_id)
+    if not ok:
+        return {"ok": False, "error": "暂停失败（可能已被暂停或不存在）"}
+    return {"ok": True, "message": f"账户已暂停 (id={account_id})"}
+
+
+@app.post("/api/accounts/{account_id}/resume")
+async def resume_account(request: Request, account_id: int):
+    """恢复被暂停的账户（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    ok = database.resume_account(account_id)
+    if not ok:
+        return {"ok": False, "error": "恢复失败（可能未被暂停或不存在）"}
+    return {"ok": True, "message": f"账户已恢复 (id={account_id})"}
+
+
+@app.get("/api/accounts/{account_id}/detail")
+async def get_account_detail(request: Request, account_id: int):
+    """获取单个账户的详细信息（需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    acct = database.get_account_by_id(account_id)
+    if not acct:
+        return {"ok": False, "error": "账户不存在"}
+    return {"ok": True, "data": acct}
+
+
+@app.post("/api/accounts/{account_id}/update")
+async def update_account(request: Request, account_id: int):
+    """修改账户信息（需管理员登录，可修改所有注册信息）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    body = await request.json()
+    se_address = (body.get("se_address") or "").strip()
+    broker_tag = (body.get("broker_tag") or "").strip()
+    description = (body.get("description") or "").strip()
+    password = (body.get("password") or "").strip()
+
+    # 修改时四项信息也必填
+    if not se_address:
+        return {"ok": False, "error": "SE 地址不能为空"}
+    if not broker_tag:
+        return {"ok": False, "error": "券商不能为空"}
+
+    ok = database.update_account(
+        account_id=account_id,
+        se_address=se_address,
+        broker_tag=broker_tag,
+        description=description,
+        password=password,
+    )
+    if not ok:
+        return {"ok": False, "error": "更新失败（可能账户不存在）"}
+    return {"ok": True, "message": f"账户信息已更新 (id={account_id})"}
+
+
+@app.get("/api/accounts/se-status")
+async def check_se_status(request: Request, address: str = ""):
+    """检查 SE 地址是否有对应的在线子服务器（需登录）"""
+    from auth import active_client_tokens
+    from fastapi import HTTPException
+
+    # 验证请求携带有效 token
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not token or token not in active_client_tokens:
+        return {"ok": False, "error": "Unauthorized", "online": False}
+
+    result = database.check_se_online(address)
+    return {"ok": True, **result}
+
+
 def _push_sse_result(request_id: str, data_json: str):
     """向指定 request_id 的所有 SSE 连接推送消息"""
     import asyncio

@@ -55,6 +55,9 @@ class TradingSession:
         self.mock_mode = False
         self._ET = ZoneInfo(TZ_ET_NAME)
         self._pos_error = ""
+        # 登录后从 SM 获取的账户信息
+        self.se_address: str = ""
+        self.allowed_brokers: list[str] = []
 
     # ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +74,9 @@ class TradingSession:
         })
         if status == 200:
             self.http.token = resp.get("token", "")
+            self.se_address = resp.get("se_address", "") or ""
+            _ab = resp.get("allowed_brokers") or []
+            self.allowed_brokers = _ab if isinstance(_ab, list) else []
             self.connected = True
             self.mock_mode = False
             return True, "Connected"

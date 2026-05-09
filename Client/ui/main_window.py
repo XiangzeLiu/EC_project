@@ -18,6 +18,7 @@ from ..constants import *
 from ..config import load_credentials, save_credentials
 from ..network.http_client import HttpClient
 from ..network.ws_client import QuoteStream
+from ..network.se_websocket import SEWebSocketClient
 from ..services.trading_session import TradingSession, sanitize
 from .trading_panel import TradingPanel
 from .positions_panel import PositionsPanel
@@ -45,21 +46,9 @@ class TradingTerminal(tk.Tk):
         self.minsize(1400, 750)
         self.configure(bg=DARK_BG)
 
-        # ── 先初始化通信组件（供登录验证使用）───────────────────────
-        self.http = HttpClient()
-        self.session = TradingSession(self.http)
-
-        # ── 弹出登录窗口（内嵌验证，失败不关闭）─────────────────────
-        login = LoginDialog(self, auth_fn=self.session.login)
-        creds = login.credentials
-        if not creds:
-            # 用户取消登录，关闭应用
-            self.destroy()
-            return
-
-        username, password = creds
-
         # ── 预初始化引用（避免属性错误）───────────────────────────────
+        self.http = HttpClient()
+        self.session = None
         self.panels: dict[int, TradingPanel] = {}
         self.active_panel_id: int = 0
         self.quote_queue = queue.Queue()
@@ -77,32 +66,465 @@ class TradingTerminal(tk.Tk):
         self.status_var: tk.StringVar = None
         self.status_lbl: tk.Label = None
         self.time_var: tk.StringVar = None
+        self.log_area: LogArea | None = None
 
-        # 构建UI（不含顶栏登录区）
+        # SE 直连组件
+        self._se_client: SEWebSocketClient | None = None
+        self._se_connected: bool = False
+        self._se_status_var: tk.StringVar = None
+        self._se_btn: tk.Button | None = None
+        self._session_id: str = ""
+        self._node_info: dict = {}
+        self._se_target_address: str = ""  # 登录后动态获取的 SE 地址
+        self._se_server_id: str = ""       # 当前 SE 对应的 server_id（用于占用/释放）
+        self._last_connected_se: str = ""   # 最近一次连接的 SE 地址
+        self._login_username: str = ""      # 当前登录用户名
+        self._login_password: str = ""      # 当前登录密码（取消返回时回填）
+
+        # 初始化界面容器（占满窗口，后续销毁后替换为主界面）
+        self._init_frame: tk.Frame | None = None
+        self._init_ready = False   # 标记：全部连接成功后才构建主界面
+
+        # 显示初始化连接界面
+        self._show_init_screen()
+
+        # 启动时先弹出登录界面，用户点击登录后才进行连接验证
+        self.after(200, self._show_login_first)
+
+    # ── Init Screen & Connection Flow ─────────────────────────────────────
+
+    def _show_init_screen(self):
+        """显示初始化连接界面（占满窗口，连接成功后销毁）"""
+        self._init_frame = tk.Frame(self, bg=DARK_BG)
+        self._init_frame.pack(fill="both", expand=True)
+
+        # 居中容器
+        center = tk.Frame(self._init_frame, bg=DARK_BG)
+        center.place(relx=0.5, rely=0.45, anchor="center")
+
+        tk.Label(center, text="\u25cf TRADING TERMINAL",
+                 bg=DARK_BG, fg=ACCENT_BLUE, font=FONT_TITLE).pack(pady=(0, 8))
+
+        tk.Label(center, text="\u8fde\u63a5\u4e2d\u2026",
+                 bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM).pack(pady=(0, 28))
+
+        # 步骤状态标签（内部追踪，不在UI上展示）
+        self._init_steps: dict[str, tuple[tk.Label, tk.StringVar]] = {}
+
+        # 底部提示信息（字体加大）
+        self._init_hint_var = tk.StringVar(value="")
+        tk.Label(center, textvariable=self._init_hint_var, bg=DARK_BG,
+                 fg=ACCENT_RED, font=FONT_UI, wraplength=440,
+                 justify="center").pack(pady=(20, 0))
+
+        # 按钮容器（重试 + 取消）
+        btn_container = tk.Frame(center, bg=DARK_BG)
+        btn_container.pack(pady=(16, 0))
+        # 重试按钮（初始隐藏）
+        self._retry_btn = tk.Button(
+            btn_container,             text="\u91cd\u8bd5", font=FONT_UI_SM,
+            bg=PANEL_BG, fg=ACCENT_BLUE, activebackground=BORDER,
+            activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
+            padx=20, pady=6, command=self._on_init_retry,
+        )
+        # 取消按钮（初始隐藏，点击返回登录界面）
+        self._cancel_btn = tk.Button(
+            btn_container, text="\u53d6\u6d88", font=FONT_UI_SM,
+            bg=PANEL_BG, fg=ACCENT_RED, activebackground=BORDER,
+            activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
+            padx=20, pady=6, command=self._on_init_cancel,
+        )
+
+    def _update_init_step(self, step_key: str, status: str, color: str = None):
+        """更新初始化步骤的状态文本和颜色"""
+        if step_key not in self._init_steps:
+            return
+        lbl, var = self._init_steps[step_key]
+        var.set(status)
+        if color:
+            lbl.config(fg=color)
+        self.update_idletasks()
+
+    def _show_login_first(self):
+        """启动时首先弹出登录对话框（用户输入账户密码后才启动连接流程）"""
+        self.session = TradingSession(self.http)
+        # 首次打开不填充，取消返回时填充上次输入的凭据
+        login = LoginDialog(
+            self, auth_fn=self.session.login,
+            default_user=self._login_username,
+            default_pass=self._login_password,
+        )
+        creds = login.credentials
+        if not creds:
+            # 用户关闭了登录窗口
+            self.quit()
+            return
+
+        username, password = creds
+        if not self.session.connected:
+            # 登录认证失败，重新弹出登录框让用户重试（保留已输入的账号密码）
+            self._login_username = username
+            self._login_password = password
+            self.after(0, lambda: self._show_login_first())
+            return
+
+        self._login_username = username
+        self._login_password = password
+        self._update_init_step("auth", f"OK ({username})", ACCENT_GREEN)
+        save_credentials(username, password)
+
+        # 登录成功 → 启动 SM 检查 + SE 验证流程
+        self.after(0, self._start_connection_flow)
+
+    def _start_connection_flow(self):
+        """
+        登录成功后的连接流程（SM检查 → SE在线验证 → SE直连）
+        全部成功 → 销毁初始化界面，构建主交易界面
+        失败时提供 重试/取消 按钮
+        """
+        self._update_init_step("sm", "Connecting...", ACCENT_YELLOW)
+        self._init_hint_var.set("")
+        self._retry_btn.pack_forget()
+        if hasattr(self, '_cancel_btn'):
+            self._cancel_btn.pack_forget()
+
+        def _check_sm():
+            """Step 1: 检查 SM 是否可达"""
+            ok = self.http.health_check()
+            if ok:
+                self.after(0, lambda: self._update_init_step("sm", "Connected", ACCENT_GREEN))
+                self.after(300, _validate_and_connect_se)
+            else:
+                self.after(0, lambda: self._on_init_failed(
+                    "sm",
+                    "\u65e0\u6cd5\u8fde\u63a5\u5230\u670d\u52a1\u7ba1\u7406\u5668",
+                    "\u8bf7\u786e\u4fdd\u670d\u52a1\u7ba1\u7406\u5668\u5df2\u542f\u52a8\u4e14\u7f51\u7edc\u901a\u7545\u3002",
+                ))
+
+        def _validate_and_connect_se():
+            """Step 2: 验证 SE 在线状态 + 连接 SE"""
+            se_addr = getattr(self.session, 'se_address', '') or ''
+            if se_addr:
+                _validate_se(se_addr)
+            else:
+                # 即使是默认地址，也必须先通过 SM 验证节点在线
+                _validate_se(DEFAULT_SE_HOST)
+
+        def _validate_se(se_address: str):
+            """验证 SE 地址对应的子服务器是否在线（含占用检查）"""
+            self._update_init_step("se", "Validating SE...", ACCENT_YELLOW)
+
+            def _check():
+                try:
+                    status_code, resp_data = self.http.get(
+                        f"/api/accounts/se-status?address={se_address}",
+                    )
+                    if status_code == 200 and resp_data.get("ok"):
+                        if resp_data.get("online"):
+                            # 检查是否被其他账户占用
+                            occupied_by = (resp_data.get("occupied_by") or "").strip()
+                            if occupied_by and occupied_by != self._login_username:
+                                self.after(0, lambda ob=occupied_by: self._on_init_failed(
+                                    "se",
+                                    f"\u5b50\u670d\u52a1\u5668\u5df2\u88ab\u5360\u7528",
+                                    f"\u5f53\u524d\u5b50\u670d\u52a1\u5668\u5df2\u88ab\u8d26\u6237 \u201c{ob}\u201d \u5360\u7528\uff0c\u65e0\u6cd5\u8fde\u63a5\u3002",
+                                ))
+                                return
+                            # 在线且未被占用（或被自己占用）→ 立即注册占用 + 记录信息 + 连接
+                            node_name = resp_data.get("node_name", "")
+                            self._se_target_address = se_address
+                            self._se_server_id = resp_data.get("server_id", "")
+                            # 诊断：记录 server_id，便于排查占用注册失败
+                            _log = getattr(self, 'log_area', None)
+                            if _log:
+                                _log.log(f"[SE] se-status 返回: server_id={self._se_server_id}, node={node_name}, occupied_by={resp_data.get('occupied_by', '')}", "inf")
+                            # ⚡ 立即注册节点占用（在WS连接之前，消除竞态窗口）
+                            self._occupy_se_node()
+                            self.after(0, lambda: self._update_init_step(
+                                "se", f"SE OK ({node_name})", ACCENT_GREEN))
+                            self.after(200, lambda: _connect_se(se_address))
+                        else:
+                            self.after(0, lambda: self._on_init_failed(
+                                "se",
+                                "\u5b50\u670d\u52a1\u5668\u4e0d\u5728\u7ebf",
+                                "\u6240\u5206\u914d\u7684\u5b50\u670d\u52a1\u5668\u76ee\u524d\u79bb\u7ebf\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u3002",
+                            ))
+                    else:
+                        msg = resp_data.get("error", "Unknown") if isinstance(resp_data, dict) else "Unknown"
+                        self.after(0, lambda m=msg: self._on_init_failed(
+                            "se", "\u5b50\u670d\u52a1\u5668\u9a8c\u8bc1\u5931\u8d25", ""))
+                except Exception as e:
+                    self.after(0, lambda: self._on_init_failed(
+                        "se", "\u9a8c\u8bc1\u5b50\u670d\u52a1\u5668\u65f6\u7f51\u7edc\u9519\u8bef", ""))
+
+            threading.Thread(target=_check, daemon=True).start()
+
+        def _connect_se(target_addr: str):
+            """建立 SE WebSocket 直连"""
+            self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
+            token = self.http.token
+            target = target_addr or getattr(self, '_se_target_address', '') or DEFAULT_SE_HOST
+            if ':' in target:
+                hp = target.rsplit(':', 1)
+                host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
+            else:
+                host, port = target, DEFAULT_SE_PORT
+            self._last_connected_se = f"{host}:{port}"
+
+            se_client = SEWebSocketClient(
+                host=host, port=port, token=token,
+                on_message_callback=self._on_init_se_msg,
+                on_status_callback=self._on_init_se_status,
+            )
+            self._se_client = se_client
+            se_client.start()
+
+        threading.Thread(target=_check_sm, daemon=True).start()
+
+    def _on_init_se_status(self, msg: str):
+        """SE 连接状态回调（来自后台线程）"""
+        def _ui():
+            if "Auth failed" in msg or "error" in msg.lower() or "Connection error" in msg:
+                self._release_se_occupation()
+                self._on_init_failed("se", "\u65e0\u6cd5\u8fde\u63a5\u5230\u5b50\u670d\u52a1\u5668",
+                    "\u8bf7\u786e\u4fdd\u5b50\u670d\u52a1\u5668\u5df2\u542f\u52a8\u5e76\u91cd\u8bd5\u3002")
+                return
+            if "Authenticated" in msg:
+                # 占用已在 _validate_se / _retry_se_connect 验证通过时注册，此处无需重复
+                self._update_init_step("se", "Connected", ACCENT_GREEN)
+                self._se_connected = True
+                # 全部步骤完成，延迟一小段时间后进入主界面
+                self.after(400, self._enter_main_interface)
+        self.after(0, _ui)
+
+    def _on_init_se_msg(self, msg: dict):
+        """SE 消息回调（连接建立后的首条消息）"""
+        def _ui():
+            msg_type = msg.get("type", "")
+            if msg_type == "CONNECT_ACK":
+                payload = msg.get("payload", {})
+                node = payload.get("node_info", {})
+                self._session_id = payload.get("session_id", "")
+                self._node_info = node
+                # 日志稍后在主界面中记录
+        self.after(0, _ui)
+
+    def _on_init_failed(self, step_key: str, reason: str, hint: str = ""):
+        """某一步骤失败，停止流程并显示重试/取消按钮"""
+        # 防止 init 界面已销毁后的延迟回调导致 TclError
+        if self._init_ready or not self._init_frame or not self.tk.call('winfo', 'exists', str(self._retry_btn)):
+            return
+        # 释放节点占用
+        self._release_se_occupation()
+        self._update_init_step(step_key, "Failed", ACCENT_RED)
+        display_msg = reason
+        if hint:
+            display_msg += f"\n{hint}"
+        self._init_hint_var.set(display_msg)
+        # 显示重试 + 取消按钮（左右分布）
+        try:
+            self._retry_btn.pack(side="left", expand=True)
+            if hasattr(self, '_cancel_btn'):
+                self._cancel_btn.pack(side="right", expand=True)
+        except tk.TclError:
+            pass  # 窗口已被关闭，忽略
+
+        # 清理可能的部分连接
+        if self._se_client:
+            self._se_client.stop()
+            self._se_client = None
+        self._se_connected = False
+
+    def _on_init_retry(self):
+        """用户点击重试：重新尝试 SE 验证+连接（不重新输入账号密码）"""
+        self._retry_btn.pack_forget()
+        if hasattr(self, '_cancel_btn'):
+            self._cancel_btn.pack_forget()
+        self._init_hint_var.set("")
+        # 只重置 SE 步骤（SM 和 Auth 已通过，不需要重做）
+        self._update_init_step("se", "Retrying...", ACCENT_YELLOW)
+        # 重新走 SE 验证 + 连接（复用 _start_connection_flow 中的内部逻辑）
+        se_addr = getattr(self.session, 'se_address', '') or ''
+        if se_addr:
+            self.after(200, lambda: self._retry_se_connect(se_addr))
+        else:
+            self.after(200, lambda: self._retry_se_connect(DEFAULT_SE_HOST))
+
+    def _retry_se_connect(self, target_addr: str):
+        """重试 SE 连接（从验证开始）"""
+        # 始终先验证 SE 节点在线状态，不允许绕过 SM 验证直接连接
+        self._update_init_step("se", "Validating SE...", ACCENT_YELLOW)
+
+        def _check():
+            try:
+                status_code, resp_data = self.http.get(
+                    f"/api/accounts/se-status?address={target_addr}",
+                )
+                if status_code == 200 and resp_data.get("ok") and resp_data.get("online"):
+                    # 检查是否被其他账户占用
+                    occupied_by = (resp_data.get("occupied_by") or "").strip()
+                    if occupied_by and occupied_by != self._login_username:
+                        self.after(0, lambda ob=occupied_by: self._on_init_failed(
+                            "se",
+                            "\u5b50\u670d\u52a1\u5668\u5df2\u88ab\u5360\u7528",
+                            f"\u5f53\u524d\u5b50\u670d\u52a1\u5668\u5df2\u88ab\u8d26\u6237 \u201c{ob}\u201d \u5360\u7528\uff0c\u65e0\u6cd5\u8fde\u63a5\u3002",
+                        ))
+                        return
+                    # 在线且未被占用 → 立即注册占用 + 继续连接
+                    node_name = resp_data.get("node_name", "")
+                    self._se_target_address = target_addr
+                    self._se_server_id = resp_data.get("server_id", "")
+                    _log2 = getattr(self, 'log_area', None)
+                    if _log2:
+                        _log2.log(f"[SE] se-status 返回: server_id={self._se_server_id}, node={node_name}, occupied_by={resp_data.get('occupied_by', '')}", "inf")
+                    # ⚡ 立即注册节点占用（在WS连接之前，消除竞态窗口）
+                    self._occupy_se_node()
+                    self.after(0, lambda: self._update_init_step(
+                        "se", f"SE OK ({node_name})", ACCENT_GREEN))
+                    self.after(200, lambda: self._do_ws_connect(target_addr))
+                else:
+                    self.after(0, lambda: self._on_init_failed(
+                        "se",
+                        "\u5b50\u670d\u52a1\u5668\u4e0d\u5728\u7ebf",
+                        "\u6240\u5206\u914d\u7684\u5b50\u670d\u52a1\u5668\u76ee\u524d\u79bb\u7ebf\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u3002",
+                    ))
+            except Exception as e:
+                self.after(0, lambda: self._on_init_failed(
+                    "se", "\u8fde\u63a5\u5b50\u670d\u52a1\u5668\u65f6\u7f51\u7edc\u9519\u8bef", ""))
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _do_ws_connect(self, target_addr: str):
+        """执行 WebSocket 连接"""
+        self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
+        token = self.http.token
+        target = target_addr or DEFAULT_SE_HOST
+        if ':' in target:
+            hp = target.rsplit(':', 1)
+            host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
+        else:
+            host, port = target, DEFAULT_SE_PORT
+
+        se_client = SEWebSocketClient(
+            host=host, port=port, token=token,
+            on_message_callback=self._on_init_se_msg,
+            on_status_callback=self._on_init_se_status,
+        )
+        self._se_client = se_client
+        se_client.start()
+
+    def _on_init_cancel(self):
+        """用户点击取消：返回登录界面，可修改账户密码重新登录"""
+        # 释放节点占用
+        self._release_se_occupation()
+        # 清理当前连接状态
+        if self._se_client:
+            self._se_client.stop()
+            self._se_client = None
+        self._se_connected = False
+        self.http.token = ""
+        self.session = None
+
+        # 重置 init screen 步骤显示
+        for key in ("sm", "auth", "se"):
+            default = "Waiting" if key != "sm" else "Connecting..."
+            color = TEXT_MUTED if key != "sm" else ACCENT_YELLOW
+            self._update_init_step(key, default, color)
+        self._init_hint_var.set("")
+        self._retry_btn.pack_forget()
+        if hasattr(self, '_cancel_btn'):
+            self._cancel_btn.pack_forget()
+
+        # 重新弹出登录对话框
+        self.after(0, self._show_login_first)
+
+    def _occupy_se_node(self):
+        """连接成功后，向 SM 注册节点占用"""
+        sid = getattr(self, '_se_server_id', '')
+        if not sid:
+            log_area = getattr(self, 'log_area', None)
+            if log_area:
+                log_area.log("[SE] 占用注册失败: server_id 为空（se-status 可能未返回有效节点）", "err")
+            return
+        username = self._login_username
+
+        def _do():
+            try:
+                code, resp = self.http.post(
+                    f"/api/nodes/{sid}/occupy",
+                    {"username": username},
+                )
+                # ★ 诊断：打印 occupy API 结果
+                log_area = getattr(self, 'log_area', None)
+                if code == 200 and (resp or {}).get("ok"):
+                    if log_area:
+                        log_area.log(f"[SE] 节点占用已注册: {username} → {sid}", "ok")
+                else:
+                    err_msg = (resp or {}).get("error", "") or (resp or {}).get("message", "") or f"HTTP {code}"
+                    if log_area:
+                        log_area.log(f"[SE] 节点占用注册失败: {err_msg}", "err")
+            except Exception as e:
+                log_area = getattr(self, 'log_area', None)
+                if log_area:
+                    log_area.log(f"[SE] 节点占用注册异常: {e}", "err")
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _release_se_occupation(self):
+        """断开/取消时，释放节点占用"""
+        sid = getattr(self, '_se_server_id', '')
+        if not sid:
+            return
+
+        def _do():
+            try:
+                code, resp = self.http.post(f"/api/nodes/{sid}/release", {})
+                log_area = getattr(self, 'log_area', None)
+                if log_area:
+                    if code == 200:
+                        log_area.log(f"[SE] 节点占用已释放: {sid}", "ok")
+                    else:
+                        log_area.log(f"[SE] 节点占用释放失败(HTTP {code}): {sid}", "warn")
+            except Exception as e:
+                pass  # 释放失败不阻塞主流程
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _enter_main_interface(self):
+        """所有连接成功 → 销毁初始化界面，构建完整主界面"""
+        if self._init_ready:
+            return
+        self._init_ready = True
+
+        # 销毁初始化界面
+        if self._init_frame:
+            self._init_frame.destroy()
+            self._init_frame = None
+
+        # 构建完整的交易主界面
         self._apply_style()
         self._build_ui_no_login()
         self.log_area = LogArea(self)
         self._build_log_bar()
         self._setup_hotkeys()
 
-        # 执行登录认证（已在 LoginDialog 内完成验证，此处确认状态）
-        self.log_area.log("Authenticating\u2026", "inf")
-        ok = self.session.connected
-        msg = "Connected" if ok else "Authentication failed"
-        self.status_var.set("\u25cf Connected" if ok else "\u25cf Not connected")
-        self.status_lbl.config(fg=ACCENT_GREEN if ok else ACCENT_RED)
-        if ok:
-            save_credentials(username, password)
-            self.log_area.log(sanitize(msg), "ok")
-            self._start_mock_stream()
-            self._poll()
-            self._tick_clock()
-            self.after(600, self._refresh_positions)
-            self.after(900, self._refresh_orders)
-        else:
-            self.log_area.log(sanitize(msg), "err")
+        # 设置状态栏
+        self.status_var.set("\u25cf Connected")
+        self.status_lbl.config(fg=ACCENT_GREEN)
+        self._se_status_var.set(f"OK ({self._session_id[:8]}...)" if self._session_id else "OK")
+        # SE 已在初始化阶段连上，按钮显示 Disconnect
+        if self._se_btn and self._se_connected:
+            self._se_btn.config(text="Disconnect", state="normal")
 
-    # ── Style ──────────────────────────────────────────────────────────────
+        # 启动各子系统
+        node_name = self._node_info.get("node_name", "SE") if self._node_info else "SE"
+        region = self._node_info.get("region", "") if self._node_info else ""
+        self.log_area.log(f"[System] All systems ready | SM={self.http.base_url} | SE={node_name}({region})", "ok")
+        if self._se_connected:
+            self.log_area.log("[SE] Direct connection established", "ok")
+
+        self._start_mock_stream()
+        self._poll()
+        self._tick_clock()
+        self.after(600, self._refresh_positions)
+        self.after(900, self._refresh_orders)
 
     def _apply_style(self):
         s = ttk.Style(self)
@@ -140,6 +562,27 @@ class TradingTerminal(tk.Tk):
         self.status_lbl = tk.Label(top, textvariable=self.status_var,
                                    bg=TOP_BAR_BG, fg=ACCENT_YELLOW, font=FONT_UI_SM)
         self.status_lbl.pack(side="left", padx=4)
+
+        # ── SE (Server_economic) 直连控制区 ───────────────────────────
+        sep = tk.Frame(top, bg=BORDER, width=1)
+        sep.pack(side="left", padx=8, fill="y", pady=6)
+
+        tk.Label(top, text="SE:", bg=TOP_BAR_BG, fg=TEXT_DIM,
+                 font=FONT_UI_SM).pack(side="left")
+
+        self._se_status_var = tk.StringVar(value="--")
+        se_st_lbl = tk.Label(top, textvariable=self._se_status_var,
+                             bg=TOP_BAR_BG, fg=TEXT_MUTED, font=FONT_MONO_SM)
+        se_st_lbl.pack(side="left", padx=(2, 8))
+
+        self._se_btn = tk.Button(
+            top, text="Connect SE", font=FONT_UI_SM,
+            bg=PANEL_BG, fg=ACCENT_BLUE, activebackground=BORDER,
+            activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
+            padx=10, pady=2,
+            command=self._toggle_se_connection,
+        )
+        self._se_btn.pack(side="left", padx=2)
 
         # 时间
         self.time_var = tk.StringVar()
@@ -722,14 +1165,151 @@ class TradingTerminal(tk.Tk):
         self.status_lbl.config(fg=ACCENT_RED)
         self.log_area.log("Server disconnected", "err")
 
+    # ── SE (Server_economic) Direct Connection ──────────────────────────────
+
+    def _toggle_se_connection(self):
+        """切换 SE WebSocket 连接"""
+        if self._se_connected:
+            self._se_disconnect()
+        else:
+            self._se_connect()
+
+    def _se_connect(self):
+        """建立到 Server_economic 的 WebSocket 连接（含验证和占用注册）"""
+        if self._se_client and self._se_client.is_active:
+            return
+
+        self._se_btn.config(state="disabled", text="Validating...")
+        self.log_area.log("[SE] Validating node status...", "inf")
+
+        target_addr = self._se_target_address or DEFAULT_SE_HOST
+
+        def _do_connect():
+            """验证通过后执行实际的 WS 连接"""
+            self._se_btn.config(state="disabled", text="Connecting...")
+            token = self.http.token
+            if ':' in target_addr:
+                hp = target_addr.rsplit(':', 1)
+                host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
+            else:
+                host, port = target_addr, DEFAULT_SE_PORT
+
+            self._se_client = SEWebSocketClient(
+                host=host, port=port, token=token,
+                on_message_callback=self._on_se_message,
+                on_status_callback=self._on_se_status,
+            )
+            self._se_client.start()
+
+        def _check():
+            try:
+                status_code, resp_data = self.http.get(
+                    f"/api/accounts/se-status?address={target_addr}",
+                )
+                if status_code == 200 and resp_data.get("ok") and resp_data.get("online"):
+                    # 检查占用
+                    occupied_by = (resp_data.get("occupied_by") or "").strip()
+                    if occupied_by and occupied_by != self._login_username:
+                        self.after(0, lambda ob=occupied_by: (
+                            self.log_area.log(f"[SE] 节点已被账户 '{ob}' 占用，无法连接", "err"),
+                            self._se_btn.config(text="Connect SE", state="normal"),
+                        ))
+                        return
+                    # 在线且未被占用 → 注册占用 + 连接
+                    self._occupy_se_node()
+                    self.after(0, _do_connect)
+                else:
+                    self.after(0, lambda: (
+                        self.log_area.log("[SE] 子服务器不在线，无法连接", "err"),
+                        self._se_btn.config(text="Connect SE", state="normal"),
+                    ))
+            except Exception as e:
+                self.after(0, lambda: (
+                    self.log_area.log(f"[SE] 验证失败: {e}", "err"),
+                    self._se_btn.config(text="Connect SE", state="normal"),
+                ))
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _se_disconnect(self):
+        """断开 SE 连接"""
+        if self._se_client:
+            self._se_client.stop()
+            self._se_client = None
+        self._se_connected = False
+        # 释放节点占用
+        self._release_se_occupation()
+        self._se_btn.config(text="Connect SE", state="normal")
+        self._se_status_var.set("Disconnected")
+        self.log_area.log("[SE] Disconnected", "inf")
+
+    def _on_se_status(self, msg: str):
+        """SE 连接状态变化回调（来自后台线程，需用 after 切回主线程）"""
+        def _ui_update():
+            self._se_status_var.set(msg[:40])
+            if "Authenticated" in msg:
+                self._se_connected = True
+                self._se_btn.config(text="Disconnect", state="normal")
+                self.log_area.log(f"[SE] {msg}", "ok")
+                # 自动查询一次状态验证连接
+                if self._se_client and self._se_client.is_connected:
+                    self._se_client.send_query_status()
+            elif "Auth failed" in msg or "error" in msg.lower():
+                self._release_se_occupation()
+                self._se_btn.config(text="Connect SE", state="normal")
+                self.log_area.log(f"[SE] {msg}", "err")
+            elif "Connection error" in msg or not self._se_active_se():
+                self._release_se_occupation()
+                self._se_btn.config(text="Connect SE", state="normal")
+        self.after(0, _ui_update)
+
+    def _on_se_message(self, msg: dict):
+        """SE 消息回调（后台线程 → after 到主线程）"""
+        def _ui_update():
+            msg_type = msg.get("type", "")
+
+            if msg_type == "CONNECT_ACK":
+                payload = msg.get("payload", {})
+                node = payload.get("node_info", {})
+                self.log_area.log(
+                    f"[SE] Connected to node: {node.get('node_name', '?')} "
+                    f"(id={node.get('server_id', '?')}, region={node.get('region', '?')})",
+                    "ok"
+                )
+            elif msg_type == "STATUS_RESPONSE":
+                info = msg.get("payload", {}).get("node_info", {})
+                self.log_area.log(
+                    f"[SE] Status: {info.get('registration_status', '?')} | "
+                    f"heartbeat={'OK' if info.get('heartbeat_ok') else 'FAIL'} | "
+                    f"clients={info.get('connections', 0)}",
+                    "inf"
+                )
+            elif msg_type == "ERROR":
+                err = msg.get("payload", {})
+                self.log_area.log(f"[SE] Error [{err.get('code', '')}]: {err.get('message', '')}", "err")
+            elif msg_type == "PONG":
+                pass  # 心跳响应，静默
+            else:
+                self.log_area.log(f"[SE] Recv {msg_type}: {str(msg)[:120]}", "inf")
+
+        self.after(0, _ui_update)
+
+    def _se_active_se(self) -> bool:
+        """检查 SE client 是否仍然活跃"""
+        return self._se_client is not None and self._se_client.is_active
+
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
     def on_close(self):
         """窗口关闭"""
         self._mock_active = False
         self._stream_active = False
+        # 断开 SE 连接
+        if self._se_client:
+            self._se_client.stop()
         if self._ws_stream:
             self._ws_stream.stop()
+        # 释放节点占用（防止关闭窗口后节点被永久锁定）
+        self._release_se_occupation()
         self.destroy()
 
 

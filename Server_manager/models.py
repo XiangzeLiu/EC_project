@@ -22,6 +22,8 @@ class LoginResponse(BaseModel):
     broker_list: list[str] = Field(default_factory=list, description="可用券商列表")
     expires_in: int = Field(default=3600, description="令牌有效期（秒）")
     detail: str = Field(default="", description="附加信息")
+    se_address: str = Field(default="", description="绑定的 Server_economic 地址")
+    allowed_brokers: list[str] = Field(default_factory=list, description="账户允许的券商列表")
 
 
 class LogoutResponse(BaseModel):

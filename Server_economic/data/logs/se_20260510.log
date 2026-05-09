@@ -1,0 +1,325 @@
+2026-05-10 00:55:11 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 00:55:11 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-10 00:55:20 [server_economic.ws_server] INFO: [sess_b97c5dee62fae94a] WS connected from 127.0.0.1:52911
+2026-05-10 00:55:20 [server_economic.ws_server] INFO: [sess_b97c5dee62fae94a] Auth OK, connection established
+2026-05-10 00:55:26 [server_economic.ws_server] INFO: [sess_b97c5dee62fae94a] WS disconnected by client
+2026-05-10 00:55:26 [server_economic.ws_server] INFO: [sess_b97c5dee62fae94a] Connection cleaned up (remaining connections: 0)
+2026-05-10 00:56:19 [server_economic.ws_server] INFO: [sess_f70c0a0d1cb75a89] WS connected from 127.0.0.1:52996
+2026-05-10 00:56:19 [server_economic.ws_server] INFO: [sess_f70c0a0d1cb75a89] Auth OK, connection established
+2026-05-10 00:56:49 [server_economic.ws_server] INFO: [sess_f70c0a0d1cb75a89] WS disconnected by client
+2026-05-10 00:56:49 [server_economic.ws_server] INFO: [sess_f70c0a0d1cb75a89] Connection cleaned up (remaining connections: 0)
+2026-05-10 01:00:00 [server_economic.ws_server] INFO: [sess_ba147f94ac32d35c] WS connected from 127.0.0.1:53250
+2026-05-10 01:00:00 [server_economic.ws_server] INFO: [sess_ba147f94ac32d35c] Auth OK, connection established
+2026-05-10 01:00:30 [server_economic.ws_server] INFO: [sess_ba147f94ac32d35c] WS disconnected by client
+2026-05-10 01:00:30 [server_economic.ws_server] INFO: [sess_ba147f94ac32d35c] Connection cleaned up (remaining connections: 0)
+2026-05-10 01:14:56 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 01:14:56 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-10 01:26:49 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 01:26:49 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 01:26:50 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 01:26:50 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 01:26:50 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 01:26:50 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 01:26:50 [server_economic] INFO: Register state saved: req_de7360b38c505d15b10eede9
+2026-05-10 01:26:50 [server_economic.registration] INFO: Registration submitted: req_de7360b38c505d15b10eede9, expires at 2026-05-10T17:26:50.005024+00:00
+2026-05-10 01:26:50 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_de7360b38c505d15b10eede9', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T17:26:50.005024+00:00'}
+2026-05-10 01:26:50 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_de7360b38c505d15b10eede9
+2026-05-10 01:26:57 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_22d0a394
+2026-05-10 01:26:57 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 01:26:57 [server_economic] INFO: Register state cleared
+2026-05-10 01:26:57 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 01:28:25 [server_economic.ws_server] INFO: [sess_2b0b0f5d29abef56] WS connected from 127.0.0.1:55147
+2026-05-10 01:28:25 [server_economic.ws_server] INFO: [sess_2b0b0f5d29abef56] Auth OK, connection established
+2026-05-10 01:29:21 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 01:29:21 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 01:29:21 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 01:29:21 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_22d0a394
+2026-05-10 01:29:21 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 01:29:21 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 01:29:21 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 01:39:04 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 01:39:04 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 01:39:04 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 01:39:04 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_22d0a394
+2026-05-10 01:39:04 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 01:39:04 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 01:39:04 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 01:40:09 [server_economic.ws_server] INFO: [sess_237445c56137deb5] WS connected from 127.0.0.1:55970
+2026-05-10 01:40:09 [server_economic.ws_server] INFO: [sess_237445c56137deb5] Auth OK, connection established
+2026-05-10 01:40:18 [server_economic.ws_server] INFO: [sess_237445c56137deb5] WS disconnected by client
+2026-05-10 01:40:18 [server_economic.ws_server] INFO: [sess_237445c56137deb5] Connection cleaned up (remaining connections: 0)
+2026-05-10 01:50:09 [server_economic.ws_server] INFO: [sess_bd99b770e42be7d6] WS connected from 127.0.0.1:56669
+2026-05-10 01:50:09 [server_economic.ws_server] INFO: [sess_bd99b770e42be7d6] Auth OK, connection established
+2026-05-10 01:50:39 [server_economic.ws_server] INFO: [sess_bd99b770e42be7d6] WS disconnected by client
+2026-05-10 01:50:39 [server_economic.ws_server] INFO: [sess_bd99b770e42be7d6] Connection cleaned up (remaining connections: 0)
+2026-05-10 02:37:26 [server_economic.ws_server] INFO: [sess_16c72c03f4ff0cf3] WS connected from 127.0.0.1:59787
+2026-05-10 02:37:27 [server_economic.ws_server] INFO: [sess_16c72c03f4ff0cf3] Auth OK, connection established
+2026-05-10 02:37:57 [server_economic.ws_server] INFO: [sess_16c72c03f4ff0cf3] WS disconnected by client
+2026-05-10 02:37:57 [server_economic.ws_server] INFO: [sess_16c72c03f4ff0cf3] Connection cleaned up (remaining connections: 0)
+2026-05-10 02:38:10 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 02:38:10 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:38:10 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:38:10 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_22d0a394
+2026-05-10 02:38:10 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:38:10 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 02:38:10 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 02:39:07 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 02:39:07 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:39:07 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:39:07 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_22d0a394
+2026-05-10 02:39:07 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:39:07 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 02:39:07 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 02:39:07 [server_economic.heartbeat] WARNING: [#1] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:08 [server_economic.heartbeat] WARNING: [#2] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:09 [server_economic.heartbeat] WARNING: [#3] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:10 [server_economic.heartbeat] WARNING: [#4] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:14 [server_economic.heartbeat] WARNING: [#5] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:21 [server_economic.ws_server] INFO: [sess_54dcb5741fb9505b] WS connected from 127.0.0.1:59949
+2026-05-10 02:39:21 [server_economic.ws_server] INFO: [sess_54dcb5741fb9505b] Auth OK, connection established
+2026-05-10 02:39:22 [server_economic.heartbeat] WARNING: [#6] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:38 [server_economic.heartbeat] WARNING: [#7] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:39:40 [server_economic.ws_server] INFO: [sess_54dcb5741fb9505b] WS disconnected by client
+2026-05-10 02:39:40 [server_economic.ws_server] INFO: [sess_54dcb5741fb9505b] Connection cleaned up (remaining connections: 0)
+2026-05-10 02:39:50 [server_economic.ws_server] INFO: [sess_e13c02eee09e96f6] WS connected from 127.0.0.1:59995
+2026-05-10 02:39:50 [server_economic.ws_server] INFO: [sess_e13c02eee09e96f6] Auth OK, connection established
+2026-05-10 02:40:10 [server_economic.heartbeat] WARNING: [#8] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:40:20 [server_economic.ws_server] INFO: [sess_e13c02eee09e96f6] WS disconnected by client
+2026-05-10 02:40:20 [server_economic.ws_server] INFO: [sess_e13c02eee09e96f6] Connection cleaned up (remaining connections: 0)
+2026-05-10 02:40:38 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-10 02:40:40 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:40:40 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 02:40:40 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 02:40:40 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 02:40:40 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 02:40:40 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 02:40:40 [server_economic] INFO: Register state saved: req_7340cbc8f5374839b2ee8f1c
+2026-05-10 02:40:40 [server_economic.registration] INFO: Registration submitted: req_7340cbc8f5374839b2ee8f1c, expires at 2026-05-10T18:40:40.738213+00:00
+2026-05-10 02:40:40 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_7340cbc8f5374839b2ee8f1c', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T18:40:40.738213+00:00'}
+2026-05-10 02:40:40 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_7340cbc8f5374839b2ee8f1c
+2026-05-10 02:40:46 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_bc0dc9f2
+2026-05-10 02:40:46 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:40:46 [server_economic] INFO: Register state cleared
+2026-05-10 02:41:10 [server_economic.heartbeat] WARNING: [#9] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:45:51 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 02:45:51 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:45:51 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:45:51 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_bc0dc9f2
+2026-05-10 02:45:51 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:45:51 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 02:45:51 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 02:45:51 [server_economic.heartbeat] WARNING: [#1] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:45:52 [server_economic.heartbeat] WARNING: [#2] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:45:52 [server_economic.heartbeat] WARNING: [#3] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:45:54 [server_economic.heartbeat] WARNING: [#4] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:45:58 [server_economic.heartbeat] WARNING: [#5] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:46:06 [server_economic.heartbeat] WARNING: [#6] Heartbeat rejected: Invalid or expired token
+2026-05-10 02:46:07 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-10 02:46:11 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:46:11 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 02:46:11 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 02:46:11 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 02:46:11 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 02:46:11 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 02:46:11 [server_economic] INFO: Register state saved: req_b70a78182f9b8ec658153b4b
+2026-05-10 02:46:11 [server_economic.registration] INFO: Registration submitted: req_b70a78182f9b8ec658153b4b, expires at 2026-05-10T18:46:11.084321+00:00
+2026-05-10 02:46:11 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_b70a78182f9b8ec658153b4b', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T18:46:11.084321+00:00'}
+2026-05-10 02:46:11 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_b70a78182f9b8ec658153b4b
+2026-05-10 02:46:22 [server_economic.heartbeat] ERROR: [#7] Heartbeat FAIL: No token available
+2026-05-10 02:46:26 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_12d97e9f
+2026-05-10 02:46:26 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:46:26 [server_economic] INFO: Register state cleared
+2026-05-10 02:47:01 [server_economic.ws_server] INFO: [sess_754eafbfdc753ea4] WS connected from 127.0.0.1:60474
+2026-05-10 02:47:01 [server_economic.ws_server] INFO: [sess_754eafbfdc753ea4] Auth OK, connection established
+2026-05-10 02:47:05 [server_economic.ws_server] INFO: [sess_754eafbfdc753ea4] WS disconnected by client
+2026-05-10 02:47:05 [server_economic.ws_server] INFO: [sess_754eafbfdc753ea4] Connection cleaned up (remaining connections: 0)
+2026-05-10 02:52:07 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 02:52:07 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:52:07 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:52:07 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_12d97e9f
+2026-05-10 02:52:07 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:52:07 [server_economic.registration] ERROR: Ping failed: <urlopen error [Errno 61] Connection refused>
+2026-05-10 02:52:07 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 02:52:07 [server_economic.heartbeat] WARNING: [#1] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-10 02:52:08 [server_economic.heartbeat] WARNING: [#2] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-10 02:52:08 [server_economic.heartbeat] WARNING: [#3] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-10 02:52:10 [server_economic.heartbeat] WARNING: [#4] Heartbeat exception: <urlopen error [Errno 61] Connection refused>
+2026-05-10 02:54:34 [server_economic.ws_server] INFO: [sess_b37d722b64e09259] WS connected from 127.0.0.1:60983
+2026-05-10 02:54:34 [server_economic.ws_server] INFO: [sess_b37d722b64e09259] Auth OK, connection established
+2026-05-10 02:55:05 [server_economic.ws_server] INFO: [sess_b37d722b64e09259] WS disconnected by client
+2026-05-10 02:55:05 [server_economic.ws_server] INFO: [sess_b37d722b64e09259] Connection cleaned up (remaining connections: 0)
+2026-05-10 02:59:29 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 02:59:29 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:59:29 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 02:59:29 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_12d97e9f
+2026-05-10 02:59:29 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 02:59:29 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 02:59:29 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 02:59:40 [server_economic.ws_server] INFO: [sess_caaf02b358b81975] WS connected from 127.0.0.1:61421
+2026-05-10 02:59:40 [server_economic.ws_server] INFO: [sess_caaf02b358b81975] Auth OK, connection established
+2026-05-10 03:00:10 [server_economic.ws_server] INFO: [sess_caaf02b358b81975] WS disconnected by client
+2026-05-10 03:00:10 [server_economic.ws_server] INFO: [sess_caaf02b358b81975] Connection cleaned up (remaining connections: 0)
+2026-05-10 03:05:06 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 03:05:06 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 03:05:06 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 03:05:06 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_12d97e9f
+2026-05-10 03:05:06 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 03:05:06 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 03:05:06 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 03:05:17 [server_economic.ws_server] INFO: [sess_dbcf7a990bca1f1b] WS connected from 127.0.0.1:61891
+2026-05-10 03:05:17 [server_economic.ws_server] INFO: [sess_dbcf7a990bca1f1b] Auth OK, connection established
+2026-05-10 03:05:45 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-10 03:05:47 [server_economic.ws_server] INFO: [sess_dbcf7a990bca1f1b] WS disconnected by client
+2026-05-10 03:05:47 [server_economic.ws_server] INFO: [sess_dbcf7a990bca1f1b] Connection cleaned up (remaining connections: 0)
+2026-05-10 03:05:48 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 03:05:48 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 03:05:48 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 03:05:48 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 03:05:48 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 03:05:48 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 03:05:48 [server_economic] INFO: Register state saved: req_afd42684fd97e330a9d976c7
+2026-05-10 03:05:48 [server_economic.registration] INFO: Registration submitted: req_afd42684fd97e330a9d976c7, expires at 2026-05-10T19:05:48.532665+00:00
+2026-05-10 03:05:48 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_afd42684fd97e330a9d976c7', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T19:05:48.532665+00:00'}
+2026-05-10 03:05:48 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_afd42684fd97e330a9d976c7
+2026-05-10 03:05:52 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_b30daaee
+2026-05-10 03:05:52 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 03:05:52 [server_economic] INFO: Register state cleared
+2026-05-10 03:06:11 [server_economic.ws_server] INFO: [sess_43fc152227bde497] WS connected from 127.0.0.1:61962
+2026-05-10 03:06:11 [server_economic.ws_server] INFO: [sess_43fc152227bde497] Auth OK, connection established
+2026-05-10 03:06:41 [server_economic.ws_server] INFO: [sess_43fc152227bde497] WS disconnected by client
+2026-05-10 03:06:41 [server_economic.ws_server] INFO: [sess_43fc152227bde497] Connection cleaned up (remaining connections: 0)
+2026-05-10 03:09:56 [server_economic.ws_server] INFO: [sess_a07e0a68b7b231c6] WS connected from 127.0.0.1:62294
+2026-05-10 03:09:56 [server_economic.ws_server] INFO: [sess_a07e0a68b7b231c6] Auth OK, connection established
+2026-05-10 03:10:26 [server_economic.ws_server] INFO: [sess_a07e0a68b7b231c6] WS disconnected by client
+2026-05-10 03:10:26 [server_economic.ws_server] INFO: [sess_a07e0a68b7b231c6] Connection cleaned up (remaining connections: 0)
+2026-05-10 03:12:31 [server_economic.ws_server] INFO: [sess_33e08ebfbedaed20] WS connected from 127.0.0.1:62464
+2026-05-10 03:12:31 [server_economic.ws_server] INFO: [sess_33e08ebfbedaed20] Auth OK, connection established
+2026-05-10 03:13:01 [server_economic.ws_server] INFO: [sess_33e08ebfbedaed20] WS disconnected by client
+2026-05-10 03:13:01 [server_economic.ws_server] INFO: [sess_33e08ebfbedaed20] Connection cleaned up (remaining connections: 0)
+2026-05-10 03:15:10 [server_economic.ws_server] INFO: [sess_d5b03369deefbe22] WS connected from 127.0.0.1:62673
+2026-05-10 03:15:10 [server_economic.ws_server] INFO: [sess_d5b03369deefbe22] Auth OK, connection established
+2026-05-10 03:15:40 [server_economic.ws_server] INFO: [sess_d5b03369deefbe22] WS disconnected by client
+2026-05-10 03:15:40 [server_economic.ws_server] INFO: [sess_d5b03369deefbe22] Connection cleaned up (remaining connections: 0)
+2026-05-10 03:24:38 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-10 03:24:40 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 03:24:40 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 03:24:40 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 03:24:40 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 03:24:40 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 03:24:40 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 03:24:40 [server_economic] INFO: Register state saved: req_59afdd05fc2923e6ef2ba950
+2026-05-10 03:24:40 [server_economic.registration] INFO: Registration submitted: req_59afdd05fc2923e6ef2ba950, expires at 2026-05-10T19:24:40.839270+00:00
+2026-05-10 03:24:40 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_59afdd05fc2923e6ef2ba950', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T19:24:40.839270+00:00'}
+2026-05-10 03:24:40 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_59afdd05fc2923e6ef2ba950
+2026-05-10 03:25:06 [server_economic.heartbeat] ERROR: [#42] Heartbeat FAIL: No token available
+2026-05-10 03:25:07 [server_economic.heartbeat] ERROR: [#43] Heartbeat FAIL: No token available
+2026-05-10 03:25:09 [server_economic.heartbeat] ERROR: [#44] Heartbeat FAIL: No token available
+2026-05-10 03:25:13 [server_economic.heartbeat] ERROR: [#45] Heartbeat FAIL: No token available
+2026-05-10 03:25:21 [server_economic.heartbeat] ERROR: [#46] Heartbeat FAIL: No token available
+2026-05-10 03:25:37 [server_economic.heartbeat] ERROR: [#47] Heartbeat FAIL: No token available
+2026-05-10 03:26:09 [server_economic.heartbeat] ERROR: [#48] Heartbeat FAIL: No token available
+2026-05-10 03:27:09 [server_economic.heartbeat] ERROR: [#49] Heartbeat FAIL: No token available
+2026-05-10 03:28:09 [server_economic.heartbeat] ERROR: [#50] Heartbeat FAIL: No token available
+2026-05-10 03:28:43 [server_economic.main] ERROR: [Await Approval] Stream error: IncompleteRead(208 bytes read)
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 579, in _get_chunk_left
+    chunk_left = self._read_next_chunk_size()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 546, in _read_next_chunk_size
+    return int(line, 16)
+           ^^^^^^^^^^^^^
+ValueError: invalid literal for int() with base 16: b''
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 597, in _read_chunked
+    while (chunk_left := self._get_chunk_left()) is not None:
+                         ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 581, in _get_chunk_left
+    raise IncompleteRead(b'')
+http.client.IncompleteRead: IncompleteRead(0 bytes read)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/lxz/PycharmProjects/EC_project/Server_economic/main.py", line 178, in _sse_generator
+    raw = await loop.run_in_executor(None, resp.read, 4096)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 473, in read
+    return self._read_chunked(amt)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py", line 609, in _read_chunked
+    raise IncompleteRead(b''.join(value)) from exc
+http.client.IncompleteRead: IncompleteRead(208 bytes read)
+2026-05-10 03:29:09 [server_economic.heartbeat] ERROR: [#51] Heartbeat FAIL: No token available
+2026-05-10 03:30:09 [server_economic.heartbeat] ERROR: [#52] Heartbeat FAIL: No token available
+2026-05-10 03:31:09 [server_economic.heartbeat] ERROR: [#53] Heartbeat FAIL: No token available
+2026-05-10 03:32:09 [server_economic.heartbeat] ERROR: [#54] Heartbeat FAIL: No token available
+2026-05-10 03:33:09 [server_economic.heartbeat] ERROR: [#55] Heartbeat FAIL: No token available
+2026-05-10 03:34:09 [server_economic.heartbeat] ERROR: [#56] Heartbeat FAIL: No token available
+2026-05-10 03:34:11 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 03:34:11 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 03:34:11 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 03:34:11 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 03:34:11 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 03:34:11 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 03:34:11 [server_economic] INFO: Register state saved: req_837b573aa6091e1e278e820c
+2026-05-10 03:34:11 [server_economic.registration] INFO: Registration submitted: req_837b573aa6091e1e278e820c, expires at 2026-05-10T19:34:11.906242+00:00
+2026-05-10 03:34:11 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_837b573aa6091e1e278e820c', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T19:34:11.906242+00:00'}
+2026-05-10 03:34:11 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_837b573aa6091e1e278e820c
+2026-05-10 03:35:09 [server_economic.heartbeat] ERROR: [#57] Heartbeat FAIL: No token available
+2026-05-10 03:36:09 [server_economic.heartbeat] ERROR: [#58] Heartbeat FAIL: No token available
+2026-05-10 03:37:09 [server_economic.heartbeat] ERROR: [#59] Heartbeat FAIL: No token available
+2026-05-10 03:38:09 [server_economic.heartbeat] ERROR: [#60] Heartbeat FAIL: No token available
+2026-05-10 03:39:09 [server_economic.heartbeat] ERROR: [#61] Heartbeat FAIL: No token available
+2026-05-10 03:39:21 [server_economic.main] WARNING: [Await Approval] REJECTED: 
+2026-05-10 03:39:21 [server_economic] INFO: Register state cleared
+2026-05-10 03:40:09 [server_economic.heartbeat] ERROR: [#62] Heartbeat FAIL: No token available
+2026-05-10 03:41:09 [server_economic.heartbeat] ERROR: [#63] Heartbeat FAIL: No token available
+2026-05-10 03:42:09 [server_economic.heartbeat] ERROR: [#64] Heartbeat FAIL: No token available
+2026-05-10 03:43:09 [server_economic.heartbeat] ERROR: [#65] Heartbeat FAIL: No token available
+2026-05-10 03:44:09 [server_economic.heartbeat] ERROR: [#66] Heartbeat FAIL: No token available
+2026-05-10 03:45:09 [server_economic.heartbeat] ERROR: [#67] Heartbeat FAIL: No token available
+2026-05-10 03:46:09 [server_economic.heartbeat] ERROR: [#68] Heartbeat FAIL: No token available
+2026-05-10 03:47:09 [server_economic.heartbeat] ERROR: [#69] Heartbeat FAIL: No token available
+2026-05-10 03:48:09 [server_economic.heartbeat] ERROR: [#70] Heartbeat FAIL: No token available
+2026-05-10 03:49:09 [server_economic.heartbeat] ERROR: [#71] Heartbeat FAIL: No token available
+2026-05-10 03:50:09 [server_economic.heartbeat] ERROR: [#72] Heartbeat FAIL: No token available
+2026-05-10 03:55:29 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 03:55:29 [server_economic.registration] INFO: No existing session found, full registration required
+2026-05-10 03:56:48 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 03:56:48 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 03:56:48 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 03:56:48 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 03:56:48 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 03:56:48 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 03:56:48 [server_economic] INFO: Register state saved: req_91a5b09984432e52adf53916
+2026-05-10 03:56:48 [server_economic.registration] INFO: Registration submitted: req_91a5b09984432e52adf53916, expires at 2026-05-10T19:56:48.399897+00:00
+2026-05-10 03:56:48 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_91a5b09984432e52adf53916', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T19:56:48.399897+00:00'}
+2026-05-10 03:56:48 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_91a5b09984432e52adf53916
+2026-05-10 03:56:58 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_2cb4da49
+2026-05-10 03:56:58 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 03:56:58 [server_economic] INFO: Register state cleared
+2026-05-10 03:56:58 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 03:57:16 [server_economic.ws_server] INFO: [sess_5b32a406a415d466] WS connected from 127.0.0.1:49325
+2026-05-10 03:57:16 [server_economic.ws_server] INFO: [sess_5b32a406a415d466] Auth OK, connection established
+2026-05-10 03:57:46 [server_economic.ws_server] INFO: [sess_5b32a406a415d466] WS disconnected by client
+2026-05-10 03:57:46 [server_economic.ws_server] INFO: [sess_5b32a406a415d466] Connection cleaned up (remaining connections: 0)
+2026-05-10 04:17:40 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-10 04:17:42 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 04:17:42 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 04:17:42 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.255.10:8900'}
+2026-05-10 04:17:42 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-10 04:17:42 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-10 04:17:42 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-10 04:17:42 [server_economic] INFO: Register state saved: req_cce92bf30818bddde1b6fc97
+2026-05-10 04:17:42 [server_economic.registration] INFO: Registration submitted: req_cce92bf30818bddde1b6fc97, expires at 2026-05-10T20:17:42.408691+00:00
+2026-05-10 04:17:42 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_cce92bf30818bddde1b6fc97', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-10T20:17:42.408691+00:00'}
+2026-05-10 04:17:42 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_cce92bf30818bddde1b6fc97
+2026-05-10 04:17:46 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_88d8267c
+2026-05-10 04:17:46 [server_economic] INFO: Config saved to /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 04:17:46 [server_economic] INFO: Register state cleared

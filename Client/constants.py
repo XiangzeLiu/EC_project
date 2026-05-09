@@ -22,6 +22,7 @@ TEXT_MUTED   = "#3a3f52"
 FONT_MONO    = ("Courier New", 13)
 FONT_MONO_SM = ("Courier New", 11)
 FONT_UI_SM   = ("Segoe UI", 11)
+FONT_UI      = ("Segoe UI", 13)
 FONT_BOLD    = ("Segoe UI", 11, "bold")
 FONT_TICKER  = ("Courier New", 19, "bold")
 FONT_TITLE   = ("Courier New", 15, "bold")
@@ -50,3 +51,7 @@ MOCK_QUOTE_INTERVAL = 500  # 模拟行情推送间隔 (ms)
 # ── Server defaults ─────────────────────────────────────────────────────────────
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 8800
+
+# ── Server_economic (SE) 直连配置 ────────────────────────────────────────────
+DEFAULT_SE_HOST = "127.0.0.1"
+DEFAULT_SE_PORT = 8900
