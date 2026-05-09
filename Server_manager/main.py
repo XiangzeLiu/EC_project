@@ -639,6 +639,18 @@ async def list_all_nodes(request: Request):
     return {"ok": True, "data": nodes}
 
 
+@app.post("/api/nodes/refresh-status")
+async def refresh_nodes_status(request: Request):
+    """
+    管理员强制刷新所有节点状态
+    立即执行心跳超时检测，获取节点真实运行/离线/占用/锁死状态
+    """
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    result = database.force_check_all_nodes()
+    return {"ok": True, **result}
+
+
 @app.post("/api/nodes/{request_id}/approve")
 async def approve_node(request: Request, request_id: str):
     """管理员通过节点的注册请求"""

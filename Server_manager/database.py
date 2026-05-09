@@ -438,11 +438,14 @@ def verify_node_token(token: str) -> dict | None:
 
     Returns:
         节点信息字典 或 None（无效/过期）
+        
+    注意: 允许 offline/suspended 状态的节点通过验证，
+    以便它们恢复上线后能正常发送心跳将状态更新回 online。
     """
     conn = _get_conn()
     try:
         row = conn.execute(
-            "SELECT * FROM node_requests WHERE token = ? AND status IN ('approved', 'online')",
+            "SELECT * FROM node_requests WHERE token = ? AND status IN ('approved', 'online', 'offline', 'suspended')",
             (token,),
         ).fetchone()
         if row:
@@ -482,7 +485,12 @@ def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
 
 # 心跳超时阈值（秒）：超过此时间未收到心跳则判定为离线
 # 建议设为心跳间隔的 3 倍（默认间隔30s → 超时90s）
+# 此值用于后台自动巡检，较长可避免网络抖动导致误判
 HEARTBEAT_TIMEOUT_SECONDS = 90
+
+# 手动刷新时的超时阈值（秒）：管理员主动点击刷新时使用较短阈值
+# 保证关闭子服务后能立即感知到离线状态
+MANUAL_REFRESH_TIMEOUT_SECONDS = 10
 
 
 def check_offline_nodes(timeout_seconds: int | None = None) -> int:
@@ -537,6 +545,126 @@ def check_offline_nodes(timeout_seconds: int | None = None) -> int:
     except Exception as e:
         log.error(f"check_offline_nodes failed: {e}")
         return 0
+    finally:
+        conn.close()
+
+
+def force_check_all_nodes() -> dict:
+    """
+    强制立即检测所有节点的真实状态（供管理员手动刷新使用）
+
+    在同一事务内完成：(1)心跳超时检测 (2)查询最新完整数据 (3)计算最终展示状态
+    返回的数据可直接用于前端渲染卡片，无需再调 get_all_nodes()
+
+    四种状态的优先级：occupied > suspended > offline > online/approved
+
+    Returns:
+        dict: {
+            "checked": int, "marked_offline": int,
+            "online": int, "offline": int, "occupied": int, "suspended": int,
+            "nodes": [  # 完整节点列表，可直接传给 renderNodes()
+                {所有 get_all_nodes 字段 + "real_status": 强制计算的最终状态}
+            ]
+        }
+    """
+    conn = _get_conn()
+    try:
+        from datetime import timedelta
+        now_utc = datetime.now(timezone.utc)
+        # 手动刷新使用较短的超时阈值，确保快速响应节点离线
+        timeout = MANUAL_REFRESH_TIMEOUT_SECONDS
+        cutoff = now_utc - timedelta(seconds=timeout)
+        cutoff_iso = cutoff.isoformat()
+
+        # ── 1) 即时超时检测（与 check_offline_nodes 完全相同逻辑）──
+        offline_rows = conn.execute("""
+            SELECT b.name AS server_id FROM brokers b
+            JOIN node_requests nr ON nr.server_id = b.name
+            WHERE b.status = 'online'
+              AND (b.last_heartbeat IS NULL OR b.last_heartbeat < ?)
+              AND nr.status = 'online'
+        """, (cutoff_iso,)).fetchall()
+
+        marked_offline = 0
+        for row in offline_rows:
+            sid = row["server_id"]
+            conn.execute("UPDATE node_requests SET status='offline' WHERE server_id = ?", (sid,))
+            conn.execute("UPDATE brokers SET status='offline' WHERE name = ?", (sid,))
+            marked_offline += 1
+            log.info(f"[Force-check] Node marked OFFLINE: {sid}")
+
+        if marked_offline > 0:
+            conn.commit()
+
+        # ── 2) 查询完整节点数据（与 get_all_nodes 相同字段 + occupied 信息）──
+        rows = conn.execute("""
+            SELECT nr.server_id, nr.node_name, nr.region, nr.host,
+                   nr.capabilities, nr.status AS req_status, nr.current_ip,
+                   nr.token, b.status AS broker_status, b.last_heartbeat,
+                   nr.occupied_by, nr.occupied_at, nr.description
+            FROM node_requests nr
+            LEFT JOIN brokers b ON nr.server_id = b.name
+            WHERE nr.status IN ('approved', 'online', 'suspended', 'offline')
+            ORDER BY
+                CASE nr.status
+                    WHEN 'online' THEN 1
+                    WHEN 'suspended' THEN 2
+                    WHEN 'approved' THEN 3
+                    WHEN 'offline' THEN 4
+                END,
+                nr.created_at ASC
+        """).fetchall()
+
+        # ── 3) 统一计算每个节点的真实最终状态 ──
+        nodes = []
+        online_count = 0
+        offline_count = 0
+        suspended_count = 0
+        occupied_count = 0
+
+        for row in rows:
+            n = dict(row)
+            req_status = n.get("req_status", "")
+            occ_by = (n.get("occupied_by") or "").strip()
+
+            # 四种状态优先级：occupied(最高) > suspended > offline > online/approved
+            if occ_by:
+                real_status = "occupied"
+                occupied_count += 1
+            elif req_status == "suspended":
+                real_status = "suspended"
+                suspended_count += 1
+            elif req_status == "offline":
+                real_status = "offline"
+                offline_count += 1
+            else:  # 'online' 或 'approved'
+                real_status = "online"
+                online_count += 1
+
+            # 将计算好的 real_status 写入节点字典
+            n["real_status"] = real_status
+            nodes.append(n)
+
+        log.info(
+            f"[Force-check] completed: total={len(nodes)}, "
+            f"marked_offline={marked_offline}, "
+            f"online={online_count}, offline={offline_count}, "
+            f"suspended={suspended_count}, occupied={occupied_count}"
+        )
+
+        return {
+            "checked": len(nodes),
+            "marked_offline": marked_offline,
+            "online": online_count,
+            "offline": offline_count,
+            "occupied": occupied_count,
+            "suspended": suspended_count,
+            "nodes": nodes,  # 完整节点数据，含 real_status
+        }
+    except Exception as e:
+        log.error(f"force_check_all_nodes failed: {e}")
+        return {"checked": 0, "marked_offline": 0, "online": 0, "offline": 0,
+                "occupied": 0, "suspended": 0, "nodes": [], "error": str(e)}
     finally:
         conn.close()
 
