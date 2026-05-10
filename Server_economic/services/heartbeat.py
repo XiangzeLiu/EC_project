@@ -33,6 +33,7 @@ class HeartbeatSender:
         max_backoff: float = 60.0,
     ):
         self.interval = interval
+        self.default_interval = interval  # 记录默认间隔（用于非占用状态）
         self.max_backoff = max_backoff
         self._task: asyncio.Task | None = None
         self._sequence: int = 0
@@ -150,9 +151,23 @@ class HeartbeatSender:
                     state.last_heartbeat_time = time.time()
                     state.heartbeat_fail_count = 0
 
-                    # 动态调整间隔
+                    # ★ 占用感知的动态间隔调整
+                    # SM 会告知此节点是否被占用：
+                    #   - 被占用 → next_interval=5s（快速心跳，配合SM端15秒超时实现快速掉线检测）
+                    #   - 未被占用 → next_interval=30s（正常心跳）
                     if next_interval and next_interval > 0:
-                        self.interval = float(next_interval)
+                        new_interval = float(next_interval)
+                        self.interval = new_interval
+                        # 记录诊断信息（仅在间隔变化时）
+                        is_occupied = data.get("occupied", False)
+                        if is_occupied:
+                            log.debug(
+                                f"[#{seq}] Node is OCCUPIED by '{data.get('occupied_by', '?')}', "
+                                f"using fast heartbeat: {new_interval}s "
+                                f"(SM timeout={data.get('occupied_timeout', '?')}s)"
+                            )
+                        elif new_interval != self.default_interval:
+                            log.debug(f"[#{seq}] Node released, heartbeat interval reset to {new_interval}s")
 
                     log.debug(
                         f"[#{seq}] Heartbeat OK "

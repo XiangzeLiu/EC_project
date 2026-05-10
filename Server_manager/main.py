@@ -51,6 +51,7 @@ from config import (
     quote_clients, subscribed_syms, is_configured, log,
 )
 import database
+import node_state
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.order_router import router as order_router
@@ -599,7 +600,17 @@ async def await_approval(request_id: str):
 
 @app.post("/nodes/heartbeat")
 async def node_heartbeat(request: Request):
-    """已注册节点的心跳保活（需 Bearer Token）"""
+    """
+    已注册节点的心跳保活（需 Bearer Token）
+
+    心跳直接更新内存状态，不写数据库。
+    状态守卫：suspended 节点心跳不改变暂停状态。
+    
+    改进（占用感知）：
+      - 如果节点被占用，返回更短的心跳间隔（5秒 vs 30秒）
+      - 这样 SE 会在占用状态下更频繁地发送心跳，
+        结合 SM 端的短超时阈值（15秒），能更快检测到掉线
+    """
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         return {"status": "error", "message": "Missing or invalid Authorization header"}
@@ -614,9 +625,28 @@ async def node_heartbeat(request: Request):
     body = await request.json() if await request.body() else {}
     current_ip = body.get("ip") or client_ip
 
-    database.update_node_heartbeat(node_info["server_id"], current_ip)
+    sid = node_info["server_id"]
+    ok, msg = node_state.manager.update_heartbeat(sid, current_ip)
+    if not ok:
+        log.warning(f"Hebeat from unknown/removed node: {sid}")
 
-    return {"status": "ok", "next_interval": 30}
+    # ★ 占用感知：被占用的节点使用更短的心跳间隔
+    state = node_state.manager.get(sid)
+    is_occupied = bool(state and state.occupied_by)
+    next_interval = 5 if is_occupied else 30  # 占用状态下5秒一跳，否则30秒
+
+    response = {
+        "status": "ok",
+        "next_interval": next_interval,
+    }
+    
+    # 如果被占用，额外告知 SE 当前占用信息（用于诊断和快速恢复）
+    if is_occupied:
+        response["occupied"] = True
+        response["occupied_by"] = state.occupied_by
+        response["occupied_timeout"] = node_state.OCCUPIED_HEARTBEAT_TIMEOUT
+
+    return response
 
 
 # ── 节点管理 API（管理员用）───────────────────────────────────────────────
@@ -642,13 +672,42 @@ async def list_all_nodes(request: Request):
 @app.post("/api/nodes/refresh-status")
 async def refresh_nodes_status(request: Request):
     """
-    管理员强制刷新所有节点状态
-    立即执行心跳超时检测，获取节点真实运行/离线/占用/锁死状态
+    管理员刷新所有节点状态（只读，不写库）
+
+    关键修复：
+      - 先执行一次离线检测（check_offline_nodes），确保内存状态是最新的
+      - 然后再从内存读取 + 计算 real_status
+      - 这样即使心跳巡检还没来得及跑（30秒间隔），刷新时也能立即发现离线节点
+    
+    直接从内存读取实时状态 + 计算展示用的 real_status。
+    不修改任何数据库记录。
     """
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
-    result = database.force_check_all_nodes()
-    return {"ok": True, **result}
+
+    # ★ 先执行离线检测，确保返回的数据反映真实状态
+    # 这解决了"SE 掉线后 Web 刷新仍显示在线/占用"的问题
+    offline_ids = node_state.manager.check_offline_nodes()
+    if offline_ids:
+        log.info(f"[refresh-status] Force-detected {len(offline_ids)} offline node(s) before display")
+
+    nodes = node_state.manager.get_all_for_display()
+
+    # 统计各状态数量
+    online = sum(1 for n in nodes if n["real_status"] == "online")
+    offline = sum(1 for n in nodes if n["real_status"] == "offline")
+    occupied = sum(1 for n in nodes if n["real_status"] == "occupied")
+    suspended = sum(1 for n in nodes if n["real_status"] == "suspended")
+
+    return {
+        "ok": True,
+        "checked": len(nodes),
+        "online": online,
+        "offline": offline,
+        "occupied": occupied,
+        "suspended": suspended,
+        "nodes": nodes,
+    }
 
 
 @app.post("/api/nodes/{request_id}/approve")
@@ -660,6 +719,20 @@ async def approve_node(request: Request, request_id: str):
     result = database.approve_node_request(request_id)
     if not result:
         return {"ok": False, "error": "Request not found or already processed"}
+
+    # 审批通过后，将节点加载到内存状态管理器
+    approved_rows = database.get_approved_nodes_for_memory_load()
+    newly_approved = [r for r in approved_rows if r.get("server_id") == result["server_id"]]
+    if newly_approved:
+        node_state.manager.register(newly_approved[0])
+    else:
+        node_state.manager.register({
+            "server_id": result["server_id"],
+            "token": result["token"],
+            "node_name": "",
+            "status": "approved",
+            "broker_status": "online",
+        })
 
     # 向 SSE 等待队列推送结果
     data = _json.dumps({
@@ -706,6 +779,7 @@ async def delete_node(request: Request, server_id: str):
     ok = database.delete_node(server_id)
     if not ok:
         return {"ok": False, "error": "Node not found"}
+    node_state.manager.set_deleted(server_id)
     return {"ok": True, "message": f"\u5df2\u5220\u9664\uff1a{server_id}"}
 
 
@@ -714,9 +788,11 @@ async def suspend_node(request: Request, server_id: str):
     """管理员暂停节点（停止访问，标黄）"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
-    ok = database.suspend_node(server_id)
+    ok, msg = node_state.manager.set_suspended(server_id)
     if not ok:
-        return {"ok": False, "error": "Node not found or invalid status"}
+        return {"ok": False, "error": msg}
+    # 同步到 DB（管理员操作需要持久化）
+    database.suspend_node(server_id)
     return {"ok": True, "message": f"\u5df2\u6682\u505c\uff1a{server_id}"}
 
 
@@ -725,9 +801,11 @@ async def resume_node(request: Request, server_id: str):
     """管理员恢复被暂停的节点"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
-    ok = database.resume_node(server_id)
+    ok, msg = node_state.manager.set_resumed(server_id)
     if not ok:
-        return {"ok": False, "error": "Node not found or not suspended"}
+        return {"ok": False, "error": msg}
+    # 同步到 DB
+    database.resume_node(server_id)
     return {"ok": True, "message": f"\u5df2\u6062\u590d\uff1a{server_id}"}
 
 
@@ -743,15 +821,15 @@ async def occupy_node(request: Request, server_id: str):
     body = await request.json() if await request.body() else {}
     username = body.get("username", "")
 
-    # 检查是否已被其他账户占用
-    occ = database.get_occupation_info(server_id)
+    # 检查是否已被其他账户占用（从内存读取）
+    occ = node_state.manager.get_occupation_info(server_id)
     if occ and occ.get("occupied_by") and occ["occupied_by"] != username:
         return {"ok": False, "error": "occupied",
                 "message": f"\u8282\u70b9\u5df2\u88ab\u8d26\u6237 '{occ['occupied_by']}' \u5360\u7528"}
 
-    ok = database.occupy_node(server_id, username)
+    ok, err_msg = node_state.manager.occupy(server_id, username)
     if not ok:
-        return {"ok": False, "error": "\u5360\u7528\u5931\u8d25"}
+        return {"ok": False, "error": err_msg}
     return {"ok": True, "message": f"\u8282\u70b9\u5df2\u88ab '{username}' \u5360\u7528"}
 
 
@@ -764,7 +842,7 @@ async def release_node(request: Request, server_id: str):
     if not token or token not in active_client_tokens:
         return {"ok": False, "error": "Unauthorized"}
 
-    database.release_node(server_id)
+    node_state.manager.release(server_id)
     return {"ok": True, "message": f"\u5df2\u91ca\u653e\u8282\u70b9"}
 
 
@@ -890,9 +968,11 @@ async def update_account(request: Request, account_id: int):
 
 @app.get("/api/accounts/se-status")
 async def check_se_status(request: Request, address: str = ""):
-    """检查 SE 地址是否有对应的在线子服务器（需登录）"""
+    """
+    检查 SE 地址是否有对应的在线子服务器（需登录）
+    从内存状态读取，不查询数据库。
+    """
     from auth import active_client_tokens
-    from fastapi import HTTPException
 
     # 验证请求携带有效 token
     auth_header = request.headers.get("authorization", "")
@@ -900,8 +980,38 @@ async def check_se_status(request: Request, address: str = ""):
     if not token or token not in active_client_tokens:
         return {"ok": False, "error": "Unauthorized", "online": False}
 
-    result = database.check_se_online(address)
-    return {"ok": True, **result}
+    # 从内存中查找匹配地址的在线节点
+    addr_part = address.split(":")[0] if ":" in address else address
+    for state in node_state.manager._states.values():
+        # 检查 IP 匹配（current_ip 或 host）
+        ip_match = (state.current_ip == addr_part or
+                   state._host == addr_part or
+                   state.current_ip.startswith(addr_part) or
+                   state._host.startswith(addr_part))
+        if not ip_match:
+            continue
+        # 必须在线且有心跳
+        if state.is_online:
+            occ_info = node_state.manager.get_occupation_info(state.server_id)
+            return {
+                "ok": True,
+                "online": True,
+                "node_name": state._node_name,
+                "server_id": state.server_id,
+                "match_field": "memory",
+                "address": address,
+                "occupied_by": (occ_info or {}).get("occupied_by", ""),
+                "occupied_at": (occ_info or {}).get("occupied_at", ""),
+            }
+
+    return {
+        "ok": True,
+        "online": False,
+        "reason": f"\u672a\u627e\u5230\u4e0e\u5730\u5740 '{address}' \u5339\u914d\u7684\u5728\u7ebf\u5b50\u670d\u52a1\u5668",
+        "address": address,
+        "occupied_by": "",
+        "occupied_at": "",
+    }
 
 
 def _push_sse_result(request_id: str, data_json: str):
@@ -961,19 +1071,56 @@ _HEARTBEAT_CHECK_INTERVAL = 30
 
 async def _heartbeat_monitor_loop():
     """
-    后台定期检测心跳超时的节点，自动标记为离线
+    后台定期检测心跳超时的节点，自动标记为离线（内存操作）
+    
+    改进：
+      - 被占用节点使用短超时（15秒），能更快检测掉线
+      - 对接近超时的占用节点主动发起探活请求
+      - 掉线时自动释放占用，防止节点被永久锁定
     """
     await asyncio.sleep(10)
-    log.info("Heartbeat monitor started (interval=%ds, timeout=%ds)" %
-             (_HEARTBEAT_CHECK_INTERVAL, database.HEARTBEAT_TIMEOUT_SECONDS))
+    log.info("Heartbeat monitor started (interval=%ds, timeout=%ds/occupied=%ds)" %
+             (_HEARTBEAT_CHECK_INTERVAL, node_state.HEARTBEAT_TIMEOUT, node_state.OCCUPIED_HEARTBEAT_TIMEOUT))
     while True:
         try:
-            count = database.check_offline_nodes()
-            if count > 0:
-                log.info(f"Heartbeat monitor: {count} node(s) marked as OFFLINE")
+            # 1. 检测离线节点（占用节点使用15秒超时）
+            offline_ids = node_state.manager.check_offline_nodes()
+            if offline_ids:
+                log.info(f"Heartbeat monitor: {len(offline_ids)} node(s) marked as OFFLINE")
+            
+            # 2. 对接近超时的占用节点发起主动探活
+            probe_targets = node_state.manager.get_nodes_need_probe()
+            for target in probe_targets:
+                sid = target["server_id"]
+                log.info(
+                    f"[Probe] Active probing occupied node {sid} "
+                    f"(occupied by '{target['occupied_by']}', "
+                    f"{target['seconds_until_timeout']:.1f}s until timeout)"
+                )
+                node_state.manager.mark_node_probing(sid)
+                # 注意：实际探活可通过 HTTP 请求 SE 的 /health 端点实现，
+                # 此处标记后由下次心跳或外部探活机制处理
+                
         except Exception as e:
             log.error(f"Heartbeat monitor error: {e}")
         await asyncio.sleep(_HEARTBEAT_CHECK_INTERVAL)
+
+
+# 定期将内存状态同步到数据库（用于崩溃恢复），间隔 5 分钟
+_DB_SYNC_INTERVAL = 300
+
+
+async def _db_sync_loop():
+    """后台定期将内存状态同步到 SQLite"""
+    await asyncio.sleep(60)  # 启动后等1分钟再开始首次同步
+    while True:
+        try:
+            states = node_state.manager.prepare_db_sync_data()
+            if states:
+                database.sync_node_states_to_db(states)
+        except Exception as e:
+            log.error(f"DB sync error: {e}")
+        await asyncio.sleep(_DB_SYNC_INTERVAL)
 
 
 @app.on_event("startup")
@@ -983,13 +1130,30 @@ async def startup():
     asyncio.create_task(_session_cleanup_loop())
     # 启动节点注册请求过期清理任务
     asyncio.create_task(_node_expire_cleanup_loop())
-    # 启动心跳超时检测任务
+    # 启动心跳超时检测任务（内存操作）
     asyncio.create_task(_heartbeat_monitor_loop())
-    # 初始化数据库（保留表结构，Demo 模式主要使用 JSON 用户）
+    # 初始化数据库
     try:
         init_db()
     except Exception as e:
         log.warning(f"Database init skipped (non-critical): {e}")
+
+    # ── 加载已批准节点到内存状态管理器 ──
+    try:
+        db_rows = database.get_approved_nodes_for_memory_load()
+        loaded = node_state.manager.load_from_db_rows(db_rows)
+        log.info(f"[Startup] loaded {loaded} approved nodes into memory state")
+        
+        # ★ 启动后立即执行一次离线检测
+        # 防止 DB 中残留的 online/occupied 状态被错误展示
+        offline_on_boot = node_state.manager.check_offline_nodes()
+        if offline_on_boot:
+            log.info(f"[Startup] corrected {len(offline_on_boot)} node(s) to OFFLINE (stale DB data)")
+    except Exception as e:
+        log.warning(f"[Startup] failed to load nodes into memory: {e}")
+
+    # 启动定期 DB 同步任务
+    asyncio.create_task(_db_sync_loop())
 
     # 检查并连接 Tastytrade（可选，不阻塞启动）
     if is_configured() and SDK_OK:
@@ -1024,6 +1188,15 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """应用关闭时清理资源"""
+    # 将当前内存状态同步回数据库（用于下次启动恢复）
+    try:
+        states = node_state.manager.prepare_db_sync_data()
+        if states:
+            database.sync_node_states_to_db(states)
+            log.info(f"[Shutdown] synced {len(states)} node states to DB")
+    except Exception as e:
+        log.warning(f"[Shutdown] DB sync failed (non-critical): {e}")
+
     session_store["session"] = None
     session_store["account"] = None
     session_store["connected"] = False

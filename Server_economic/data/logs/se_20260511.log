@@ -1,0 +1,254 @@
+2026-05-11 00:35:18 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 00:35:18 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 00:35:18 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 00:35:18 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_fe55fa62
+2026-05-11 00:35:18 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 00:35:20 [server_economic.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:35:20 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 00:35:22 [server_economic.heartbeat] WARNING: [#1] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:35:24 [server_economic.heartbeat] WARNING: [#2] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:35:26 [server_economic.heartbeat] WARNING: [#3] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:35:30 [server_economic.heartbeat] WARNING: [#4] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:35:36 [server_economic.heartbeat] WARNING: [#5] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:35:46 [server_economic.heartbeat] WARNING: [#6] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:36:04 [server_economic.heartbeat] WARNING: [#7] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:36:38 [server_economic.heartbeat] WARNING: [#8] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 00:37:40 [server_economic.heartbeat] WARNING: [#9] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-05-11 01:07:36 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 01:07:36 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:07:36 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:07:36 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_fe55fa62
+2026-05-11 01:07:36 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 01:07:36 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 01:07:36 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 01:07:46 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-11 01:07:59 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 01:07:59 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 01:07:59 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.1.129:8900'}
+2026-05-11 01:07:59 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-11 01:07:59 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-11 01:07:59 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-11 01:07:59 [server_economic] INFO: Register state saved: req_a434d7754d3b0edb474cd19c
+2026-05-11 01:07:59 [server_economic.registration] INFO: Registration submitted: req_a434d7754d3b0edb474cd19c, expires at 2026-05-11T17:07:59.106691+00:00
+2026-05-11 01:07:59 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_a434d7754d3b0edb474cd19c', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-11T17:07:59.106691+00:00'}
+2026-05-11 01:07:59 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_a434d7754d3b0edb474cd19c
+2026-05-11 01:08:02 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_d9226e6b
+2026-05-11 01:08:02 [server_economic] INFO: Config saved to D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:08:02 [server_economic] INFO: Register state cleared
+2026-05-11 01:29:33 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 01:29:33 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:29:33 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:29:33 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_d9226e6b
+2026-05-11 01:29:33 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 01:29:33 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 01:29:33 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 01:31:20 [server_economic.ws_server] INFO: [sess_37661aafb2bafa39] WS connected from 127.0.0.1:64195
+2026-05-11 01:31:20 [server_economic.ws_server] INFO: [sess_37661aafb2bafa39] Auth OK, connection established
+2026-05-11 01:31:35 [server_economic.ws_server] INFO: [sess_37661aafb2bafa39] WS disconnected by client
+2026-05-11 01:31:35 [server_economic.ws_server] INFO: [sess_37661aafb2bafa39] Connection cleaned up (remaining connections: 0)
+2026-05-11 01:31:37 [server_economic.ws_server] INFO: [sess_e1e40cc66995e502] WS connected from 127.0.0.1:49900
+2026-05-11 01:31:37 [server_economic.ws_server] INFO: [sess_e1e40cc66995e502] Auth OK, connection established
+2026-05-11 01:31:37 [server_economic.ws_server] INFO: [sess_e1e40cc66995e502] STATUS_QUERY
+2026-05-11 01:31:38 [server_economic.ws_server] INFO: [sess_e1e40cc66995e502] WS disconnected by client
+2026-05-11 01:31:38 [server_economic.ws_server] INFO: [sess_e1e40cc66995e502] Connection cleaned up (remaining connections: 0)
+2026-05-11 01:31:39 [server_economic.ws_server] INFO: [sess_49d7a17c83fe01c1] WS connected from 127.0.0.1:49907
+2026-05-11 01:31:39 [server_economic.ws_server] INFO: [sess_49d7a17c83fe01c1] Auth OK, connection established
+2026-05-11 01:31:39 [server_economic.ws_server] INFO: [sess_49d7a17c83fe01c1] STATUS_QUERY
+2026-05-11 01:31:39 [server_economic.ws_server] INFO: [sess_49d7a17c83fe01c1] WS disconnected by client
+2026-05-11 01:31:39 [server_economic.ws_server] INFO: [sess_49d7a17c83fe01c1] Connection cleaned up (remaining connections: 0)
+2026-05-11 01:31:40 [server_economic.ws_server] INFO: [sess_e6dedae940634444] WS connected from 127.0.0.1:49914
+2026-05-11 01:31:40 [server_economic.ws_server] INFO: [sess_e6dedae940634444] Auth OK, connection established
+2026-05-11 01:31:40 [server_economic.ws_server] INFO: [sess_e6dedae940634444] STATUS_QUERY
+2026-05-11 01:31:41 [server_economic.ws_server] INFO: [sess_e6dedae940634444] WS disconnected by client
+2026-05-11 01:31:41 [server_economic.ws_server] INFO: [sess_e6dedae940634444] Connection cleaned up (remaining connections: 0)
+2026-05-11 01:38:22 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 01:38:22 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:38:22 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:38:22 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_d9226e6b
+2026-05-11 01:38:22 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 01:38:22 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 01:38:22 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 01:51:45 [server_economic.main] INFO: Credentials cleared: ['config.json']
+2026-05-11 01:51:47 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 01:51:47 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 01:51:47 [server_economic.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'economic-node-01', 'region': 'CN', 'host': '192.168.1.129:8900'}
+2026-05-11 01:51:47 [server_economic.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-05-11 01:51:47 [server_economic.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-05-11 01:51:47 [server_economic.registration] INFO: Node info: name=economic-node-01, region=CN
+2026-05-11 01:51:47 [server_economic] INFO: Register state saved: req_f95d1493b9e151bf2a7f8470
+2026-05-11 01:51:47 [server_economic.registration] INFO: Registration submitted: req_f95d1493b9e151bf2a7f8470, expires at 2026-05-11T17:51:47.783394+00:00
+2026-05-11 01:51:47 [server_economic.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_f95d1493b9e151bf2a7f8470', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-05-11T17:51:47.783394+00:00'}
+2026-05-11 01:51:47 [server_economic.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_f95d1493b9e151bf2a7f8470
+2026-05-11 01:51:50 [server_economic.main] INFO: [Await Approval] ★ APPROVED! server_id=node_economic-node-01_2412bf50
+2026-05-11 01:51:50 [server_economic] INFO: Config saved to D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:51:50 [server_economic] INFO: Register state cleared
+2026-05-11 01:53:42 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 01:53:42 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:53:42 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 01:53:42 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 01:53:42 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 01:53:42 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 01:53:42 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 01:53:53 [server_economic.ws_server] INFO: [sess_ee4b5e5e3071a073] WS connected from 127.0.0.1:50364
+2026-05-11 01:53:53 [server_economic.ws_server] INFO: [sess_ee4b5e5e3071a073] Auth OK, connection established
+2026-05-11 01:54:01 [server_economic.ws_server] INFO: [sess_ee4b5e5e3071a073] WS disconnected by client
+2026-05-11 01:54:01 [server_economic.ws_server] INFO: [sess_ee4b5e5e3071a073] Connection cleaned up (remaining connections: 0)
+2026-05-11 01:54:15 [server_economic.ws_server] INFO: [sess_95c3aa3b3090a734] WS connected from 127.0.0.1:59775
+2026-05-11 01:54:15 [server_economic.ws_server] INFO: [sess_95c3aa3b3090a734] Auth OK, connection established
+2026-05-11 02:09:42 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:09:42 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:09:42 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:09:42 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:09:42 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:09:42 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:09:42 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:09:52 [server_economic.ws_server] INFO: [sess_d1dbb332aee767d4] WS connected from 127.0.0.1:50725
+2026-05-11 02:09:52 [server_economic.ws_server] INFO: [sess_d1dbb332aee767d4] Auth OK, connection established
+2026-05-11 02:09:52 [server_economic.ws_server] INFO: [sess_d1dbb332aee767d4] STATUS_QUERY
+2026-05-11 02:11:12 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:11:12 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:11:12 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:11:12 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:11:12 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:11:12 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:11:12 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:15:08 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:15:08 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:15:08 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:15:08 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:15:08 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:15:08 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:15:08 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:15:26 [server_economic.ws_server] INFO: [sess_896c4e3cf306f628] WS connected from 127.0.0.1:63841
+2026-05-11 02:15:26 [server_economic.ws_server] INFO: [sess_896c4e3cf306f628] Auth OK, connection established
+2026-05-11 02:15:56 [server_economic.ws_server] INFO: [sess_896c4e3cf306f628] WS disconnected by client
+2026-05-11 02:15:56 [server_economic.ws_server] INFO: [sess_896c4e3cf306f628] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:15:59 [server_economic.ws_server] INFO: [sess_5a26f0b3412b14b6] WS connected from 127.0.0.1:56073
+2026-05-11 02:15:59 [server_economic.ws_server] INFO: [sess_5a26f0b3412b14b6] Auth OK, connection established
+2026-05-11 02:15:59 [server_economic.ws_server] INFO: [sess_5a26f0b3412b14b6] STATUS_QUERY
+2026-05-11 02:16:29 [server_economic.ws_server] INFO: [sess_5a26f0b3412b14b6] WS disconnected by client
+2026-05-11 02:16:29 [server_economic.ws_server] INFO: [sess_5a26f0b3412b14b6] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:16:35 [server_economic.ws_server] INFO: [sess_e60c8f3023dd3a4e] WS connected from 127.0.0.1:63645
+2026-05-11 02:16:35 [server_economic.ws_server] INFO: [sess_e60c8f3023dd3a4e] Auth OK, connection established
+2026-05-11 02:16:35 [server_economic.ws_server] INFO: [sess_e60c8f3023dd3a4e] STATUS_QUERY
+2026-05-11 02:17:05 [server_economic.ws_server] INFO: [sess_e60c8f3023dd3a4e] WS disconnected by client
+2026-05-11 02:17:05 [server_economic.ws_server] INFO: [sess_e60c8f3023dd3a4e] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:17:17 [server_economic.ws_server] INFO: [sess_b91f0038dd1b2b68] WS connected from 127.0.0.1:55747
+2026-05-11 02:17:17 [server_economic.ws_server] INFO: [sess_b91f0038dd1b2b68] Auth OK, connection established
+2026-05-11 02:17:17 [server_economic.ws_server] INFO: [sess_b91f0038dd1b2b68] STATUS_QUERY
+2026-05-11 02:17:47 [server_economic.ws_server] INFO: [sess_b91f0038dd1b2b68] WS disconnected by client
+2026-05-11 02:17:47 [server_economic.ws_server] INFO: [sess_b91f0038dd1b2b68] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:18:11 [server_economic.ws_server] INFO: [sess_4dee9b1932940e80] WS connected from 127.0.0.1:65532
+2026-05-11 02:18:11 [server_economic.ws_server] INFO: [sess_4dee9b1932940e80] Auth OK, connection established
+2026-05-11 02:18:11 [server_economic.ws_server] INFO: [sess_4dee9b1932940e80] STATUS_QUERY
+2026-05-11 02:18:41 [server_economic.ws_server] INFO: [sess_4dee9b1932940e80] WS disconnected by client
+2026-05-11 02:18:41 [server_economic.ws_server] INFO: [sess_4dee9b1932940e80] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:19:05 [server_economic.ws_server] INFO: [sess_1b1629a56c449543] WS connected from 127.0.0.1:63616
+2026-05-11 02:19:05 [server_economic.ws_server] INFO: [sess_1b1629a56c449543] Auth OK, connection established
+2026-05-11 02:19:05 [server_economic.ws_server] INFO: [sess_1b1629a56c449543] STATUS_QUERY
+2026-05-11 02:19:35 [server_economic.ws_server] INFO: [sess_1b1629a56c449543] WS disconnected by client
+2026-05-11 02:19:35 [server_economic.ws_server] INFO: [sess_1b1629a56c449543] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:19:59 [server_economic.ws_server] INFO: [sess_5cb98b455063cc1e] WS connected from 127.0.0.1:60922
+2026-05-11 02:19:59 [server_economic.ws_server] INFO: [sess_5cb98b455063cc1e] Auth OK, connection established
+2026-05-11 02:19:59 [server_economic.ws_server] INFO: [sess_5cb98b455063cc1e] STATUS_QUERY
+2026-05-11 02:20:29 [server_economic.ws_server] INFO: [sess_5cb98b455063cc1e] WS disconnected by client
+2026-05-11 02:20:29 [server_economic.ws_server] INFO: [sess_5cb98b455063cc1e] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:20:55 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:20:55 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:20:55 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:20:55 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:20:55 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:20:55 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:20:55 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:28:00 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:28:00 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:28:00 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:28:00 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:28:00 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:28:00 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:28:00 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:29:48 [server_economic.ws_server] INFO: [sess_12241b172da29e07] WS connected from 127.0.0.1:62580
+2026-05-11 02:29:48 [server_economic.ws_server] INFO: [sess_12241b172da29e07] Auth OK, connection established
+2026-05-11 02:30:24 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:30:24 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:30:24 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:30:24 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:30:24 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:30:24 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:30:24 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:30:26 [server_economic.ws_server] INFO: [sess_e2949630c29dc8b9] WS connected from 127.0.0.1:57471
+2026-05-11 02:30:26 [server_economic.ws_server] INFO: [sess_e2949630c29dc8b9] Auth OK, connection established
+2026-05-11 02:30:27 [server_economic.ws_server] INFO: [sess_e2949630c29dc8b9] STATUS_QUERY
+2026-05-11 02:30:27 [server_economic.ws_server] INFO: [sess_06e97548b12e3f34] WS connected from 127.0.0.1:57475
+2026-05-11 02:30:27 [server_economic.ws_server] INFO: [sess_06e97548b12e3f34] Auth OK, connection established
+2026-05-11 02:30:27 [server_economic.ws_server] INFO: [sess_06e97548b12e3f34] STATUS_QUERY
+2026-05-11 02:30:56 [server_economic.ws_server] INFO: [sess_e2949630c29dc8b9] WS disconnected by client
+2026-05-11 02:30:56 [server_economic.ws_server] INFO: [sess_e2949630c29dc8b9] Connection cleaned up (remaining connections: 1)
+2026-05-11 02:30:57 [server_economic.ws_server] INFO: [sess_06e97548b12e3f34] WS disconnected by client
+2026-05-11 02:30:57 [server_economic.ws_server] INFO: [sess_06e97548b12e3f34] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:30:59 [server_economic.ws_server] INFO: [sess_24dccb842ca242c1] WS connected from 127.0.0.1:61592
+2026-05-11 02:30:59 [server_economic.ws_server] INFO: [sess_24dccb842ca242c1] Auth OK, connection established
+2026-05-11 02:31:00 [server_economic.ws_server] INFO: [sess_b1eae440a4a62b26] WS connected from 127.0.0.1:61594
+2026-05-11 02:31:00 [server_economic.ws_server] INFO: [sess_b1eae440a4a62b26] Auth OK, connection established
+2026-05-11 02:31:00 [server_economic.ws_server] INFO: [sess_b1eae440a4a62b26] STATUS_QUERY
+2026-05-11 02:31:29 [server_economic.ws_server] INFO: [sess_24dccb842ca242c1] WS disconnected by client
+2026-05-11 02:31:29 [server_economic.ws_server] INFO: [sess_24dccb842ca242c1] Connection cleaned up (remaining connections: 1)
+2026-05-11 02:31:30 [server_economic.ws_server] INFO: [sess_b1eae440a4a62b26] WS disconnected by client
+2026-05-11 02:31:30 [server_economic.ws_server] INFO: [sess_b1eae440a4a62b26] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:31:35 [server_economic.ws_server] INFO: [sess_808a161c7caf05e1] WS connected from 127.0.0.1:58442
+2026-05-11 02:31:35 [server_economic.ws_server] INFO: [sess_808a161c7caf05e1] Auth OK, connection established
+2026-05-11 02:31:36 [server_economic.ws_server] INFO: [sess_0065879682576097] WS connected from 127.0.0.1:58447
+2026-05-11 02:31:36 [server_economic.ws_server] INFO: [sess_0065879682576097] Auth OK, connection established
+2026-05-11 02:31:36 [server_economic.ws_server] INFO: [sess_0065879682576097] STATUS_QUERY
+2026-05-11 02:32:05 [server_economic.ws_server] INFO: [sess_808a161c7caf05e1] WS disconnected by client
+2026-05-11 02:32:05 [server_economic.ws_server] INFO: [sess_808a161c7caf05e1] Connection cleaned up (remaining connections: 1)
+2026-05-11 02:32:06 [server_economic.ws_server] INFO: [sess_0065879682576097] WS disconnected by client
+2026-05-11 02:32:06 [server_economic.ws_server] INFO: [sess_0065879682576097] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:32:17 [server_economic.ws_server] INFO: [sess_25a99bc8bcedb8cb] WS connected from 127.0.0.1:57489
+2026-05-11 02:32:17 [server_economic.ws_server] INFO: [sess_25a99bc8bcedb8cb] Auth OK, connection established
+2026-05-11 02:32:18 [server_economic.ws_server] INFO: [sess_31c28a9c475f72e6] WS connected from 127.0.0.1:57491
+2026-05-11 02:32:18 [server_economic.ws_server] INFO: [sess_31c28a9c475f72e6] Auth OK, connection established
+2026-05-11 02:32:18 [server_economic.ws_server] INFO: [sess_31c28a9c475f72e6] STATUS_QUERY
+2026-05-11 02:32:48 [server_economic.ws_server] INFO: [sess_25a99bc8bcedb8cb] WS disconnected by client
+2026-05-11 02:32:48 [server_economic.ws_server] INFO: [sess_25a99bc8bcedb8cb] Connection cleaned up (remaining connections: 1)
+2026-05-11 02:32:48 [server_economic.ws_server] INFO: [sess_31c28a9c475f72e6] WS disconnected by client
+2026-05-11 02:32:48 [server_economic.ws_server] INFO: [sess_31c28a9c475f72e6] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:33:12 [server_economic.ws_server] INFO: [sess_0b114d737abf75aa] WS connected from 127.0.0.1:60055
+2026-05-11 02:33:12 [server_economic.ws_server] INFO: [sess_0b114d737abf75aa] Auth OK, connection established
+2026-05-11 02:33:12 [server_economic.ws_server] INFO: [sess_e19c8fdccbfbb74f] WS connected from 127.0.0.1:60057
+2026-05-11 02:33:12 [server_economic.ws_server] INFO: [sess_e19c8fdccbfbb74f] Auth OK, connection established
+2026-05-11 02:33:12 [server_economic.ws_server] INFO: [sess_e19c8fdccbfbb74f] STATUS_QUERY
+2026-05-11 02:33:42 [server_economic.ws_server] INFO: [sess_0b114d737abf75aa] WS disconnected by client
+2026-05-11 02:33:42 [server_economic.ws_server] INFO: [sess_0b114d737abf75aa] Connection cleaned up (remaining connections: 1)
+2026-05-11 02:33:42 [server_economic.ws_server] INFO: [sess_e19c8fdccbfbb74f] WS disconnected by client
+2026-05-11 02:33:42 [server_economic.ws_server] INFO: [sess_e19c8fdccbfbb74f] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:34:06 [server_economic.ws_server] INFO: [sess_9fb9c74c0b8d3cbc] WS connected from 127.0.0.1:56174
+2026-05-11 02:34:06 [server_economic.ws_server] INFO: [sess_9fb9c74c0b8d3cbc] Auth OK, connection established
+2026-05-11 02:34:06 [server_economic.ws_server] INFO: [sess_ddb5066abad288e6] WS connected from 127.0.0.1:56176
+2026-05-11 02:34:06 [server_economic.ws_server] INFO: [sess_ddb5066abad288e6] Auth OK, connection established
+2026-05-11 02:34:06 [server_economic.ws_server] INFO: [sess_ddb5066abad288e6] STATUS_QUERY
+2026-05-11 02:34:36 [server_economic.ws_server] INFO: [sess_9fb9c74c0b8d3cbc] WS disconnected by client
+2026-05-11 02:34:36 [server_economic.ws_server] INFO: [sess_9fb9c74c0b8d3cbc] Connection cleaned up (remaining connections: 1)
+2026-05-11 02:34:36 [server_economic.ws_server] INFO: [sess_ddb5066abad288e6] WS disconnected by client
+2026-05-11 02:34:36 [server_economic.ws_server] INFO: [sess_ddb5066abad288e6] Connection cleaned up (remaining connections: 0)
+2026-05-11 02:34:49 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:34:49 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:34:49 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:34:49 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:34:49 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:34:49 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:34:49 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:34:57 [server_economic.ws_server] INFO: [sess_4e42819676d7aafe] WS connected from 127.0.0.1:60974
+2026-05-11 02:34:57 [server_economic.ws_server] INFO: [sess_4e42819676d7aafe] Auth OK, connection established
+2026-05-11 02:35:37 [server_economic] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Server_economic\data\logs\se_20260511.log)
+2026-05-11 02:35:37 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:35:37 [server_economic] INFO: Config loaded from D:\CodeProject\Python\EC_project\Server_economic\data\config.json
+2026-05-11 02:35:37 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_2412bf50
+2026-05-11 02:35:37 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-11 02:35:37 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-11 02:35:37 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-11 02:35:41 [server_economic.ws_server] INFO: [sess_e0c7a5475542e3f7] WS connected from 127.0.0.1:53684
+2026-05-11 02:35:41 [server_economic.ws_server] INFO: [sess_e0c7a5475542e3f7] Auth OK, connection established
+2026-05-11 02:35:41 [server_economic.ws_server] INFO: [sess_e0c7a5475542e3f7] STATUS_QUERY
+2026-05-11 02:35:56 [server_economic.ws_server] INFO: [sess_e0c7a5475542e3f7] WS disconnected by client
+2026-05-11 02:35:56 [server_economic.ws_server] INFO: [sess_e0c7a5475542e3f7] Connection cleaned up (remaining connections: 0)

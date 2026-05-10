@@ -459,18 +459,27 @@ def verify_node_token(token: str) -> dict | None:
 
 
 def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
-    """更新已批准节点的心跳时间和 IP"""
+    """
+    更新已批准节点的心跳时间和 IP
+
+    注意：只允许将状态恢复为 online 的场景：
+      - online（保持在线）
+      - offline（从离线恢复）
+      - approved（首次心跳激活）
+    不允许覆盖 suspended/occupied 等管理员主动设置的状态，
+    避免心跳将暂停的节点强行改回在线。
+    """
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        # 同步更新 node_requests 和 brokers 两张表
+        # 同步更新 node_requests 和 brokers 两张表（带状态守卫）
         conn.execute("""
             UPDATE node_requests SET current_ip=?, status='online'
-            WHERE server_id = ?
+            WHERE server_id = ? AND status IN ('online', 'offline', 'approved')
         """, (current_ip, server_id))
         conn.execute("""
             UPDATE brokers SET last_heartbeat=?, status='online'
-            WHERE name = ?
+            WHERE name = ? AND status IN ('online', 'offline', 'approved')
         """, (now, server_id))
         conn.commit()
         return True
@@ -485,12 +494,8 @@ def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
 
 # 心跳超时阈值（秒）：超过此时间未收到心跳则判定为离线
 # 建议设为心跳间隔的 3 倍（默认间隔30s → 超时90s）
-# 此值用于后台自动巡检，较长可避免网络抖动导致误判
+# 此值用于后台自动巡检和前端刷新展示，较长可避免网络抖动导致误判
 HEARTBEAT_TIMEOUT_SECONDS = 90
-
-# 手动刷新时的超时阈值（秒）：管理员主动点击刷新时使用较短阈值
-# 保证关闭子服务后能立即感知到离线状态
-MANUAL_REFRESH_TIMEOUT_SECONDS = 10
 
 
 def check_offline_nodes(timeout_seconds: int | None = None) -> int:
@@ -524,20 +529,21 @@ def check_offline_nodes(timeout_seconds: int | None = None) -> int:
         if count == 0:
             return 0
 
-        # 批量标记为离线
+        # 批量标记为离线 + 自动释放占用
         now = datetime.now(timezone.utc).isoformat()
         for row in rows:
             sid = row["server_id"]
             conn.execute("""
-                UPDATE node_requests SET status='offline' WHERE server_id = ?
+                UPDATE node_requests SET status='offline', occupied_by='', occupied_at=''
+                WHERE server_id = ?
             """, (sid,))
             conn.execute("""
                 UPDATE brokers SET status='offline' WHERE name = ?
             """, (sid,))
             log.info(
-                f"Node marked OFFLINE: {sid} ({row['node_name']}) "
+                f"Node marked OFFLINE & RELEASED: {sid} ({row['node_name']}) "
                 f"— last_heartbeat={row['last_heartbeat'] or '(never)'}, "
-                f"cutoff={cutoff_iso}"
+                f"cutoff={cutoff_iso} [occupation auto-cleared]"
             )
 
         conn.commit()
@@ -551,19 +557,25 @@ def check_offline_nodes(timeout_seconds: int | None = None) -> int:
 
 def force_check_all_nodes() -> dict:
     """
-    强制立即检测所有节点的真实状态（供管理员手动刷新使用）
+    查询所有节点的最新状态（供管理员手动刷新使用，只读不写库）
 
-    在同一事务内完成：(1)心跳超时检测 (2)查询最新完整数据 (3)计算最终展示状态
-    返回的数据可直接用于前端渲染卡片，无需再调 get_all_nodes()
+    基于数据库中的现有状态和心跳时间戳，纯计算每个节点的展示状态。
+    不修改任何数据库记录，避免"刷新导致在线/离线反复切换"的问题。
+
+    状态判定逻辑：
+      occupied   — 节点被账户占用（最高优先级）
+      suspended  — 管理员手动暂停
+      offline    — 数据库中标记为离线，或 心跳超时超过阈值
+      online     — 有活跃心跳且状态正常
 
     四种状态的优先级：occupied > suspended > offline > online/approved
 
     Returns:
         dict: {
-            "checked": int, "marked_offline": int,
+            "checked": int,
             "online": int, "offline": int, "occupied": int, "suspended": int,
-            "nodes": [  # 完整节点列表，可直接传给 renderNodes()
-                {所有 get_all_nodes 字段 + "real_status": 强制计算的最终状态}
+            "nodes": [
+                {所有 get_all_nodes 字段 + "real_status": 计算后的最终展示状态}
             ]
         }
     """
@@ -571,32 +583,14 @@ def force_check_all_nodes() -> dict:
     try:
         from datetime import timedelta
         now_utc = datetime.now(timezone.utc)
-        # 手动刷新使用较短的超时阈值，确保快速响应节点离线
-        timeout = MANUAL_REFRESH_TIMEOUT_SECONDS
-        cutoff = now_utc - timedelta(seconds=timeout)
+
+        # 使用后台巡检相同的宽松阈值做展示判断（仅用于前端显示，不写库）
+        _display_timeout = HEARTBEAT_TIMEOUT_SECONDS
+        cutoff = now_utc - timedelta(seconds=_display_timeout)
         cutoff_iso = cutoff.isoformat()
 
-        # ── 1) 即时超时检测（与 check_offline_nodes 完全相同逻辑）──
-        offline_rows = conn.execute("""
-            SELECT b.name AS server_id FROM brokers b
-            JOIN node_requests nr ON nr.server_id = b.name
-            WHERE b.status = 'online'
-              AND (b.last_heartbeat IS NULL OR b.last_heartbeat < ?)
-              AND nr.status = 'online'
-        """, (cutoff_iso,)).fetchall()
+        # ── 1) 查询完整节点数据 ──
 
-        marked_offline = 0
-        for row in offline_rows:
-            sid = row["server_id"]
-            conn.execute("UPDATE node_requests SET status='offline' WHERE server_id = ?", (sid,))
-            conn.execute("UPDATE brokers SET status='offline' WHERE name = ?", (sid,))
-            marked_offline += 1
-            log.info(f"[Force-check] Node marked OFFLINE: {sid}")
-
-        if marked_offline > 0:
-            conn.commit()
-
-        # ── 2) 查询完整节点数据（与 get_all_nodes 相同字段 + occupied 信息）──
         rows = conn.execute("""
             SELECT nr.server_id, nr.node_name, nr.region, nr.host,
                    nr.capabilities, nr.status AS req_status, nr.current_ip,
@@ -615,7 +609,7 @@ def force_check_all_nodes() -> dict:
                 nr.created_at ASC
         """).fetchall()
 
-        # ── 3) 统一计算每个节点的真实最终状态 ──
+        # ── 2) 统一计算每个节点的真实最终展示状态（纯计算，不写库）──
         nodes = []
         online_count = 0
         offline_count = 0
@@ -626,40 +620,43 @@ def force_check_all_nodes() -> dict:
             n = dict(row)
             req_status = n.get("req_status", "")
             occ_by = (n.get("occupied_by") or "").strip()
+            last_hb = n.get("last_heartbeat") or ""
 
-            # 四种状态优先级：occupied(最高) > suspended > offline > online/approved
-            if occ_by:
-                real_status = "occupied"
-                occupied_count += 1
-            elif req_status == "suspended":
+            # 四种状态优先级：suspended(管理操作) > offline(含心跳超时) > occupied(需在线) > online/approved
+            # 注意：occupied 前提是节点必须实际在线（有心跳），离线节点即使有占用记录也显示离线
+            is_alive = bool(last_hb and last_hb >= cutoff_iso)  # 心跳活跃
+
+            if req_status == "suspended":
                 real_status = "suspended"
                 suspended_count += 1
-            elif req_status == "offline":
+            elif not is_alive or req_status == "offline":
+                # 节点已离线或心跳超时 → 显示离线（不管是否有历史占用记录）
                 real_status = "offline"
                 offline_count += 1
-            else:  # 'online' 或 'approved'
+            elif occ_by:
+                # 节点在线且有占用者 → 显示已占用
+                real_status = "occupied"
+                occupied_count += 1
+            else:  # 'online' 或 'approved' 且心跳活跃且未被占用
                 real_status = "online"
                 online_count += 1
 
-            # 将计算好的 real_status 写入节点字典
             n["real_status"] = real_status
             nodes.append(n)
 
         log.info(
-            f"[Force-check] completed: total={len(nodes)}, "
-            f"marked_offline={marked_offline}, "
+            f"[Refresh] completed: total={len(nodes)}, "
             f"online={online_count}, offline={offline_count}, "
             f"suspended={suspended_count}, occupied={occupied_count}"
         )
 
         return {
             "checked": len(nodes),
-            "marked_offline": marked_offline,
             "online": online_count,
             "offline": offline_count,
             "occupied": occupied_count,
             "suspended": suspended_count,
-            "nodes": nodes,  # 完整节点数据，含 real_status
+            "nodes": nodes,
         }
     except Exception as e:
         log.error(f"force_check_all_nodes failed: {e}")
@@ -670,7 +667,7 @@ def force_check_all_nodes() -> dict:
 
 
 def get_all_nodes() -> list[dict]:
-    """获取所有已批准节点列表（含在线/暂停/离线状态）"""
+    """获取所有已批准节点列表（含在线/暂停/离线状态）—— 兼容旧接口，实际应使用 node_state.manager"""
     conn = _get_conn()
     try:
         rows = conn.execute("""
@@ -691,6 +688,57 @@ def get_all_nodes() -> list[dict]:
                 nr.created_at ASC
         """).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_approved_nodes_for_memory_load() -> list[dict]:
+    """
+    加载所有已批准节点的配置数据（供 node_state 启动时初始化内存用）。
+
+    返回每个节点的完整配置字段 + DB 中存储的状态快照。
+    实时状态以返回数据为准，启动后由心跳覆盖。
+    """
+    return get_all_nodes()
+
+
+def sync_node_states_to_db(states: list[dict]) -> int:
+    """
+    将内存中的实时状态批量回写到数据库（用于定期持久化）。
+
+    Args:
+        states: node_state.manager.prepare_db_sync_data() 的输出
+
+    Returns:
+        更新的行数
+    """
+    if not states:
+        return 0
+    conn = _get_conn()
+    try:
+        count = 0
+        for s in states:
+            sid = s["server_id"]
+            # 更新 node_requests 实时字段
+            conn.execute("""
+                UPDATE node_requests SET status=?, current_ip=?,
+                                      occupied_by=?, occupied_at=?
+                WHERE server_id = ?
+            """, (s["status"], s["current_ip"],
+                  s["occupied_by"], s["occupied_at"], sid))
+            # 更新 brokers 实时字段
+            conn.execute("""
+                UPDATE brokers SET status=?, last_heartbeat=?
+                WHERE name = ?
+            """, (s["status"], s["last_heartbeat"], sid))
+            count += 1
+        conn.commit()
+        if count > 0:
+            log.info(f"[DB Sync] synced {count} node states to database")
+        return count
+    except Exception as e:
+        log.error(f"sync_node_states_to_db failed: {e}")
+        return 0
     finally:
         conn.close()
 
@@ -743,13 +791,13 @@ def resume_node(server_id: str) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         # 恢复为 online 状态（与前端 renderNodes 的 st==='online' 判断一致，
         # 这样恢复后卡片立即显示绿色"运行中"底色）
-        # 注意：若节点实际未发心跳，last_heartbeat 可能为空，管理员可通过该字段区分
+        # 同时更新 last_heartbeat 时间戳，避免后台巡检在90秒内将其标回离线
         conn.execute("""
             UPDATE node_requests SET status='online' WHERE server_id = ? AND status = 'suspended'
         """, (server_id,))
         conn.execute("""
-            UPDATE brokers SET status='online' WHERE name = ?
-        """, (server_id,))
+            UPDATE brokers SET status='online', last_heartbeat=? WHERE name = ?
+        """, (now, server_id))
         conn.commit()
         log.info(f"Node resumed: {server_id}")
         return True

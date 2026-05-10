@@ -244,11 +244,21 @@ class TradingTerminal(tk.Tk):
                             _log = getattr(self, 'log_area', None)
                             if _log:
                                 _log.log(f"[SE] se-status 返回: server_id={self._se_server_id}, node={node_name}, occupied_by={resp_data.get('occupied_by', '')}", "inf")
-                            # ⚡ 立即注册节点占用（在WS连接之前，消除竞态窗口）
-                            self._occupy_se_node()
+                            # ⚡ 同步注册节点占用（阻塞等待成功，消除竞态窗口）
+                            occ_ok = self._occupy_se_node(sync=True)
+                            if not occ_ok:
+                                # 占用失败，不继续连接（_occupy_se_node 内部已记录详细日志）
+                                self.after(0, lambda: self._on_init_failed(
+                                    "se",
+                                    "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
+                                    "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
+                                ))
+                                return
                             self.after(0, lambda: self._update_init_step(
                                 "se", f"SE OK ({node_name})", ACCENT_GREEN))
-                            self.after(200, lambda: _connect_se(se_address))
+                            # ★ 必须在后台线程中执行 WS 连接（含重试），
+                            #   绝不能通过 after() 投递到 UI 线程，否则重试循环会冻结界面
+                            threading.Thread(target=lambda: _connect_se(se_address), daemon=True).start()
                         else:
                             self.after(0, lambda: self._on_init_failed(
                                 "se",
@@ -266,7 +276,9 @@ class TradingTerminal(tk.Tk):
             threading.Thread(target=_check, daemon=True).start()
 
         def _connect_se(target_addr: str):
-            """建立 SE WebSocket 直连"""
+            """
+            建立 SE WebSocket 直连（带重试，解决端口未就绪的 Error 1225 问题）
+            """
             self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
             token = self.http.token
             target = target_addr or getattr(self, '_se_target_address', '') or DEFAULT_SE_HOST
@@ -277,14 +289,50 @@ class TradingTerminal(tk.Tk):
                 host, port = target, DEFAULT_SE_PORT
             self._last_connected_se = f"{host}:{port}"
 
-            se_client = SEWebSocketClient(
-                host=host, port=port, token=token,
-                on_message_callback=self._on_init_se_msg,
-                on_status_callback=self._on_init_se_status,
-                reconnect_enabled=SE_RECONNECT_ENABLED,
-            )
-            self._se_client = se_client
-            se_client.start()
+            max_retries = 5
+            for attempt in range(1, max_retries + 1):
+                self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
+
+                se_client = SEWebSocketClient(
+                    host=host, port=port, token=token,
+                    on_message_callback=self._on_init_se_msg,
+                    on_status_callback=self._on_init_se_status,
+                    reconnect_enabled=False,
+                )
+                self._se_client = se_client
+                se_client.start()
+
+                # 等待连接结果（最多 10 秒）
+                connected = False
+                for _ in range(100):
+                    import time as _time
+                    _time.sleep(0.1)
+                    if se_client.is_connected:
+                        connected = True
+                        break
+                    if not se_client.is_active:
+                        break
+
+                if connected:
+                    # 连接成功！恢复自动重连能力
+                    se_client._reconnect_enabled = SE_RECONNECT_ENABLED
+                    return
+
+                # 失败清理
+                self._se_client = None
+                if attempt < max_retries:
+                    import time as _time
+                    _time.sleep(min(2 * attempt, 8))
+
+            # 全部重试耗尽
+            self.after(0, lambda: (
+                self._release_se_occupation(),
+                self._on_init_failed(
+                    "se",
+                    "\u65e0\u6cd5\u8fde\u63a5\u5230\u5b50\u670d\u52a1\u5668",
+                    "\u8fde\u63a5\u5931\u8d25\uff1a\u8fdc\u7a0b\u8ba1\u7b97\u673a\u62d2\u7edd\u8fde\u63a5\uff08Error 1225\uff09\uff0c\u53ef\u80fd\u5b50\u670d\u52a1\u5668\u7aef\u53e3\u5c1a\u672a\u5c31\u7eea\u3002",
+                ),
+            ))
 
         threading.Thread(target=_check_sm, daemon=True).start()
 
@@ -384,11 +432,19 @@ class TradingTerminal(tk.Tk):
                     _log2 = getattr(self, 'log_area', None)
                     if _log2:
                         _log2.log(f"[SE] se-status 返回: server_id={self._se_server_id}, node={node_name}, occupied_by={resp_data.get('occupied_by', '')}", "inf")
-                    # ⚡ 立即注册节点占用（在WS连接之前，消除竞态窗口）
-                    self._occupy_se_node()
+                    # ⚡ 同步注册节点占用（阻塞等待成功，消除竞态窗口）
+                    occ_ok = self._occupy_se_node(sync=True)
+                    if not occ_ok:
+                        self.after(0, lambda: self._on_init_failed(
+                            "se",
+                            "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
+                            "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
+                        ))
+                        return
                     self.after(0, lambda: self._update_init_step(
                         "se", f"SE OK ({node_name})", ACCENT_GREEN))
-                    self.after(200, lambda: self._do_ws_connect(target_addr))
+                    # ★ 在后台线程执行 WS 连接（含重试），避免冻结 UI
+                    threading.Thread(target=lambda: self._do_ws_connect(target_addr), daemon=True).start()
                 else:
                     self.after(0, lambda: self._on_init_failed(
                         "se",
@@ -401,7 +457,9 @@ class TradingTerminal(tk.Tk):
         threading.Thread(target=_check, daemon=True).start()
 
     def _do_ws_connect(self, target_addr: str):
-        """执行 WebSocket 连接"""
+        """
+        执行 WebSocket 连接（带重试，解决端口未就绪的 Error 1225 问题）
+        """
         self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
         token = self.http.token
         target = target_addr or DEFAULT_SE_HOST
@@ -411,14 +469,48 @@ class TradingTerminal(tk.Tk):
         else:
             host, port = target, DEFAULT_SE_PORT
 
-        se_client = SEWebSocketClient(
-            host=host, port=port, token=token,
-            on_message_callback=self._on_init_se_msg,
-            on_status_callback=self._on_init_se_status,
-            reconnect_enabled=SE_RECONNECT_ENABLED,
-        )
-        self._se_client = se_client
-        se_client.start()
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
+
+            se_client = SEWebSocketClient(
+                host=host, port=port, token=token,
+                on_message_callback=self._on_init_se_msg,
+                on_status_callback=self._on_init_se_status,
+                reconnect_enabled=False,
+            )
+            self._se_client = se_client
+            se_client.start()
+
+            # 等待连接结果（最多 10 秒）
+            connected = False
+            for _ in range(100):
+                import time as _time
+                _time.sleep(0.1)
+                if se_client.is_connected:
+                    connected = True
+                    break
+                if not se_client.is_active:
+                    break
+
+            if connected:
+                se_client._reconnect_enabled = SE_RECONNECT_ENABLED
+                return
+
+            self._se_client = None
+            if attempt < max_retries:
+                import time as _time
+                _time.sleep(min(2 * attempt, 8))
+
+        # 全部重试耗尽
+        self.after(0, lambda: (
+            self._release_se_occupation(),
+            self._on_init_failed(
+                "se",
+                "\u65e0\u6cd5\u8fde\u63a5\u5230\u5b50\u670d\u52a1\u5668",
+                "\u8fde\u63a5\u5931\u8d25\uff1a\u8fdc\u7a0b\u8ba1\u7b97\u673a\u62d2\u7edd\u8fde\u63a5\uff08Error 1225\uff09\u3002",
+            ),
+        ))
 
     def _on_init_cancel(self):
         """用户点击取消：返回登录界面，可修改账户密码重新登录"""
@@ -445,36 +537,90 @@ class TradingTerminal(tk.Tk):
         # 重新弹出登录对话框
         self.after(0, self._show_login_first)
 
-    def _occupy_se_node(self):
-        """连接成功后，向 SM 注册节点占用"""
+    def _occupy_se_node(self, max_retries: int = 3, sync: bool = True):
+        """
+        向 SM 注册节点占用。
+
+        Args:
+            max_retries: 最大重试次数（默认3次）
+            sync: 是否同步阻塞等待结果（默认True）
+                 True  → 阻塞当前线程直到成功或全部重试耗尽（推荐用于初始化流程）
+                 False → 异步发射，不等待结果（仅用于后台保活场景）
+
+        Returns:
+            bool: 占用是否成功（sync=False 时恒返回 False 表示未知）
+        """
         sid = getattr(self, '_se_server_id', '')
         if not sid:
             log_area = getattr(self, 'log_area', None)
             if log_area:
                 log_area.log("[SE] 占用注册失败: server_id 为空（se-status 可能未返回有效节点）", "err")
-            return
+            return False
         username = self._login_username
 
-        def _do():
-            try:
-                code, resp = self.http.post(
-                    f"/api/nodes/{sid}/occupy",
-                    {"username": username},
-                )
-                # ★ 诊断：打印 occupy API 结果
-                log_area = getattr(self, 'log_area', None)
-                if code == 200 and (resp or {}).get("ok"):
-                    if log_area:
-                        log_area.log(f"[SE] 节点占用已注册: {username} → {sid}", "ok")
-                else:
+        def _do_with_retry():
+            """带重试的同步占用逻辑"""
+            last_err = ""
+            for attempt in range(1, max_retries + 1):
+                try:
+                    code, resp = self.http.post(
+                        f"/api/nodes/{sid}/occupy",
+                        {"username": username},
+                    )
+                    log_area = getattr(self, 'log_area', None)
+
+                    if code == 200 and (resp or {}).get("ok"):
+                        if log_area:
+                            log_area.log(f"[SE] ✓ 节点占用成功: {username} → {sid}" +
+                                        (f" (第{attempt}次尝试)" if attempt > 1 else ""), "ok")
+                        return True
+
+                    # 分析失败原因，决定是否值得重试
                     err_msg = (resp or {}).get("error", "") or (resp or {}).get("message", "") or f"HTTP {code}"
-                    if log_area:
-                        log_area.log(f"[SE] 节点占用注册失败: {err_msg}", "err")
-            except Exception as e:
-                log_area = getattr(self, 'log_area', None)
-                if log_area:
-                    log_area.log(f"[SE] 节点占用注册异常: {e}", "err")
-        threading.Thread(target=_do, daemon=True).start()
+                    last_err = err_msg
+
+                    # 不值得重试的情况（直接放弃）
+                    if "occupied" in err_msg.lower():
+                        if log_area:
+                            log_area.log(f"[SE] 节点已被占用，无法抢占: {err_msg}", "warn")
+                        return False
+                    if "not found" in err_msg.lower():
+                        if log_area:
+                            log_area.log(f"[SE] 节点不存在于SM: {err_msg}", "err")
+                        return False
+                    if "Unauthorized" in err_msg or code == 401 or code == 403:
+                        if log_area:
+                            log_area.log(f"[SE] 认证失效: {err_msg}", "err")
+                        return False
+
+                    # 值得重试的情况：临时状态问题（offline/approved 等）
+                    if log_area and attempt < max_retries:
+                        log_area.log(f"[SE] 占用注册暂未成功 ({attempt}/{max_retries}): {err_msg}, 重试中...", "warn")
+
+                except Exception as e:
+                    last_err = str(e)
+                    log_area = getattr(self, 'log_area', None)
+                    if log_area and attempt < max_retries:
+                        log_area.log(f"[SE] 占用请求异常 ({attempt}/{max_retries}): {e}, 重试中...", "warn")
+
+                # 等待后重试（指数退避：1s, 2s, 4s）
+                if attempt < max_retries:
+                    import time as _time
+                    _time.sleep(min(1.0 * (2 ** (attempt - 1)), 5))
+
+            # 全部重试耗尽
+            log_area = getattr(self, 'log_area', None)
+            if log_area:
+                log_area.log(f"[SE] ✗ 节点占用最终失败（{max_retries}次均失败）: {last_err}", "err")
+            return False
+
+        if sync:
+            # 同步模式：在当前线程执行并等待结果
+            return _do_with_retry()
+        else:
+            # 异步模式：发射到后台线程
+            threading.Thread(target=_do_with_retry, daemon=True).start()
+            return False
 
     def _release_se_occupation(self):
         """断开/取消时，释放节点占用"""
@@ -1197,9 +1343,16 @@ class TradingTerminal(tk.Tk):
 
         target_addr = self._se_target_address or DEFAULT_SE_HOST
 
-        def _do_connect():
-            """验证通过后执行实际的 WS 连接"""
-            self._se_btn.config(state="disabled", text="Connecting...")
+        def _do_connect_with_retry(max_retries=5):
+            """
+            带重试的 WS 连接（解决 Error 1225 / WSAECONNREFUSED 问题）。
+            
+            场景：SM 标记 online 但 SE 的 WS 端口尚未就绪
+                  （SE 进程刚启动，心跳先于 ws.serve() 完成）
+                  
+            策略：每尝试创建 client → start → 等 10s 看是否 connected
+                 失败则指数退避重试（2s/4s/6s/8s），共最多 5 次。
+            """
             token = self.http.token
             if ':' in target_addr:
                 hp = target_addr.rsplit(':', 1)
@@ -1207,13 +1360,66 @@ class TradingTerminal(tk.Tk):
             else:
                 host, port = target_addr, DEFAULT_SE_PORT
 
-            self._se_client = SEWebSocketClient(
-                host=host, port=port, token=token,
-                on_message_callback=self._on_se_message,
-                on_status_callback=self._on_se_status,
-                reconnect_enabled=SE_RECONNECT_ENABLED,  # 主界面连接启用自动重连
-            )
-            self._se_client.start()
+            last_err = ""
+
+            for attempt in range(1, max_retries + 1):
+                # 更新按钮状态
+                self.after(0, lambda a=attempt, m=max_retries: self._se_btn.config(
+                    state="disabled", text=f"Connecting ({a}/{m})...",
+                ))
+
+                # 创建客户端（暂不启用内部自动重连，由本函数控制重试）
+                client = SEWebSocketClient(
+                    host=host, port=port, token=token,
+                    on_message_callback=self._on_se_message,
+                    on_status_callback=self._on_se_status,
+                    reconnect_enabled=False,
+                )
+                self._se_client = client
+                client.start()
+
+                # 等待连接结果（最多 10 秒）
+                connected = False
+                for _ in range(100):
+                    import time as _time
+                    _time.sleep(0.1)
+                    if client.is_connected:
+                        connected = True
+                        break
+                    if not client.is_active:
+                        break
+
+                if connected:
+                    # ★ 连接成功！恢复自动重连能力（后续断线可自动恢复）
+                    client._reconnect_enabled = SE_RECONNECT_ENABLED
+                    self.after(0, lambda a=attempt: (
+                        self.log_area.log(
+                            f"[SE] \u2713 \u8fde\u63a5\u6210\u529f" +
+                            (f" (\u7b2c{a}\u6b21\u5c1d\u8bd5)" if a > 1 else ""),
+                            "ok",
+                        ),
+                    ))
+                    return
+
+                # 本次失败，清理
+                self._se_client = None
+                last_err = "\u8fdc\u7a0b\u8ba1\u7b97\u673a\u62d2\u7edd\u8fde\u63a5 (\u7aef\u53e3\u53ef\u80fd\u5c1a\u672a\u5c31\u7eea)"
+
+                if attempt < max_retries:
+                    self.after(0, lambda a=attempt, m=max_retries: (
+                        self.log_area.log(
+                            f"[SE] WS \u8fde\u63a5\u672a\u5c31\u7eea ({a}/{m})\uff0c\u7b49\u5f85\u540e\u91cd\u8bd5...",
+                            "warn",
+                        ),
+                    ))
+                    import time as _time
+                    _time.sleep(min(2 * attempt, 8))
+
+            # 全部重试耗尽
+            self.after(0, lambda: (
+                self.log_area.log(f"[SE] \u2717 \u8fde\u63a5\u5931\u8d25\uff08{max_retries}\u6b21\u5747\u5931\u8d25\uff09: {last_err}", "err"),
+                self._se_btn.config(text="Connect SE", state="normal"),
+            ))
 
         def _check():
             try:
@@ -1229,9 +1435,16 @@ class TradingTerminal(tk.Tk):
                             self._se_btn.config(text="Connect SE", state="normal"),
                         ))
                         return
-                    # 在线且未被占用 → 注册占用 + 连接
-                    self._occupy_se_node()
-                    self.after(0, _do_connect)
+                    # 在线且未被占用 → 同步注册占用 + 连接
+                    occ_ok = self._occupy_se_node(sync=True)
+                    if not occ_ok:
+                        self.after(0, lambda: (
+                            self.log_area.log("[SE] 节点占用注册失败，无法连接", "err"),
+                            self._se_btn.config(text="Connect SE", state="normal"),
+                        ))
+                        return
+                    # ★ 在后台线程执行 WS 连接（含重试），避免冻结 UI
+                    threading.Thread(target=_do_connect_with_retry, daemon=True).start()
                 else:
                     self.after(0, lambda: (
                         self.log_area.log("[SE] 子服务器不在线，无法连接", "err"),
@@ -1273,6 +1486,14 @@ class TradingTerminal(tk.Tk):
                 self._se_connected = True
                 self._se_btn.config(text="Disconnect", state="normal")
                 self.log_area.log(f"[SE] {msg}", "ok")
+                
+                # ★ 重连成功后自动恢复节点占用（防止占用丢失）
+                # 场景：SE 掉线→SM 标记离线并释放占用→SE 恢复→Client 重连成功
+                # 注意：此处运行在 UI 线程中，使用 async 模式避免冻结界面
+                # （主连接流程中的 occupy 已是同步的，此处为辅助保活）
+                if self._se_server_id:
+                    self._occupy_se_node(sync=False)
+                
                 # 自动查询一次状态验证连接
                 if self._se_client and self._se_client.is_connected:
                     self._se_client.send_query_status()

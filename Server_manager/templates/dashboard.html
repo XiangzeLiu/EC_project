@@ -500,10 +500,11 @@
       container.innerHTML=nodes.map(function(n){
         // ── 统一状态判断：real_status 优先（四种之一：online/offline/suspended/occupied）──
         var realSt=n.real_status||'';
-        var isOccupied=(realSt==='occupied')||(!!n.occupied_by&&!realSt);
+        // 占用状态仅在节点实际在线时才生效，离线/暂停节点即使有占用记录也显示真实状态
+        var isOccupied=realSt==='occupied';
         var st;
         if(realSt){ st=realSt; }
-        else{ st=n.req_status||'approved'; isOccupied=!!(n.occupied_by); }
+        else{ st=n.req_status||'approved'; }
 
         // 状态映射（四种 + approved 兼容）
         var cardClass,stLabel;
@@ -659,10 +660,11 @@
 
       var stMap={'online':'运行中','suspended':'已暂停','offline':'已离线','approved':'已批准','pending':'待审核','rejected':'已拒绝'};
       var stLabel=stMap[n.req_status]||n.req_status;
-      var stColor=n.occupied_by?'#722ed1':(
-        n.req_status==='online'?'#389e0d':
-        n.req_status==='suspended'?'#d48806':
-        n.req_status==='offline'?'#cf1322':'#1677ff'
+      var detailSt=n.real_status||n.req_status||'approved';
+      var stColor=detailSt==='occupied'?'#722ed1':(
+        detailSt==='online'||detailSt==='approved'?'#389e0d':
+        detailSt==='suspended'?'#d48806':
+        detailSt==='offline'?'#cf1322':'#1677ff'
       );
 
       var html=''
@@ -673,7 +675,7 @@
         +'      <button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>'
         +'    </div>'
         +'    <div class="modal-body">'
-        +(n.occupied_by?'<div class="detail-field"><div class="detail-label">占用状态</div><div class="detail-value" style="color:#722ed1;font-weight:600;">🔒 已被 '+escapeHtml(n.occupied_by)+' 占用</div></div>':'')
+        +(detailSt==='occupied'?'<div class="detail-field"><div class="detail-label">占用状态</div><div class="detail-value" style="color:#722ed1;font-weight:600;">🔒 已被 '+escapeHtml(n.occupied_by)+' 占用</div></div>':'')
         +'<div class="detail-field"><div class="detail-label">Server ID</div><div class="detail-value" style="font-family:monospace;font-size:12px;">'+escapeHtml(n.server_id)+'</div></div>'
         +'<div class="detail-field"><div class="detail-label">节点名称</div><div class="detail-value">'+escapeHtml(n.node_name)+'</div></div>'
         +'<div class="detail-field"><div class="detail-label">状态</div><div class="detail-value"><span style="display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;color:#fff;background:'+stColor+';">● '+stLabel+'</span></div></div>'
