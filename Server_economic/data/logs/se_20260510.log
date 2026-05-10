@@ -454,3 +454,209 @@ http.client.IncompleteRead: IncompleteRead(208 bytes read)
 2026-05-10 05:19:47 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
 2026-05-10 05:20:04 [server_economic.ws_server] INFO: [sess_b618281803c99933] WS connected from 127.0.0.1:55756
 2026-05-10 05:20:05 [server_economic.ws_server] INFO: [sess_b618281803c99933] Auth OK, connection established
+2026-05-10 05:22:24 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 05:22:24 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 05:22:24 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 05:22:24 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_fe55fa62
+2026-05-10 05:22:24 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 05:22:24 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 05:22:24 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 13:38:44 [server_economic] INFO: Logging initialized (level=INFO, file=/Users/lxz/PycharmProjects/EC_project/Server_economic/data/logs/se_20260510.log)
+2026-05-10 13:38:44 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 13:38:44 [server_economic] INFO: Config loaded from /Users/lxz/PycharmProjects/EC_project/Server_economic/data/config.json
+2026-05-10 13:38:44 [server_economic.registration] INFO: Restored session: server_id=node_economic-node-01_fe55fa62
+2026-05-10 13:38:44 [server_economic.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-05-10 13:38:44 [server_economic.registration] INFO: Connection OK: {'status': 'pong'}
+2026-05-10 13:38:44 [server_economic.heartbeat] INFO: Heartbeat started (interval=30s)
+2026-05-10 13:38:54 [server_economic.ws_server] INFO: [sess_bf15579f7a838cd5] WS connected from 127.0.0.1:58970
+2026-05-10 13:38:54 [server_economic.ws_server] INFO: [sess_bf15579f7a838cd5] Auth OK, connection established
+2026-05-10 13:39:24 [server_economic.ws_server] INFO: [sess_bf15579f7a838cd5] WS disconnected by client
+2026-05-10 13:39:24 [server_economic.ws_server] INFO: [sess_bf15579f7a838cd5] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:39:28 [server_economic.ws_server] INFO: [sess_7641acf2f2ad2a01] WS connected from 127.0.0.1:59001
+2026-05-10 13:39:28 [server_economic.ws_server] INFO: [sess_7641acf2f2ad2a01] Auth OK, connection established
+2026-05-10 13:39:28 [server_economic.ws_server] INFO: [sess_7641acf2f2ad2a01] STATUS_QUERY
+2026-05-10 13:39:58 [server_economic.ws_server] INFO: [sess_7641acf2f2ad2a01] WS disconnected by client
+2026-05-10 13:39:58 [server_economic.ws_server] INFO: [sess_7641acf2f2ad2a01] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:40:04 [server_economic.ws_server] INFO: [sess_f35bf7b83ac2b392] WS connected from 127.0.0.1:59047
+2026-05-10 13:40:04 [server_economic.ws_server] INFO: [sess_f35bf7b83ac2b392] Auth OK, connection established
+2026-05-10 13:40:04 [server_economic.ws_server] INFO: [sess_f35bf7b83ac2b392] STATUS_QUERY
+2026-05-10 13:40:34 [server_economic.ws_server] INFO: [sess_f35bf7b83ac2b392] WS disconnected by client
+2026-05-10 13:40:34 [server_economic.ws_server] INFO: [sess_f35bf7b83ac2b392] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:40:46 [server_economic.ws_server] INFO: [sess_1b16843f5307437b] WS connected from 127.0.0.1:59103
+2026-05-10 13:40:46 [server_economic.ws_server] INFO: [sess_1b16843f5307437b] Auth OK, connection established
+2026-05-10 13:40:46 [server_economic.ws_server] INFO: [sess_1b16843f5307437b] STATUS_QUERY
+2026-05-10 13:41:16 [server_economic.ws_server] INFO: [sess_1b16843f5307437b] WS disconnected by client
+2026-05-10 13:41:16 [server_economic.ws_server] INFO: [sess_1b16843f5307437b] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:41:40 [server_economic.ws_server] INFO: [sess_a3539978742889e4] WS connected from 127.0.0.1:59195
+2026-05-10 13:41:40 [server_economic.ws_server] INFO: [sess_a3539978742889e4] Auth OK, connection established
+2026-05-10 13:41:40 [server_economic.ws_server] INFO: [sess_a3539978742889e4] STATUS_QUERY
+2026-05-10 13:42:10 [server_economic.ws_server] INFO: [sess_a3539978742889e4] WS disconnected by client
+2026-05-10 13:42:10 [server_economic.ws_server] INFO: [sess_a3539978742889e4] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:42:34 [server_economic.ws_server] INFO: [sess_eb48625b530d091e] WS connected from 127.0.0.1:59254
+2026-05-10 13:42:34 [server_economic.ws_server] INFO: [sess_eb48625b530d091e] Auth OK, connection established
+2026-05-10 13:42:34 [server_economic.ws_server] INFO: [sess_eb48625b530d091e] STATUS_QUERY
+2026-05-10 13:43:04 [server_economic.ws_server] INFO: [sess_eb48625b530d091e] WS disconnected by client
+2026-05-10 13:43:04 [server_economic.ws_server] INFO: [sess_eb48625b530d091e] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:43:28 [server_economic.ws_server] INFO: [sess_2fc33ac5967cd0b0] WS connected from 127.0.0.1:59317
+2026-05-10 13:43:28 [server_economic.ws_server] INFO: [sess_2fc33ac5967cd0b0] Auth OK, connection established
+2026-05-10 13:43:28 [server_economic.ws_server] INFO: [sess_2fc33ac5967cd0b0] STATUS_QUERY
+2026-05-10 13:43:58 [server_economic.ws_server] INFO: [sess_2fc33ac5967cd0b0] WS disconnected by client
+2026-05-10 13:43:58 [server_economic.ws_server] INFO: [sess_2fc33ac5967cd0b0] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:44:22 [server_economic.ws_server] INFO: [sess_57f5752db13c4d88] WS connected from 127.0.0.1:59404
+2026-05-10 13:44:22 [server_economic.ws_server] INFO: [sess_57f5752db13c4d88] Auth OK, connection established
+2026-05-10 13:44:22 [server_economic.ws_server] INFO: [sess_57f5752db13c4d88] STATUS_QUERY
+2026-05-10 13:44:52 [server_economic.ws_server] INFO: [sess_57f5752db13c4d88] WS disconnected by client
+2026-05-10 13:44:52 [server_economic.ws_server] INFO: [sess_57f5752db13c4d88] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:45:16 [server_economic.ws_server] INFO: [sess_b1abe9b41e561359] WS connected from 127.0.0.1:59453
+2026-05-10 13:45:16 [server_economic.ws_server] INFO: [sess_b1abe9b41e561359] Auth OK, connection established
+2026-05-10 13:45:16 [server_economic.ws_server] INFO: [sess_b1abe9b41e561359] STATUS_QUERY
+2026-05-10 13:45:46 [server_economic.ws_server] INFO: [sess_b1abe9b41e561359] WS disconnected by client
+2026-05-10 13:45:46 [server_economic.ws_server] INFO: [sess_b1abe9b41e561359] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:46:10 [server_economic.ws_server] INFO: [sess_8b0bf60bfc634d10] WS connected from 127.0.0.1:59520
+2026-05-10 13:46:10 [server_economic.ws_server] INFO: [sess_8b0bf60bfc634d10] Auth OK, connection established
+2026-05-10 13:46:10 [server_economic.ws_server] INFO: [sess_8b0bf60bfc634d10] STATUS_QUERY
+2026-05-10 13:46:40 [server_economic.ws_server] INFO: [sess_8b0bf60bfc634d10] WS disconnected by client
+2026-05-10 13:46:40 [server_economic.ws_server] INFO: [sess_8b0bf60bfc634d10] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:47:04 [server_economic.ws_server] INFO: [sess_e2e4f943f1c4ad2a] WS connected from 127.0.0.1:59585
+2026-05-10 13:47:04 [server_economic.ws_server] INFO: [sess_e2e4f943f1c4ad2a] Auth OK, connection established
+2026-05-10 13:47:04 [server_economic.ws_server] INFO: [sess_e2e4f943f1c4ad2a] STATUS_QUERY
+2026-05-10 13:47:34 [server_economic.ws_server] INFO: [sess_e2e4f943f1c4ad2a] WS disconnected by client
+2026-05-10 13:47:34 [server_economic.ws_server] INFO: [sess_e2e4f943f1c4ad2a] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:47:58 [server_economic.ws_server] INFO: [sess_27ce6eae3cc45d98] WS connected from 127.0.0.1:59640
+2026-05-10 13:47:58 [server_economic.ws_server] INFO: [sess_27ce6eae3cc45d98] Auth OK, connection established
+2026-05-10 13:47:58 [server_economic.ws_server] INFO: [sess_27ce6eae3cc45d98] STATUS_QUERY
+2026-05-10 13:48:28 [server_economic.ws_server] INFO: [sess_27ce6eae3cc45d98] WS disconnected by client
+2026-05-10 13:48:28 [server_economic.ws_server] INFO: [sess_27ce6eae3cc45d98] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:48:52 [server_economic.ws_server] INFO: [sess_b4c6bd73ce3bd0e6] WS connected from 127.0.0.1:59708
+2026-05-10 13:48:52 [server_economic.ws_server] INFO: [sess_b4c6bd73ce3bd0e6] Auth OK, connection established
+2026-05-10 13:48:52 [server_economic.ws_server] INFO: [sess_b4c6bd73ce3bd0e6] STATUS_QUERY
+2026-05-10 13:49:22 [server_economic.ws_server] INFO: [sess_b4c6bd73ce3bd0e6] WS disconnected by client
+2026-05-10 13:49:22 [server_economic.ws_server] INFO: [sess_b4c6bd73ce3bd0e6] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:49:46 [server_economic.ws_server] INFO: [sess_a0bc17c229f71a8b] WS connected from 127.0.0.1:59741
+2026-05-10 13:49:46 [server_economic.ws_server] INFO: [sess_a0bc17c229f71a8b] Auth OK, connection established
+2026-05-10 13:49:46 [server_economic.ws_server] INFO: [sess_a0bc17c229f71a8b] STATUS_QUERY
+2026-05-10 13:50:16 [server_economic.ws_server] INFO: [sess_a0bc17c229f71a8b] WS disconnected by client
+2026-05-10 13:50:16 [server_economic.ws_server] INFO: [sess_a0bc17c229f71a8b] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:50:40 [server_economic.ws_server] INFO: [sess_b61f8acadcea2315] WS connected from 127.0.0.1:59806
+2026-05-10 13:50:40 [server_economic.ws_server] INFO: [sess_b61f8acadcea2315] Auth OK, connection established
+2026-05-10 13:50:40 [server_economic.ws_server] INFO: [sess_b61f8acadcea2315] STATUS_QUERY
+2026-05-10 13:51:10 [server_economic.ws_server] INFO: [sess_b61f8acadcea2315] WS disconnected by client
+2026-05-10 13:51:10 [server_economic.ws_server] INFO: [sess_b61f8acadcea2315] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:51:34 [server_economic.ws_server] INFO: [sess_704236b49f959255] WS connected from 127.0.0.1:59882
+2026-05-10 13:51:34 [server_economic.ws_server] INFO: [sess_704236b49f959255] Auth OK, connection established
+2026-05-10 13:51:34 [server_economic.ws_server] INFO: [sess_704236b49f959255] STATUS_QUERY
+2026-05-10 13:52:04 [server_economic.ws_server] INFO: [sess_704236b49f959255] WS disconnected by client
+2026-05-10 13:52:04 [server_economic.ws_server] INFO: [sess_704236b49f959255] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:52:28 [server_economic.ws_server] INFO: [sess_0b3ce6b45eae4efc] WS connected from 127.0.0.1:59963
+2026-05-10 13:52:28 [server_economic.ws_server] INFO: [sess_0b3ce6b45eae4efc] Auth OK, connection established
+2026-05-10 13:52:28 [server_economic.ws_server] INFO: [sess_0b3ce6b45eae4efc] STATUS_QUERY
+2026-05-10 13:52:58 [server_economic.ws_server] INFO: [sess_0b3ce6b45eae4efc] WS disconnected by client
+2026-05-10 13:52:58 [server_economic.ws_server] INFO: [sess_0b3ce6b45eae4efc] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:53:22 [server_economic.ws_server] INFO: [sess_fe303333494b6aa8] WS connected from 127.0.0.1:60040
+2026-05-10 13:53:22 [server_economic.ws_server] INFO: [sess_fe303333494b6aa8] Auth OK, connection established
+2026-05-10 13:53:22 [server_economic.ws_server] INFO: [sess_fe303333494b6aa8] STATUS_QUERY
+2026-05-10 13:53:52 [server_economic.ws_server] INFO: [sess_fe303333494b6aa8] WS disconnected by client
+2026-05-10 13:53:52 [server_economic.ws_server] INFO: [sess_fe303333494b6aa8] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:54:17 [server_economic.ws_server] INFO: [sess_4654b8826c343799] WS connected from 127.0.0.1:60087
+2026-05-10 13:54:17 [server_economic.ws_server] INFO: [sess_4654b8826c343799] Auth OK, connection established
+2026-05-10 13:54:17 [server_economic.ws_server] INFO: [sess_4654b8826c343799] STATUS_QUERY
+2026-05-10 13:54:47 [server_economic.ws_server] INFO: [sess_4654b8826c343799] WS disconnected by client
+2026-05-10 13:54:47 [server_economic.ws_server] INFO: [sess_4654b8826c343799] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:55:11 [server_economic.ws_server] INFO: [sess_df1d08e622b255cc] WS connected from 127.0.0.1:60158
+2026-05-10 13:55:11 [server_economic.ws_server] INFO: [sess_df1d08e622b255cc] Auth OK, connection established
+2026-05-10 13:55:11 [server_economic.ws_server] INFO: [sess_df1d08e622b255cc] STATUS_QUERY
+2026-05-10 13:55:41 [server_economic.ws_server] INFO: [sess_df1d08e622b255cc] WS disconnected by client
+2026-05-10 13:55:41 [server_economic.ws_server] INFO: [sess_df1d08e622b255cc] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:56:05 [server_economic.ws_server] INFO: [sess_ec67ce770c129831] WS connected from 127.0.0.1:60243
+2026-05-10 13:56:05 [server_economic.ws_server] INFO: [sess_ec67ce770c129831] Auth OK, connection established
+2026-05-10 13:56:05 [server_economic.ws_server] INFO: [sess_ec67ce770c129831] STATUS_QUERY
+2026-05-10 13:56:35 [server_economic.ws_server] INFO: [sess_ec67ce770c129831] WS disconnected by client
+2026-05-10 13:56:35 [server_economic.ws_server] INFO: [sess_ec67ce770c129831] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:56:59 [server_economic.ws_server] INFO: [sess_d637ede57e73deb6] WS connected from 127.0.0.1:60329
+2026-05-10 13:56:59 [server_economic.ws_server] INFO: [sess_d637ede57e73deb6] Auth OK, connection established
+2026-05-10 13:56:59 [server_economic.ws_server] INFO: [sess_d637ede57e73deb6] STATUS_QUERY
+2026-05-10 13:57:29 [server_economic.ws_server] INFO: [sess_d637ede57e73deb6] WS disconnected by client
+2026-05-10 13:57:29 [server_economic.ws_server] INFO: [sess_d637ede57e73deb6] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:57:53 [server_economic.ws_server] INFO: [sess_eca317d8beaf64ab] WS connected from 127.0.0.1:60382
+2026-05-10 13:57:53 [server_economic.ws_server] INFO: [sess_eca317d8beaf64ab] Auth OK, connection established
+2026-05-10 13:57:53 [server_economic.ws_server] INFO: [sess_eca317d8beaf64ab] STATUS_QUERY
+2026-05-10 13:58:23 [server_economic.ws_server] INFO: [sess_eca317d8beaf64ab] WS disconnected by client
+2026-05-10 13:58:23 [server_economic.ws_server] INFO: [sess_eca317d8beaf64ab] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:58:47 [server_economic.ws_server] INFO: [sess_956f1a4bdb59a8c8] WS connected from 127.0.0.1:60441
+2026-05-10 13:58:47 [server_economic.ws_server] INFO: [sess_956f1a4bdb59a8c8] Auth OK, connection established
+2026-05-10 13:58:47 [server_economic.ws_server] INFO: [sess_956f1a4bdb59a8c8] STATUS_QUERY
+2026-05-10 13:59:17 [server_economic.ws_server] INFO: [sess_956f1a4bdb59a8c8] WS disconnected by client
+2026-05-10 13:59:17 [server_economic.ws_server] INFO: [sess_956f1a4bdb59a8c8] Connection cleaned up (remaining connections: 0)
+2026-05-10 13:59:41 [server_economic.ws_server] INFO: [sess_a85ebc32640bc5a1] WS connected from 127.0.0.1:60494
+2026-05-10 13:59:41 [server_economic.ws_server] INFO: [sess_a85ebc32640bc5a1] Auth OK, connection established
+2026-05-10 13:59:41 [server_economic.ws_server] INFO: [sess_a85ebc32640bc5a1] STATUS_QUERY
+2026-05-10 14:00:11 [server_economic.ws_server] INFO: [sess_a85ebc32640bc5a1] WS disconnected by client
+2026-05-10 14:00:11 [server_economic.ws_server] INFO: [sess_a85ebc32640bc5a1] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:00:35 [server_economic.ws_server] INFO: [sess_a7de68191c462c10] WS connected from 127.0.0.1:60546
+2026-05-10 14:00:35 [server_economic.ws_server] INFO: [sess_a7de68191c462c10] Auth OK, connection established
+2026-05-10 14:00:35 [server_economic.ws_server] INFO: [sess_a7de68191c462c10] STATUS_QUERY
+2026-05-10 14:01:05 [server_economic.ws_server] INFO: [sess_a7de68191c462c10] WS disconnected by client
+2026-05-10 14:01:05 [server_economic.ws_server] INFO: [sess_a7de68191c462c10] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:01:29 [server_economic.ws_server] INFO: [sess_9acca1ed584faaac] WS connected from 127.0.0.1:60631
+2026-05-10 14:01:29 [server_economic.ws_server] INFO: [sess_9acca1ed584faaac] Auth OK, connection established
+2026-05-10 14:01:29 [server_economic.ws_server] INFO: [sess_9acca1ed584faaac] STATUS_QUERY
+2026-05-10 14:01:59 [server_economic.ws_server] INFO: [sess_9acca1ed584faaac] WS disconnected by client
+2026-05-10 14:01:59 [server_economic.ws_server] INFO: [sess_9acca1ed584faaac] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:02:23 [server_economic.ws_server] INFO: [sess_dd149892cac4069b] WS connected from 127.0.0.1:60698
+2026-05-10 14:02:23 [server_economic.ws_server] INFO: [sess_dd149892cac4069b] Auth OK, connection established
+2026-05-10 14:02:23 [server_economic.ws_server] INFO: [sess_dd149892cac4069b] STATUS_QUERY
+2026-05-10 14:02:53 [server_economic.ws_server] INFO: [sess_dd149892cac4069b] WS disconnected by client
+2026-05-10 14:02:53 [server_economic.ws_server] INFO: [sess_dd149892cac4069b] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:03:17 [server_economic.ws_server] INFO: [sess_6910f2a7e4c6ffc8] WS connected from 127.0.0.1:60769
+2026-05-10 14:03:17 [server_economic.ws_server] INFO: [sess_6910f2a7e4c6ffc8] Auth OK, connection established
+2026-05-10 14:03:17 [server_economic.ws_server] INFO: [sess_6910f2a7e4c6ffc8] STATUS_QUERY
+2026-05-10 14:03:47 [server_economic.ws_server] INFO: [sess_6910f2a7e4c6ffc8] WS disconnected by client
+2026-05-10 14:03:47 [server_economic.ws_server] INFO: [sess_6910f2a7e4c6ffc8] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:04:11 [server_economic.ws_server] INFO: [sess_e7e097c937eb587e] WS connected from 127.0.0.1:60825
+2026-05-10 14:04:11 [server_economic.ws_server] INFO: [sess_e7e097c937eb587e] Auth OK, connection established
+2026-05-10 14:04:11 [server_economic.ws_server] INFO: [sess_e7e097c937eb587e] STATUS_QUERY
+2026-05-10 14:04:41 [server_economic.ws_server] INFO: [sess_e7e097c937eb587e] WS disconnected by client
+2026-05-10 14:04:41 [server_economic.ws_server] INFO: [sess_e7e097c937eb587e] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:05:05 [server_economic.ws_server] INFO: [sess_33488cdf4bf3a005] WS connected from 127.0.0.1:60895
+2026-05-10 14:05:05 [server_economic.ws_server] INFO: [sess_33488cdf4bf3a005] Auth OK, connection established
+2026-05-10 14:05:05 [server_economic.ws_server] INFO: [sess_33488cdf4bf3a005] STATUS_QUERY
+2026-05-10 14:05:35 [server_economic.ws_server] INFO: [sess_33488cdf4bf3a005] WS disconnected by client
+2026-05-10 14:05:35 [server_economic.ws_server] INFO: [sess_33488cdf4bf3a005] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:05:59 [server_economic.ws_server] INFO: [sess_da17082a4cb290ca] WS connected from 127.0.0.1:60967
+2026-05-10 14:05:59 [server_economic.ws_server] INFO: [sess_da17082a4cb290ca] Auth OK, connection established
+2026-05-10 14:05:59 [server_economic.ws_server] INFO: [sess_da17082a4cb290ca] STATUS_QUERY
+2026-05-10 14:06:29 [server_economic.ws_server] INFO: [sess_da17082a4cb290ca] WS disconnected by client
+2026-05-10 14:06:29 [server_economic.ws_server] INFO: [sess_da17082a4cb290ca] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:06:53 [server_economic.ws_server] INFO: [sess_efe855339dad764c] WS connected from 127.0.0.1:61032
+2026-05-10 14:06:53 [server_economic.ws_server] INFO: [sess_efe855339dad764c] Auth OK, connection established
+2026-05-10 14:06:53 [server_economic.ws_server] INFO: [sess_efe855339dad764c] STATUS_QUERY
+2026-05-10 14:07:23 [server_economic.ws_server] INFO: [sess_efe855339dad764c] WS disconnected by client
+2026-05-10 14:07:23 [server_economic.ws_server] INFO: [sess_efe855339dad764c] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:07:48 [server_economic.ws_server] INFO: [sess_295410257ecc4431] WS connected from 127.0.0.1:61109
+2026-05-10 14:07:48 [server_economic.ws_server] INFO: [sess_295410257ecc4431] Auth OK, connection established
+2026-05-10 14:07:48 [server_economic.ws_server] INFO: [sess_295410257ecc4431] STATUS_QUERY
+2026-05-10 14:08:18 [server_economic.ws_server] INFO: [sess_295410257ecc4431] WS disconnected by client
+2026-05-10 14:08:18 [server_economic.ws_server] INFO: [sess_295410257ecc4431] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:08:42 [server_economic.ws_server] INFO: [sess_36b48d55c29d56ee] WS connected from 127.0.0.1:61159
+2026-05-10 14:08:42 [server_economic.ws_server] INFO: [sess_36b48d55c29d56ee] Auth OK, connection established
+2026-05-10 14:08:42 [server_economic.ws_server] INFO: [sess_36b48d55c29d56ee] STATUS_QUERY
+2026-05-10 14:09:12 [server_economic.ws_server] INFO: [sess_36b48d55c29d56ee] WS disconnected by client
+2026-05-10 14:09:12 [server_economic.ws_server] INFO: [sess_36b48d55c29d56ee] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:09:36 [server_economic.ws_server] INFO: [sess_4502bcaf7508346b] WS connected from 127.0.0.1:61236
+2026-05-10 14:09:36 [server_economic.ws_server] INFO: [sess_4502bcaf7508346b] Auth OK, connection established
+2026-05-10 14:09:36 [server_economic.ws_server] INFO: [sess_4502bcaf7508346b] STATUS_QUERY
+2026-05-10 14:10:06 [server_economic.ws_server] INFO: [sess_4502bcaf7508346b] WS disconnected by client
+2026-05-10 14:10:06 [server_economic.ws_server] INFO: [sess_4502bcaf7508346b] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:10:30 [server_economic.ws_server] INFO: [sess_d46b5aaa0830c387] WS connected from 127.0.0.1:61299
+2026-05-10 14:10:30 [server_economic.ws_server] INFO: [sess_d46b5aaa0830c387] Auth OK, connection established
+2026-05-10 14:10:30 [server_economic.ws_server] INFO: [sess_d46b5aaa0830c387] STATUS_QUERY
+2026-05-10 14:11:00 [server_economic.ws_server] INFO: [sess_d46b5aaa0830c387] WS disconnected by client
+2026-05-10 14:11:00 [server_economic.ws_server] INFO: [sess_d46b5aaa0830c387] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:11:24 [server_economic.ws_server] INFO: [sess_a0b94b7429b33f53] WS connected from 127.0.0.1:61400
+2026-05-10 14:11:24 [server_economic.ws_server] INFO: [sess_a0b94b7429b33f53] Auth OK, connection established
+2026-05-10 14:11:24 [server_economic.ws_server] INFO: [sess_a0b94b7429b33f53] STATUS_QUERY
+2026-05-10 14:11:54 [server_economic.ws_server] INFO: [sess_a0b94b7429b33f53] WS disconnected by client
+2026-05-10 14:11:54 [server_economic.ws_server] INFO: [sess_a0b94b7429b33f53] Connection cleaned up (remaining connections: 0)
+2026-05-10 14:12:18 [server_economic.ws_server] INFO: [sess_dfa1088d88d51769] WS connected from 127.0.0.1:61479
+2026-05-10 14:12:18 [server_economic.ws_server] INFO: [sess_dfa1088d88d51769] Auth OK, connection established
+2026-05-10 14:12:18 [server_economic.ws_server] INFO: [sess_dfa1088d88d51769] STATUS_QUERY
