@@ -13,11 +13,14 @@ SE WebSocket Client
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from typing import Callable
 
 import websockets
+
+log = logging.getLogger("client.se_websocket")
 
 # 导入重连配置常量（从 constants 模块）
 try:
@@ -54,6 +57,8 @@ class SEWebSocketClient:
         # 待发送的请求队列 (由外部线程安全地添加请求)
         self._pending_requests: list[dict] = []
         self._req_lock = threading.Lock()
+        # ★ 连接丢失事件：任一子协程检测到断连时 set，其他协程立即响应
+        self._conn_lost: asyncio.Event | None = None
 
     @property
     def is_active(self) -> bool:
@@ -204,6 +209,9 @@ class SEWebSocketClient:
         if self.on_status:
             self.on_status(f"Connecting to {uri}...")
 
+        # ★ 初始化连接丢失事件（每次新连接重置）
+        self._conn_lost = asyncio.Event()
+
         async with websockets.connect(uri) as ws:
             self._ws = ws
 
@@ -240,23 +248,42 @@ class SEWebSocketClient:
                 self.on_message({"event": "connected", "data": ack})
 
             # 阶段3: 主循环 — 接收消息 + 心跳 + 处理待发请求
-            await asyncio.gather(
+            # ★ return_exceptions=True: 任意子协程异常退出不会杀死其他协程
+            #    例如 _receive_loop 因 WS 断开而退出时，_heartbeat_loop 和
+            #    _send_pending_loop 可以继续运行直到 ws 被关闭，避免竞态
+            results = await asyncio.gather(
                 self._receive_loop(ws),
                 self._heartbeat_loop(ws),
                 self._send_pending_loop(ws),
+                return_exceptions=True,
             )
+            # 记录异常日志（仅用于调试，不影响连接生命周期）
+            for i, r in enumerate(results):
+                if isinstance(r, Exception):
+                    names = ["receive", "heartbeat", "send_pending"]
+                    log.debug(f"[SE] {names[i]} exited with: {r}")
 
     async def _receive_loop(self, ws):
-        """接收服务端消息并回调"""
+        """接收服务端消息并回调（任何异常仅退出本协程，同时通知其他协程）"""
         while self._active:
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
+            except (websockets.exceptions.ConnectionClosed,
+                    websockets.exceptions.WebSocketException) as e:
+                # ★ WS 断开 → 广播连接丢失事件，让 heartbeat/send 协程立即退出
+                log.debug(f"[SE] receive_loop: WS closed: {e}")
+                self._conn_lost.set()
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+                return
 
             try:
                 msg = json.loads(raw)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 continue
 
             msg_type = msg.get("type", "")
@@ -267,14 +294,31 @@ class SEWebSocketClient:
                     self.on_status(f"Error [{err_payload.get('code', '')}]: {err_payload.get('message', '')}")
 
             if self.on_message:
-                self.on_message(msg)
+                try:
+                    self.on_message(msg)
+                except Exception:
+                    pass  # 回调异常不应影响接收循环
 
     async def _heartbeat_loop(self, ws):
-        """每30秒发送 PING"""
+        """每15秒发送 PING（同时监听连接丢失事件以快速响应断连）"""
         while self._active:
-            await asyncio.sleep(30)
-            if not self._active or not ws.open:
+            try:
+                # ★ 用 asyncio.wait 同时监听 sleep 和 conn_lost 事件
+                #    这样 _receive_loop 检测到断连后，心跳协程最多 ~0.1s 内退出（而非等满 30 秒）
+                await asyncio.wait(
+                    [asyncio.sleep(15), self._conn_lost.wait()],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            except (asyncio.CancelledError, RuntimeError):
                 break
+
+            # 连接已丢失 → 立即退出（不尝试发送 PING）
+            if self._conn_lost.is_set() or not self._active:
+                break
+            if not ws.open:
+                self._conn_lost.set()
+                break
+
             ping = {
                 "type": "PING",
                 "id": f"ping_{int(time.time() * 1000)}",
@@ -284,12 +328,29 @@ class SEWebSocketClient:
             try:
                 await ws.send(json.dumps(ping))
             except Exception:
+                self._conn_lost.set()
                 break
 
     async def _send_pending_loop(self, ws):
-        """检查并发送待处理请求（每50ms检查一次）"""
+        """检查并发送待处理请求（每50ms检查一次，同时监听连接丢失事件）"""
         while self._active:
-            await asyncio.sleep(0.05)
+            try:
+                # ★ 同时监听 50ms 定时器和 conn_lost 事件
+                await asyncio.wait(
+                    [asyncio.sleep(0.05), self._conn_lost.wait()],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            except (asyncio.CancelledError, RuntimeError):
+                break
+
+            if self._conn_lost.is_set() or not self._active or not ws.open:
+                if self._conn_lost.is_set() and ws.open:
+                    try:
+                        await ws.close()
+                    except Exception:
+                        pass
+                break
+
             with self._req_lock:
                 if not self._pending_requests:
                     continue
@@ -299,9 +360,11 @@ class SEWebSocketClient:
             for req in requests:
                 try:
                     await ws.send(json.dumps(req))
-                except Exception:
+                except Exception as e:
+                    # 发送失败 → 回滚到队列头部 + 广播断连
                     with self._req_lock:
                         self._pending_requests.insert(0, req)
+                    self._conn_lost.set()
                     break
 
 

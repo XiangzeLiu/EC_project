@@ -676,7 +676,9 @@ async def refresh_nodes_status(request: Request):
 
     关键修复：
       - 先执行一次离线检测（check_offline_nodes），确保内存状态是最新的
-      - 然后再从内存读取 + 计算 real_status
+      - 然后对仍显示 online 的节点发起主动 TCP 探活（连接 SE 默认端口 8900）
+        解决 SE 进程崩溃后被动心跳超时检测延迟导致的状态不准问题
+      - 最后从内存读取 + 计算 real_status
       - 这样即使心跳巡检还没来得及跑（30秒间隔），刷新时也能立即发现离线节点
     
     直接从内存读取实时状态 + 计算展示用的 real_status。
@@ -685,11 +687,19 @@ async def refresh_nodes_status(request: Request):
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
 
-    # ★ 先执行离线检测，确保返回的数据反映真实状态
-    # 这解决了"SE 掉线后 Web 刷新仍显示在线/占用"的问题
+    # ★ 第一步：执行被动离线检测（心跳超时判断）
     offline_ids = node_state.manager.check_offline_nodes()
     if offline_ids:
-        log.info(f"[refresh-status] Force-detected {len(offline_ids)} offline node(s) before display")
+        log.info(f"[refresh-status] Passive check detected {len(offline_ids)} offline node(s) before display")
+
+    # ★ 第二步：对仍然显示 online 的节点发起主动 TCP 探活
+    # 这能立即发现已停机的 SE 进程，无需等待心跳超时（90s/15s）
+    import asyncio as _asyncio
+    # 在线程池中执行阻塞式 TCP 探活，避免阻塞事件循环
+    loop = _asyncio.get_event_loop()
+    dead_by_probe = await loop.run_in_executor(None, node_state.manager.probe_nodes_liveliness)
+    if dead_by_probe:
+        log.info(f"[refresh-status] Active probe confirmed {len(dead_by_probe)} dead node(s)")
 
     nodes = node_state.manager.get_all_for_display()
 

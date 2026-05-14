@@ -320,6 +320,96 @@ class NodeStateManager:
             state._probing = True
             state._last_probe_time = time.monotonic()
 
+    # ── 主动探活操作 ─────────────────────────────────────────────────────
+
+    # SE 默认监听端口（用于 TCP 探活）
+    _SE_DEFAULT_PORT = 8900
+    # 探活超时（秒）
+    _PROBE_SOCKET_TIMEOUT = 2
+
+    def probe_nodes_liveliness(self) -> list[str]:
+        """
+        对所有 status=online 的节点发起主动 TCP 探活。
+
+        通过尝试建立 TCP 连接到节点的 SE 服务端口（默认 8900），
+        立即判断节点进程是否真的存活。这解决了"被动心跳超时检测延迟"
+        导致的 SE 停机后 Web 刷新仍显示在线的问题。
+
+        Returns:
+            被探活确认死亡并标记为离线的 server_id 列表。
+        """
+        import socket
+
+        now = time.monotonic()
+        offline_ids = []
+        probed = 0
+
+        for sid, state in self._states.items():
+            if state.status != "online":
+                continue
+
+            # 解析目标地址（优先用 current_ip，其次 _host）
+            target = state.current_ip or state._host or ""
+            if not target:
+                continue
+
+            # 从地址中提取 host 和 port
+            host = target
+            port = self._SE_DEFAULT_PORT
+            if ":" in target:
+                parts = target.rsplit(":", 1)
+                host = parts[0]
+                try:
+                    port = int(parts[1])
+                except (ValueError, IndexError):
+                    port = self._SE_DEFAULT_PORT
+
+            # 跳过明显无效的地址
+            if not host or host in ("", "0.0.0.0"):
+                continue
+
+            probed += 1
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(self._PROBE_SOCKET_TIMEOUT)
+                result = sock.connect_ex((host, port))
+                sock.close()
+
+                if result != 0:
+                    # TCP 连接失败 → 进程已死，立即标记离线
+                    old_occ = state.occupied_by
+                    state.status = "offline"
+                    state.occupied_by = ""
+                    state.occupied_at = 0.0
+                    offline_ids.append(sid)
+
+                    elapsed_hb = now - state.last_heartbeat if state.last_heartbeat > 0 else -1
+                    log.info(
+                        f"[NodeState] PROBE DEAD: {sid} "
+                        f"(TCP:{host}:{port} failed, err={result}, "
+                        f"hb_age={elapsed_hb:.1f}s"
+                        + (f", was occupied by '{old_occ}'" if old_occ else "")
+                        + ")"
+                    )
+            except Exception as e:
+                # 探活异常也视为不可达
+                old_occ = state.occupied_by
+                state.status = "offline"
+                state.occupied_by = ""
+                state.occupied_at = 0.0
+                offline_ids.append(sid)
+                log.info(
+                    f"[NodeState] PROBE ERROR (treated as dead): {sid} "
+                    f"(TCP:{host}:{port} exception: {e}"
+                    + (f", was occupied by '{old_occ}'" if old_occ else "")
+                    + ")"
+                )
+
+        if probed > 0:
+            dead_count = len(offline_ids)
+            log.info(f"[NodeState] Probe completed: {probed} node(s) probed, {dead_count} confirmed dead")
+        return offline_ids
+
     # ── 管理员操作 ─────────────────────────────────────────────────────
 
     def set_suspended(self, server_id: str) -> tuple[bool, str]:
@@ -373,6 +463,11 @@ class NodeStateManager:
 
         state.occupied_by = username
         state.occupied_at = time.monotonic()
+        # ★ 关键修复：同步刷新心跳时间戳
+        # occupy 后 is_alive 阈值从 90s(空闲) 切换到 15s(占用)，
+        # 如果不刷新 last_heartbeat，旧时间戳会立即超过 15s 阈值，
+        # 导致 refresh-status 时 check_offline_nodes 误判为离线并自动释放占用
+        state.last_heartbeat = time.monotonic()
         log.info(f"[NodeState] OCCUPIED: {server_id} by '{username}'")
         return True, "ok"
 
@@ -401,17 +496,19 @@ class NodeStateManager:
         if check_offline and state.status == "online":
             now = time.monotonic()
             elapsed = now - state.last_heartbeat
-            # 使用占用态的超时阈值来判断（比空闲阈值更严格）
-            if elapsed > OCCUPIED_HEARTBEAT_TIMEOUT:
+            # ★ 使用较短的安全阈值（5秒）：Client 明确释放说明连接有问题，
+            #   如果最近 5 秒内没有新心跳，大概率 SE 已死，直接标离线
+            _RELEASE_SAFE_THRESHOLD = 5.0
+            if elapsed > _RELEASE_SAFE_THRESHOLD:
                 old_status = state.status
                 state.status = "offline"
                 log.info(
                     f"[NodeState] RELEASE & OFFLINE: {server_id} "
                     f"(was occupied by '{had}', heartbeat stale for {elapsed:.1f}s > "
-                    f"{OCCUPIED_HEARTBEAT_TIMEOUT}s threshold)"
+                    f"{_RELEASE_SAFE_THRESHOLD}s safe threshold)"
                 )
             else:
-                log.info(f"[NodeState] RELEASED: {server_id} (was '{had}')")
+                log.info(f"[NodeState] RELEASED: {server_id} (was '{had}', hb_fresh={elapsed:.1f}s)")
         elif had:
             log.info(f"[NodeState] RELEASED: {server_id} (was '{had}')")
 

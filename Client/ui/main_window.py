@@ -1510,7 +1510,10 @@ class TradingTerminal(tk.Tk):
                     # 更新弹窗状态文本
                     self._reconnect_var.set(msg)
 
-            elif "Auth failed" in msg or "error" in msg.lower():
+            elif "Auth failed" in msg:
+                # ★ 仅匹配认证失败，不匹配 SE 返回的 "Error [xxx]: ..." 消息
+                # 原来的 "error" in msg.lower() 会误匹配 SE 的 ERROR 类型响应消息，
+                # 导致正在重连时收到一个业务错误就 _cancel_reconnect()
                 if self._reconnecting:
                     # 重连过程中认证失败（如 token 过期）→ 停止重连，提示用户
                     self._cancel_reconnect()
@@ -1598,6 +1601,13 @@ class TradingTerminal(tk.Tk):
             host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
         else:
             host, port = target_addr, DEFAULT_SE_PORT
+
+        # ★ 关键修复：先停止旧客户端，防止幽灵线程残留
+        # 旧客户端的后台线程可能仍在 sleep/退避等待，如果不 stop()，
+        # 它醒来后会尝试重新连接，导致两个 WS 连接同时竞争同一个 SE 端口
+        if self._se_client and self._se_client.is_active:
+            self.log_area.log("[SE] Stopping old connection before reconnect...", "inf")
+            self._se_client.stop()
 
         # 创建启用重连的 SE 客户端
         se_client = SEWebSocketClient(
