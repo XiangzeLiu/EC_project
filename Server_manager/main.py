@@ -646,6 +646,14 @@ async def node_heartbeat(request: Request):
         response["occupied_by"] = state.occupied_by
         response["occupied_timeout"] = node_state.OCCUPIED_HEARTBEAT_TIMEOUT
 
+    # ★ 券商配置版本通知：SE 据此判断是否需要拉取最新配置
+    from database import get_node_broker_config
+    broker_cfg = get_node_broker_config(sid)
+    if broker_cfg:
+        response["config_version"] = broker_cfg["config_version"]
+    else:
+        response["config_version"] = 0
+
     return response
 
 
@@ -722,13 +730,34 @@ async def refresh_nodes_status(request: Request):
 
 @app.post("/api/nodes/{request_id}/approve")
 async def approve_node(request: Request, request_id: str):
-    """管理员通过节点的注册请求"""
+    """管理员通过节点的注册请求（同时录入账户信息和券商配置）"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
+
+    # 读取请求体（含账户信息 + 券商配置）
+    try:
+        body = await request.json() if await request.body() else {}
+    except Exception:
+        body = {}
+    broker_type = body.get("broker_type", "tastytrade")
+    broker_credentials = body.get("credentials", {})
+    # 新增：账户信息（审批时录入）
+    account_username = body.get("account_username", "").strip()
+    account_password = body.get("account_password", "").strip()
 
     result = database.approve_node_request(request_id)
     if not result:
         return {"ok": False, "error": "Request not found or already processed"}
+
+    # 将券商配置 + 账户信息一并写入 brokers.config
+    if broker_type or broker_credentials or account_username:
+        database.set_node_broker_config(
+            server_id=result["server_id"],
+            broker_type=broker_type,
+            credentials=broker_credentials,
+            account_username=account_username,
+            account_password=account_password,
+        )
 
     # 审批通过后，将节点加载到内存状态管理器
     approved_rows = database.get_approved_nodes_for_memory_load()
@@ -854,6 +883,89 @@ async def release_node(request: Request, server_id: str):
 
     node_state.manager.release(server_id)
     return {"ok": True, "message": f"\u5df2\u91ca\u653e\u8282\u70b9"}
+
+
+# ── 券商类型列表 ───────────────────────────────────────────────────────
+
+@app.get("/api/broker-types")
+async def list_broker_types(request: Request):
+    """返回支持的券商类型列表（前端下拉选项用，需管理员登录）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    from database import BROKER_TYPES
+    return {"ok": True, "data": BROKER_TYPES}
+
+
+# ── 节点券商配置管理 ─────────────────────────────────────────────────
+
+@app.get("/api/nodes/config")
+async def get_node_config(request: Request, server_id: str = "", token: str = ""):
+    """
+    SE 拉取自身券商配置
+    
+    鉴权方式：通过 query param 传递 node_token
+    """
+    if not token:
+        # 也支持 Bearer header
+        auth_header = request.headers.get("authorization", "")
+        token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+
+    if not token or not database.verify_node_token_for_config(token, server_id):
+        return {"ok": False, "error": "Unauthorized", "config_version": -1}
+
+    cfg = database.get_node_broker_config(server_id)
+    if not cfg:
+        return {"ok": False, "error": "Node not found", "config_version": -1}
+
+    return {
+        "ok": True,
+        "server_id": server_id,
+        "config_version": cfg["config_version"],
+        "broker_type": cfg["broker_type"],
+        "credentials": cfg["credentials"],
+        "enabled": cfg["enabled"],
+    }
+
+
+@app.put("/api/nodes/{server_id}/config")
+async def update_node_config(request: Request, server_id: str):
+    """管理员修改节点的券商配置（含账户信息）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+
+    body = await request.json()
+    broker_type = body.get("broker_type", "")
+    credentials = body.get("credentials", {})
+    enabled = body.get("enabled", True)
+    account_username = body.get("account_username", "").strip()
+    account_password = body.get("account_password", "").strip()
+
+    if not broker_type:
+        return {"ok": False, "error": "broker_type is required"}
+
+    ok = database.set_node_broker_config(
+        server_id=server_id,
+        broker_type=broker_type,
+        credentials=credentials,
+        enabled=enabled,
+        account_username=account_username if account_username else None,
+        account_password=account_password if account_password else None,
+    )
+    if ok:
+        return {"ok": True, "message": f"\u914d\u7f6e\u5df2\u66f4\u65b0 ({server_id})"}
+    return {"ok": False, "error": "\u66f4\u65b0\u5931\u8d25"}
+
+
+@app.post("/api/nodes/{server_id}/reload")
+async def reload_node_config(request: Request, server_id: str):
+    """管理员触发 SE 重载券商配置（递增版本号通知SE拉取新配置）"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+
+    new_ver = database.increment_reload_flag(server_id)
+    if new_ver > 0:
+        return {"ok": True, "message": f"\u5df2\u89e6\u53d1\u91cd\u8f7d\uff0c\u7248\u672c={new_ver}", "config_version": new_ver}
+    return {"ok": False, "error": "\u8282\u70b9\u4e0d\u5b58\u5728"}
 
 
 # ── 账户管理 API（管理员用）────────────────────────────────────────────
@@ -1145,6 +1257,7 @@ async def startup():
     # 初始化数据库
     try:
         init_db()
+        database._ensure_config_version_column()
     except Exception as e:
         log.warning(f"Database init skipped (non-critical): {e}")
 

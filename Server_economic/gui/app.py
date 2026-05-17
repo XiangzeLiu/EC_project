@@ -183,15 +183,15 @@ class SEControlPanel(tk.Tk):
                  ).pack(fill="x", pady=(8, 4))
         self.fm_node_name = self._make_entry(form, "economic-node-01")
 
-        # 区域
-        tk.Label(form, text="区域 *", anchor="w",
+        # 券商类型
+        tk.Label(form, text="券商类型 *", anchor="w",
                  font=FONT_NORMAL, fg=TEXT_SECONDARY, bg=BG_SECONDARY
                  ).pack(fill="x", pady=(8, 4))
         self.fm_region = ttk.Combobox(
-            form, values=["CN", "US", "EU", "APAC", "JP", "SG"],
+            form, values=["tastytrade", "interactive_brokers"],
             state="readonly", font=FONT_NORMAL, width=38,
         )
-        self.fm_region.set("CN")
+        self.fm_region.set("tastytrade")
         self.fm_region.pack(fill="x", pady=(0, 4))
 
         # 主机地址（自动检测）
@@ -278,7 +278,7 @@ class SEControlPanel(tk.Tk):
         self.cred_frame.pack_forget()
 
     def _build_content_panel(self, parent):
-        """右侧：Tab 栏 + 仪表盘/经济指标"""
+        """右侧：Tab 栏 + 仪表盘/运行日志"""
         # Tab 栏
         tab_bar = tk.Frame(parent, bg=BG_DARK)
         tab_bar.pack(fill="x", pady=(0, 10))
@@ -287,7 +287,7 @@ class SEControlPanel(tk.Tk):
         tab_bg.pack()
         self._tab_var = tk.StringVar(value="dashboard")
 
-        for text, value in [("仪表盘", "dashboard"), ("经济指标", "indicators")]:
+        for text, value in [("仪表盘", "dashboard"), ("运行日志", "logs")]:
             rb = tk.Radiobutton(
                 tab_bg, text=text, variable=self._tab_var, value=value,
                 font=FONT_NORMAL, fg=TEXT_SECONDARY, selectcolor=BG_CARD,
@@ -306,42 +306,46 @@ class SEControlPanel(tk.Tk):
         self.dashboard_frame = tk.Frame(self.tab_container, bg=BG_DARK)
         self._build_dashboard_cards(self.dashboard_frame)
 
-        # ── Indicators Tab ──────────────────────────────
-        self.indicators_frame = tk.Frame(self.tab_container, bg=BG_DARK)
-        self._build_indicators_table(self.indicators_frame)
+        # ── Logs Tab (替代原来的经济指标) ────────────────
+        self.logs_frame = tk.Frame(self.tab_container, bg=BG_DARK)
+        self._build_log_panel(self.logs_frame)
 
         # 默认显示 dashboard
         self.dashboard_frame.pack(fill="both", expand=True)
 
     def _build_dashboard_cards(self, parent):
-        """仪表盘卡片网格"""
+        """仪表盘卡片网格（优化布局和字体）"""
         self.card_vars = {}
         card_data = [
-            ("node_name",    "节点名称",  "-"),
-            ("region",       "区域",      "-"),
-            ("server_id",    "服务端ID", "-"),
+            ("node_name",    "节点名称",   "-"),
+            ("region",       "券商类型",   "-"),
+            ("server_id",    "服务端ID",  "-"),
             ("heartbeat",    "心跳状态",   "--"),
-            ("connections",  "连接数",    "0"),
-            ("version",      "版本",      "-"),
+            ("connections",  "Client连接", "0"),
+            ("broker",       "券商状态",   "-"),
         ]
 
-        grid = tk.Frame(parent, bg=BG_DARK)
-        grid.pack(fill="both", expand=True)
+        # 上部: 6 个卡片 (3×2 网格)
+        top_grid = tk.Frame(parent, bg=BG_DARK)
+        top_grid.pack(fill="both", expand=True, padx=8, pady=(8, 4))
 
         for i, (key, label, default) in enumerate(card_data):
             row_i, col_i = divmod(i, 3)
-            card = self._make_card(grid, label, default, key)
+            card = self._make_card(top_grid, label, default, key)
             card.grid(row=row_i, column=col_i, padx=6, pady=6, sticky="nsew")
-            grid.columnconfigure(col_i, weight=1)
-            grid.rowconfigure(row_i, weight=1)
+            top_grid.columnconfigure(col_i, weight=1)
+            top_grid.rowconfigure(row_i, weight=1)
 
-        # 心跳统计子区域
-        tk.Label(parent, text="心跳统计",
-                 font=FONT_BOLD, fg=TEXT_SECONDARY, bg=BG_DARK,
-                 anchor="w").pack(fill="x", padx=6, pady=(20, 8))
+        # 下部: 心跳统计子区域
+        sub_frame = tk.Frame(parent, bg=BG_CARD, bd=1, relief="solid")
+        sub_frame.pack(fill="x", padx=8, pady=8)
 
-        hb_grid = tk.Frame(parent, bg=BG_DARK)
-        hb_grid.pack(fill="x", padx=6)
+        tk.Label(sub_frame, text="\u26A1 心跳 & 券商",
+                 font=FONT_BOLD, fg=TEXT_PRIMARY, bg=BG_CARD,
+                 anchor="w").pack(fill="x", padx=14, pady=(10, 6))
+
+        hb_grid = tk.Frame(sub_frame, bg=BG_CARD)
+        hb_grid.pack(fill="x", padx=14, pady=(0, 10))
         hb_items = [
             ("hb_total",    "总次数",  "-", "info"),
             ("hb_ok",       "成功",    "-", "ok"),
@@ -349,36 +353,109 @@ class SEControlPanel(tk.Tk):
             ("hb_interval", "间隔",   "30s", "info"),
         ]
         for i, (key, label, default, cls) in enumerate(hb_items):
-            c = self._make_card(hb_grid, label, default, key, color_cls=cls)
-            c.grid(row=0, column=i, padx=4, sticky="ew")
+            c = self._make_small_stat(hb_grid, label, default, key, color_cls=cls)
+            c.grid(row=0, column=i, padx=6, sticky="ew")
             hb_grid.columnconfigure(i, weight=1)
 
-    def _build_indicators_table(self, parent):
-        """经济指标数据表"""
-        columns = ("指标名称", "数值", "单位", "周期")
-        self.indi_tree = ttk.Treeview(
-            parent, columns=columns, show="headings", height=12,
+    def _make_small_stat(self, parent, label, default, key, color_cls=None):
+        """小型统计项（用于底部统计栏）"""
+        frame = tk.Frame(parent, bg=BG_CARD)
+        lbl = tk.Label(frame, text=label.upper(),
+                       font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, anchor="w")
+        lbl.pack(anchor="w", padx=10, pady=(8, 2))
+
+        color_map = {
+            "ok": ACCENT_GREEN, "err": ACCENT_RED,
+            "info": ACCENT_BLUE, None: TEXT_PRIMARY,
+        }
+        fg = color_map.get(color_cls, TEXT_PRIMARY)
+        val_var = tk.StringVar(value=default)
+        self.card_vars[key] = val_var
+        val_lbl = tk.Label(frame, textvariable=val_var,
+                           font=("Segoe UI", 13, "bold"), fg=fg, bg=BG_CARD)
+        val_lbl.pack(anchor="w", padx=10, pady=(2, 8))
+        self.card_vars[key + "_label"] = val_lbl
+        return frame
+
+    def _build_log_panel(self, parent):
+        """运行日志面板 — 显示 Client 与 SE 之间的消息交互"""
+        # 工具栏
+        toolbar = tk.Frame(parent, bg=BG_SECONDARY)
+        toolbar.pack(fill="x")
+
+        tk.Label(toolbar, text="\u25CF 运行日志",
+                 font=FONT_BOLD, fg=TEXT_PRIMARY, bg=BG_SECONDARY,
+                 anchor="w").pack(side="left", padx=14, pady=10)
+
+        # 统计徽章
+        self.log_stats_var = tk.StringVar(value="- 条记录")
+        tk.Label(toolbar, textvariable=self.log_stats_var,
+                 font=FONT_MONO_SM, fg=TEXT_MUTED, bg=BG_SECONDARY,
+                 ).pack(side="left", padx=8)
+
+        # 刷新按钮
+        refresh_btn = tk.Button(
+            toolbar, text="刷新", font=FONT_NORMAL,
+            command=self._load_logs, cursor="hand2",
+            bg=ACCENT_BLUE, fg="#fff", activebackground="#1f6feb",
+            relief="flat", padx=12, pady=4,
+        )
+        refresh_btn.pack(side="right", padx=(0, 14))
+
+        clear_btn = tk.Button(
+            toolbar, text="清空", font=FONT_NORMAL,
+            command=self._clear_logs, cursor="hand2",
+            bg=ACCENT_YELLOW, fg="#000", activebackground="#9a6700",
+            relief="flat", padx=12, pady=4,
+        )
+        clear_btn.pack(side="right", padx=6)
+
+        # 日志主体 — Treeview 表格
+        cols = ("时间", "级别", "Session", "摘要")
+        self.log_tree = ttk.Treeview(
+            parent, columns=cols, show="headings", height=18,
         )
         style = ttk.Style()
         style.theme_use("default")
-        style.configure("Treeview",
+        style.configure("LogTree",
                         background=BG_CARD, foreground=TEXT_PRIMARY,
                         fieldbackground=BG_CARD, borderwidth=0,
                         font=FONT_MONO_SM,)
-        style.configure("Treeview.Heading",
+        style.configure("LogTree.Heading",
                         background=BG_DARK, foreground=TEXT_SECONDARY,
                         font=FONT_BOLD, relief="flat")
-        style.map("Treeview", background=[("selected", BORDER_COLOR)])
+        style.map("LogTree", background=[("selected", BORDER_COLOR)])
+        self.log_tree.tag_configure("recv", foreground=ACCENT_BLUE)
+        self.log_tree.tag_configure("send", foreground=ACCENT_GREEN)
+        self.log_tree.tag_configure("conn", foreground=TEXT_SECONDARY)
+        self.log_tree.tag_configure("err", foreground=ACCENT_RED)
 
-        for col in columns:
-            self.indi_tree.heading(col, text=col)
-            self.indi_tree.column(col, anchor="center", width=160)
+        col_widths = {"时间": 100, "级别": 50, "Session": 130, "摘要": 480}
+        for col in cols:
+            self.log_tree.heading(col, text=col)
+            self.log_tree.column(col, anchor="w", width=col_widths.get(col, 150),
+                                 minwidth=60)
 
-        self.indi_tree.pack(fill="both", expand=True, padx=4, pady=4)
+        self.log_tree.pack(fill="both", expand=True, padx=8, pady=8)
 
         # 滚动条
-        ysb = ttk.Scrollbar(parent, orient="vertical", command=self.indi_tree.yview)
-        self.indi_tree.configure(yscrollcommand=ysb.set)
+        ysb = ttk.Scrollbar(parent, orient="vertical", command=self.log_tree.yview)
+        self.log_tree.configure(yscrollcommand=ysb.set)
+
+        # 详情区域
+        detail_frame = tk.Frame(parent, bg=BG_CARD, bd=1, relief="solid")
+        detail_frame.pack(fill="x", padx=8, pady=(0, 8))
+        tk.Label(detail_frame, text="消息详情",
+                 font=FONT_NORMAL, fg=TEXT_MUTED, bg=BG_CARD,
+                 anchor="w").pack(anchor="w", padx=10, pady=4)
+        self.log_detail = tk.Text(
+            detail_frame, bg=BG_DARK, fg=TEXT_SECONDARY,
+            font=FONT_MONO_SM, relief="flat", bd=0,
+            wrap="word", height=5, padx=10, pady=6,
+            state="disabled",
+        )
+        self.log_detail.pack(fill="x")
+        self.log_tree.bind("<<TreeviewSelect>>", self._on_log_select)
 
     # ════════════════════════════════════════════════════
     #  辅助 UI 方法
@@ -481,18 +558,18 @@ class SEControlPanel(tk.Tk):
     def _on_tab_change(self):
         tab = self._tab_var.get()
         self.dashboard_frame.pack_forget()
-        self.indicators_frame.pack_forget()
+        self.logs_frame.pack_forget()
         if tab == "dashboard":
             self.dashboard_frame.pack(fill="both", expand=True)
         else:
-            self.indicators_frame.pack(fill="both", expand=True)
-            self._load_indicators()
+            self.logs_frame.pack(fill="both", expand=True)
+            self._load_logs()
 
     def _on_manual_refresh(self):
         """手动刷新按钮"""
         self._refresh_status()
-        if self._tab_var.get() == "indicators":
-            self._load_indicators()
+        if self._tab_var.get() == "logs":
+            self._load_logs()
 
     def _schedule_poll(self):
         """安排定时状态轮询"""
@@ -539,7 +616,17 @@ class SEControlPanel(tk.Tk):
         self.card_vars["server_id"].set(reg.get("server_id") or "-")
         self.card_vars["heartbeat"].set("OK" if hb.get("ok") else "--")
         self.card_vars["connections"].set(str(data.get("connections", 0)))
-        self.card_vars["version"].set(data.get("version") or "-")
+        # 券商状态
+        broker_st = data.get("broker_status") or "-"
+        self.card_vars["broker"].set(broker_st)
+        broker_lbl = self.card_vars.get("broker_label")
+        if broker_lbl:
+            if "connected" in str(broker_st).lower():
+                broker_lbl.configure(fg=ACCENT_GREEN)
+            elif broker_st in ("-", "--"):
+                broker_lbl.configure(fg=TEXT_MUTED)
+            else:
+                broker_lbl.configure(fg=ACCENT_YELLOW)
 
         # 心跳卡片颜色更新
         hb_ok = hb.get("ok", False)
@@ -583,26 +670,75 @@ class SEControlPanel(tk.Tk):
             self._lock_form(False)
             self.cred_frame.pack_forget()
 
-    def _load_indicators(self):
-        """加载经济指标数据到表格"""
-        data = self.api.get_economic_data()
-        if not data or not isinstance(data, dict):
+    def _load_logs(self):
+        """加载消息日志到表格"""
+        data = self.api.get_logs(150)
+        if not data or not isinstance(data, dict) or not data.get("ok"):
             return
 
         # 清空旧数据
-        for item in self.indi_tree.get_children():
-            self.indi_tree.delete(item)
+        for item in self.log_tree.get_children():
+            self.log_tree.delete(item)
 
-        indi = data.get("data", {})
-        if not indi:
-            self.indi_tree.insert("", "end", values=("-", "--", "--", "--"))
+        logs = data.get("logs", [])
+        stats = data.get("stats", {})
+        total = stats.get("total", 0)
+        errs = stats.get("errors", 0)
+        conns = stats.get("connections", 0)
+        recvs = stats.get("requests", 0)
+        sends = stats.get("responses", 0)
+        self.log_stats_var.set(
+            f"{total} 条 | 连接:{conns} 请求:{recvs} 响应:{sends} 错误:{errs}"
+        )
+
+        if not logs:
+            self.log_tree.insert("", "end", values=("-", "-", "-", "(暂无日志记录)"))
             return
 
-        for name, v in sorted(indi.items()):
-            val = v.get("value", "-")
-            unit = v.get("unit", "-")
-            period = v.get("period", "-")
-            self.indi_tree.insert("", "end", values=(name, val, unit, period))
+        level_icon_map = {
+            "recv": "\u2193",
+            "send": "\u2191",
+            "conn": "\u2699",
+            "err": "\u2717",
+            "info": "\u2139",
+        }
+
+        for entry in logs:
+            ts = entry.get("timestamp", "-")
+            lvl = entry.get("level", "info")
+            sid = (entry.get("session_id") or "-")[:18]
+            summary = entry.get("summary", "-")
+            tag = lvl if lvl in ("recv", "send", "conn", "err") else ""
+            icon = level_icon_map.get(lvl, "")
+            self.log_tree.insert("", "end", values=(ts, icon + lvl[0].upper(), sid, summary), tags=(tag,) if tag else ())
+
+    def _clear_logs(self):
+        """清空服务端日志"""
+        r = self.api.post("/api/logs/clear", {})
+        if r and r.get("ok"):
+            self._log(self.log_text, "日志已清空", "ok")
+            self._load_logs()
+        else:
+            self._toast("操作失败", "无法清空日志", "err")
+
+    def _on_log_select(self, event):
+        """选中日志行时显示详情 JSON"""
+        sel = self.log_tree.selection()
+        if not sel:
+            return
+        # 需要从原始数据中找 detail — 这里简化处理，显示提示
+        self.log_detail.config(state="normal")
+        self.log_detail.delete("1.0", "end")
+        item = self.log_tree.item(sel[0])
+        vals = item.get("values", [])
+        if len(vals) >= 4:
+            self.log_detail.insert("1.0",
+                f"时间: {vals[0]}\n"
+                f"级别: {vals[1]}\n"
+                f"Session: {vals[2]}\n"
+                f"摘要: {vals[3]}"
+            )
+        self.log_detail.config(state="disabled")
 
     # ════════════════════════════════════════════════════
     #  注册流程

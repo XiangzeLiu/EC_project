@@ -10,7 +10,8 @@ class NodeRegistrationRequest(BaseModel):
     """提交给 Server_manager 的注册请求体"""
     node_name: str = Field(..., min_length=1, max_length=64,
                            description="节点名称")
-    region: str = Field(default="", max_length=32, description="区域")
+    broker_type: str = Field(default="", max_length=32,
+                              description="券商类型 (tastytrade / interactive_brokers)")
     host: str = Field(default="", max_length=128, description="主机地址/IP")
     capabilities: list[str] = Field(default_factory=list,
                                      description="能力列表")
@@ -94,3 +95,67 @@ class EconomicDataResponse(BaseModel):
     indicator: str
     data_points: list[EconomicDataPoint] = []
     last_updated: str = ""
+
+
+# ── 交易消息协议 ────────────────────────────────────────────────
+
+class OrderSubmitPayload(BaseModel):
+    """ORDER_SUBMIT 消息负载"""
+    symbol: str = ""
+    qty: int = 1
+    price: float = 0.0
+    action: str = "Buy to Open"       # Buy to Open / Sell to Close / ...
+    order_type: str = "limit"         # limit / market
+    tif: str = "Day"                  # Day / GTC / IOC / ...
+
+
+class OrderResponsePayload(BaseModel):
+    """ORDER_RESPONSE 消息负载"""
+    success: bool = False
+    order_id: str = ""
+    status: str = ""
+    error_code: str = ""
+    message: str = ""
+
+
+class PositionResponsePayload(BaseModel):
+    """POSITION_RESPONSE 消息负载"""
+    success: bool = False
+    positions: list[dict] = []        # [{symbol, quantity, direction, avg_price, ...}]
+    count: int = 0
+    error_code: str = ""
+    message: str = ""
+
+
+class QuoteSubscribePayload(BaseModel):
+    """QUOTE_SUBSCRIBE 消息负载"""
+    action: str = "subscribe"          # subscribe / unsubscribe
+    symbols: list[str] = []
+
+
+class QuoteAckPayload(BaseModel):
+    """QUOTE_ACK 消息负载（订阅/取消确认）"""
+    success: bool = False
+    subscribed: list[str] = []         # 本次成功订阅的标的
+    unsubscribed: list[str] = []
+    total_subscribed: int = 0
+    remaining: int = 0
+    message: str = ""
+
+
+class QuoteDataPayload(BaseModel):
+    """QUOTE_DATA 消息负载（持续推送的行情数据）"""
+    symbol: str = ""
+    bid: float = 0.0
+    ask: float = 0.0
+    last: float = 0.0
+    volume: int = 0
+    ts: str = ""
+    broker_type: str = ""
+
+
+class BrokerStatusChangePayload(BaseModel):
+    """BROKER_STATUS_CHANGE 推送负载"""
+    broker_type: str = ""
+    status: str = ""                   # connected / disconnected / reconnected / error / ...
+    config_version: int = 0

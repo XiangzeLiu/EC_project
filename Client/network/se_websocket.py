@@ -131,6 +131,51 @@ class SEWebSocketClient:
             self._pending_requests.append(msg)
         return req_id
 
+    # ── 交易操作便捷方法 ──────────────────────────────────────
+
+    def send_order_submit(self, symbol: str, qty: int, price: float,
+                          action: str = "Buy to Open",
+                          order_type: str = "limit",
+                          tif: str = "Day") -> str:
+        """发送下单请求"""
+        return self.send_raw_message("ORDER_SUBMIT", {
+            "symbol": symbol,
+            "qty": qty,
+            "price": price,
+            "action": action,
+            "order_type": order_type,
+            "tif": tif,
+        })
+
+    def send_order_cancel(self, order_id: str) -> str:
+        """发送撤单请求"""
+        return self.send_raw_message("ORDER_CANCEL", {
+            "order_id": order_id,
+        })
+
+    def send_position_query(self, symbols: list[str] | None = None) -> str:
+        """发送持仓查询请求"""
+        payload = {}
+        if symbols:
+            payload["symbols"] = symbols
+        return self.send_raw_message("POSITION_QUERY", payload)
+
+    # ── 行情操作便捷方法 ──────────────────────────────────────
+
+    def send_quote_subscribe(self, symbols: list[str]) -> str:
+        """订阅行情数据"""
+        return self.send_raw_message("QUOTE_SUBSCRIBE", {
+            "action": "subscribe",
+            "symbols": symbols,
+        })
+
+    def send_quote_unsubscribe(self, symbols: list[str]) -> str:
+        """取消订阅行情"""
+        return self.send_raw_message("QUOTE_SUBSCRIBE", {
+            "action": "unsubscribe",
+            "symbols": symbols,
+        })
+
     def _run_loop(self):
         """独立线程运行 asyncio 事件循环（支持自动重连）"""
         self._loop = asyncio.new_event_loop()

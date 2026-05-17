@@ -70,12 +70,17 @@ async def handle_client_connection(ws: WebSocket):
         # 验证 Token
         client_token = msg.get("payload", {}).get("token", "")
         if not _validate_client_token(client_token):
+            from ..services.message_log import on_auth
+            on_auth(session_id, False, "无效Token或已过期")
             await _send_error(ws, "TOKEN_INVALID", "认证令牌无效或已过期")
             await ws.close(code=4003)
             log.warning(f"[{session_id}] Auth failed: invalid token")
             return
 
         authed = True
+        from ..services.message_log import on_connect, on_auth
+        on_connect(session_id, f"{ws.client.host}:{ws.client.port}")
+        on_auth(session_id, True)
         _connections[ws] = {
             "session_id": session_id,
             "connected_at": connected_at,
@@ -143,12 +148,19 @@ async def handle_client_connection(ws: WebSocket):
         log.error(f"[{session_id}] WS error: {e}", exc_info=True)
     finally:
         # 清理连接
+        sid_to_clean = _connections.get(ws, {}).get("session_id", "")
         _connections.pop(ws, None)
         state.ws_clients = [w for w in state.ws_clients if w != ws]
         log.info(
             f"[{session_id}] Connection cleaned up "
             f"(remaining connections: {len(_connections)})"
         )
+        # 清理该 session 的行情订阅
+        if sid_to_clean:
+            from ..services.quote_provider import cleanup_session
+            cleanup_session(sid_to_clean)
+            from ..services.message_log import on_disconnect
+            on_disconnect(sid_to_clean)
 
 
 # ── 内部函数 ────────────────────────────────────────────────────────────
@@ -200,16 +212,28 @@ async def _route_message(msg_type: str, msg: dict, session_id: str) -> dict | No
     Returns:
         响应消息字典或 None（不需要回复的消息返回 None）
     """
+    # ★ 记录收到消息
+    from ..services.message_log import on_recv, on_send
+    on_recv(session_id, msg_type, msg.get("payload"))
+
     handler = _MESSAGE_HANDLERS.get(msg_type)
     if handler:
         try:
-            return await handler(msg, session_id)
+            response = await handler(msg, session_id)
+            # ★ 记录发送响应
+            on_send(session_id, response.get("type", "UNKNOWN"),
+                    response.get("payload"), True)
+            return response
         except Exception as e:
             log.error(f"Handler error for {msg_type}: {e}")
-            return _error_response("INTERNAL_ERROR", str(e)[:100])
+            err_resp = _error_response("INTERNAL_ERROR", str(e)[:100])
+            on_send(session_id, "ERROR", err_resp.get("payload"), False)
+            return err_resp
 
     log.warning(f"Unknown message type: {msg_type} from {session_id}")
-    return _error_response("UNKNOWN_TYPE", f"不支持的消息类型: {msg_type}")
+    err_resp = _error_response("UNKNOWN_TYPE", f"不支持的消息类型: {msg_type}")
+    on_send(session_id, err_resp["type"], err_resp["payload"], False)
+    return err_resp
 
 
 # ── 消息处理器 ────────────────────────────────────────────────────────
@@ -281,10 +305,93 @@ def _error_response(code: str, message: str) -> dict:
     }
 
 
+# ── 交易 Handler ────────────────────────────────────────────────
+
+async def _handle_order_submit(msg: dict, sid: str) -> dict:
+    """处理下单请求"""
+    from ..services.trading_svc import place_order
+    
+    payload = msg.get("payload", {})
+    log.info(f"[{sid}] ORDER_SUBMIT: {payload.get('symbol')} {payload.get('action')}")
+    
+    result = await place_order(params=payload, session_id=sid)
+    return {
+        "type": "ORDER_RESPONSE",
+        "id": msg.get("id", ""),
+        "timestamp": int(time.time() * 1000),
+        "payload": result,
+    }
+
+
+async def _handle_order_cancel(msg: dict, sid: str) -> dict:
+    """处理撤单请求"""
+    from ..services.trading_svc import cancel_order
+    
+    payload = msg.get("payload", {})
+    order_id = payload.get("order_id", "")
+    log.info(f"[{sid}] ORDER_CANCEL: {order_id}")
+    
+    result = await cancel_order(order_id=order_id, session_id=sid)
+    return {
+        "type": "ORDER_CANCEL_RESPONSE",
+        "id": msg.get("id", ""),
+        "timestamp": int(time.time() * 1000),
+        "payload": result,
+    }
+
+
+async def _handle_position_query(msg: dict, sid: str) -> dict:
+    """处理持仓查询"""
+    from ..services.trading_svc import get_positions
+    
+    payload = msg.get("payload", {})
+    filters = None
+    if payload.get("symbols"):
+        filters = {"symbols": payload["symbols"]}
+    
+    log.info(f"[{sid}] POSITION_QUERY")
+    result = await get_positions(filters=filters, session_id=sid)
+    return {
+        "type": "POSITION_RESPONSE",
+        "id": msg.get("id", ""),
+        "timestamp": int(time.time() * 1000),
+        "payload": result,
+    }
+
+
+async def _handle_quote_subscribe(msg: dict, sid: str) -> dict:
+    """处理行情订阅/取消订阅"""
+    from ..services.quote_provider import handle_subscribe, handle_unsubscribe
+    
+    payload = msg.get("payload", {})
+    action = payload.get("action", "subscribe")
+    symbols = payload.get("symbols", [])
+    
+    log.info(f"[{sid}] QUOTE_SUBSCRIBE: action={action}, symbols={symbols}")
+    
+    if action == "unsubscribe":
+        result = await handle_unsubscribe(symbols=symbols, session_id=sid)
+    else:
+        result = await handle_subscribe(symbols=symbols, session_id=sid)
+    
+    return {
+        "type": "QUOTE_ACK",
+        "id": msg.get("id", ""),
+        "timestamp": int(time.time() * 1000),
+        "payload": result,
+    }
+
+
 _MESSAGE_HANDLERS: dict[str, callable] = {
+    # 原有
     "ECONOMIC_DATA_QUERY": _handle_economic_query,
     "STATUS_QUERY": _handle_status_query,
     "SUMMARY_REPORT": _handle_summary_report,
+    # 新增 — 交易与行情 (P5)
+    "ORDER_SUBMIT":       _handle_order_submit,
+    "ORDER_CANCEL":       _handle_order_cancel,
+    "POSITION_QUERY":     _handle_position_query,
+    "QUOTE_SUBSCRIBE":    _handle_quote_subscribe,
 }
 
 

@@ -9,7 +9,7 @@ Server_economic — 经济数据子服务端 主入口
 命令行参数:
     --manager-url   Server_manager 地址 (默认 http://127.0.0.1:8800)
     --node-name     节点名称 (默认 economic-node-01)
-    --region        区域 (默认 CN)
+    --broker-type   券商类型 (默认 tastytrade)
     --ws-port       WebSocket 监听端口 (默认 8900)
 
 启动流程:
@@ -217,6 +217,16 @@ async def api_await_approval(request_id: str = Query(...)):
                                             from .services.heartbeat import HeartbeatSender
                                             _heartbeat = HeartbeatSender(interval=30)
                                             await _heartbeat.start()
+                                        # ★ 初始化券商连接（从 SM 拉取配置）
+                                        from .services.config_sync import init_broker
+                                        try:
+                                            broker_ok = await init_broker()
+                                            if broker_ok:
+                                                log.info("[Await Approval] Broker initialized OK")
+                                            else:
+                                                log.warning("[Await Approval] Broker init failed (will retry via heartbeat)")
+                                        except Exception as be:
+                                            log.error(f"[Await Approval] Broker init exception: {be}")
                                     else:
                                         reason = result.get("reason", "")
                                         log.warning(f"[Await Approval] REJECTED: {reason}")
@@ -328,6 +338,8 @@ async def api_status():
         "heartbeat": hb_data,
         "connections": get_connection_count(),
         "indicators": list(get_all_indicators().keys()),
+        "broker_status": ("connected" if state.broker_connected
+                           else (f"{state.broker_type}" if state.broker_type else "-")),
     }
 
 
@@ -348,6 +360,25 @@ async def api_summary():
     """经济数据摘要报告"""
     report = generate_summary_report()
     return {"ok": True, "report": report}
+
+
+@app.get("/api/logs")
+async def api_logs(limit: int = Query(100, ge=1, le=500)):
+    """消息日志查询（供 GUI 运行日志面板使用）"""
+    from .services.message_log import get_recent, get_stats
+    return {
+        "ok": True,
+        "logs": get_recent(limit),
+        "stats": get_stats(),
+    }
+
+
+@app.post("/api/logs/clear")
+async def api_logs_clear():
+    """清空消息日志"""
+    from .services.message_log import clear as clear_logs
+    clear_logs()
+    return {"ok": True}
 
 
 @app.websocket("/ws")
@@ -387,7 +418,7 @@ async def on_startup():
         print("  [OK] 已加载保存的凭证:")
         print("       server_id : %s" % state.server_id)
         print("       node_name : %s" % state.node_name)
-        print("       region    : %s" % state.region)
+        print("       broker_type: %s" % state.region)
         print()
 
         # 验证 SM 连通性
@@ -420,7 +451,7 @@ async def on_startup():
     print("-" * 60)
     print("  状态     : %s" % state.status.upper())
     print("  节点名称 : %s" % (state.node_name or "(未设置)"))
-    print("  区域     : %s" % (state.region or "(未设置)"))
+    print("  券商类型 : %s" % (state.region or "(未设置)"))
     print("  SM 地址  : %s" % state.manager_url)
     print("")
     print("  桌面控制台 : 已自动启动 (tkinter GUI)")
@@ -441,6 +472,13 @@ async def on_shutdown():
         _heartbeat.stop()
         await _heartbeat.wait_stopped()
 
+    # ★ 关闭券商连接和 config_sync 服务
+    try:
+        from .services.config_sync import shutdown as shutdown_config
+        await shutdown_config()
+    except Exception as e:
+        log.error(f"Config sync shutdown error: {e}")
+
     state.request_shutdown()
     log.info("Shutdown complete.")
 
@@ -454,8 +492,8 @@ def _build_arg_parser():
                    help=f"SM 地址 (默认: {DEFAULT_MANAGER_URL})")
     p.add_argument("--node-name", default=DEFAULT_NODE_NAME,
                    help=f"节点名称 (默认: {DEFAULT_NODE_NAME})")
-    p.add_argument("--region", default=DEFAULT_REGION,
-                   help=f"区域 (默认: {DEFAULT_REGION})")
+    p.add_argument("--broker-type", default=DEFAULT_REGION,
+                   help=f"券商类型 (默认: {DEFAULT_REGION})")
     p.add_argument("--ws-port", type=int, default=DEFAULT_WS_PORT,
                    help=f"WS 端口 (默认: {DEFAULT_WS_PORT})")
     p.add_argument("--skip-register", action="store_true",
@@ -474,7 +512,7 @@ def parse_args_from_env_or_default():
     return argparse.Namespace(
         manager_url=os.environ.get("SE_MANAGER_URL", DEFAULT_MANAGER_URL),
         node_name=os.environ.get("SE_NODE_NAME", DEFAULT_NODE_NAME),
-        region=os.environ.get("SE_REGION", DEFAULT_REGION),
+        broker_type=os.environ.get("SE_BROKER_TYPE", DEFAULT_REGION),
         ws_port=int(os.environ.get("SE_WS_PORT", str(DEFAULT_WS_PORT))),
         skip_register=os.environ.get("SE_SKIP_REGISTER", "").lower() in ("1", "true"),
         auto_approve=False,
@@ -490,7 +528,7 @@ if __name__ == "__main__":
     # 将命令行参数写入环境变量供 FastAPI startup 使用
     os.environ["SE_MANAGER_URL"] = args.manager_url
     os.environ["SE_NODE_NAME"] = args.node_name
-    os.environ["SE_REGION"] = args.region
+    os.environ["SE_BROKER_TYPE"] = args.broker_type
     os.environ["SE_WS_PORT"] = str(args.ws_port)
     if args.skip_register:
         os.environ["SE_SKIP_REGISTER"] = "1"

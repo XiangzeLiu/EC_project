@@ -490,6 +490,161 @@ def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
         conn.close()
 
 
+# ── 支持的券商类型列表 ───────────────────────────────────────────────────
+
+BROKER_TYPES = ["tastytrade", "interactive_brokers"]
+"""支持的券商类型枚举，SE注册和SM审批时共用此列表"""
+
+
+# ── 券商配置管理（节点审批时录入凭证）───────────────────────────────
+
+def _ensure_config_version_column():
+    """迁移：确保 brokers 表有 config_version 列"""
+    conn = _get_conn()
+    try:
+        conn.execute("SELECT config_version FROM brokers LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE brokers ADD COLUMN config_version INTEGER DEFAULT 0")
+        log.info("Added config_version column to brokers table (migration)")
+    finally:
+        conn.close()
+
+
+def get_node_broker_config(server_id: str) -> dict | None:
+    """
+    获取节点的完整券商配置（含凭证）
+
+    Returns:
+        {broker_type, credentials, enabled, config_version} 或 None
+    """
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT config, config_version, broker_type FROM brokers WHERE name = ?",
+            (server_id,),
+        ).fetchone()
+        if not row:
+            return None
+        cfg = json.loads(row["config"]) if row["config"] else {}
+        return {
+            "broker_type": row["broker_type"] or cfg.get("broker_type", "tastytrade"),
+            "credentials": cfg.get("credentials", {}),
+            "enabled": cfg.get("enabled", True),
+            "config_version": row["config_version"] or 0,
+            "_raw_config": cfg,
+        }
+    except Exception as e:
+        log.error(f"get_node_broker_config failed: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def set_node_broker_config(
+    server_id: str,
+    broker_type: str,
+    credentials: dict | None = None,
+    enabled: bool = True,
+    account_username: str = "",
+    account_password: str = "",
+) -> bool:
+    """
+    设置/更新节点的券商配置（审批时调用或管理员修改时调用）
+
+    自动递增 config_version 以便 SE 检测到变更。
+    
+    新增参数：
+        account_username: 账户用户名（审批时由管理员填写）
+        account_password: 账户密码（审批时由管理员填写，明文存储）
+    """
+    conn = _get_conn()
+    try:
+        # 读取现有 config
+        row = conn.execute(
+            "SELECT config, config_version FROM brokers WHERE name = ?", (server_id,)
+        ).fetchone()
+        if not row:
+            log.error(f"set_node_broker_config: server_id '{server_id}' not found")
+            return False
+
+        cfg = json.loads(row["config"]) if row["config"] else {}
+        new_version = (row["config_version"] or 0) + 1
+
+        cfg["broker_type"] = broker_type
+        cfg["credentials"] = credentials or {}
+        cfg["enabled"] = enabled
+        # 存储账户信息
+        if account_username is not None:
+            cfg["account_username"] = account_username
+        if account_password is not None:
+            cfg["account_password"] = account_password
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("""
+            UPDATE brokers SET config = ?, config_version = ?, last_heartbeat = ?
+            WHERE name = ?
+        """, (json.dumps(cfg), new_version, now, server_id))
+        conn.commit()
+
+        log.info(
+            f"Broker config updated for {server_id}: "
+            f"type={broker_type}, version={new_version}, account={account_username or '(none)'}"
+        )
+        return True
+    except Exception as e:
+        log.error(f"set_node_broker_config failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def increment_reload_flag(server_id: str) -> int:
+    """
+    管理员触发 reload 时调用：仅递增 config_version 不改内容
+    SE 检测到版本变化后主动拉取最新配置。
+
+    Returns:
+        新的 config_version
+    """
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT config_version FROM brokers WHERE name = ?", (server_id,)
+        ).fetchone()
+        if not row:
+            return 0
+        new_ver = (row["config_version"] or 0) + 1
+        conn.execute(
+            "UPDATE brokers SET config_version = ? WHERE name = ?",
+            (new_ver, server_id),
+        )
+        conn.commit()
+        log.info(f"Reload flag incremented for {server_id}: version={new_ver}")
+        return new_ver
+    except Exception as e:
+        log.error(f"increment_reload_flag failed: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+def verify_node_token_for_config(token: str, target_server_id: str) -> bool:
+    """
+    验证 token 是否属于指定 server_id（用于 SE 拉取自身配置的鉴权）
+    """
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT server_id FROM node_requests WHERE token = ?",
+            (token,),
+        ).fetchone()
+        if row and row["server_id"] == target_server_id:
+            return True
+        return False
+    finally:
+        conn.close()
+
+
 # ── 心跳超时配置 ────────────────────────────────────────────────────────
 
 # 心跳超时阈值（秒）：超过此时间未收到心跳则判定为离线
@@ -595,7 +750,8 @@ def force_check_all_nodes() -> dict:
             SELECT nr.server_id, nr.node_name, nr.region, nr.host,
                    nr.capabilities, nr.status AS req_status, nr.current_ip,
                    nr.token, b.status AS broker_status, b.last_heartbeat,
-                   nr.occupied_by, nr.occupied_at, nr.description
+                   nr.occupied_by, nr.occupied_at, nr.description,
+                   b.config AS broker_config
             FROM node_requests nr
             LEFT JOIN brokers b ON nr.server_id = b.name
             WHERE nr.status IN ('approved', 'online', 'suspended', 'offline')
@@ -674,7 +830,8 @@ def get_all_nodes() -> list[dict]:
             SELECT nr.server_id, nr.node_name, nr.region, nr.host,
                    nr.capabilities, nr.status AS req_status, nr.current_ip,
                    nr.token, b.status AS broker_status, b.last_heartbeat,
-                   nr.occupied_by, nr.occupied_at, nr.description
+                   nr.occupied_by, nr.occupied_at, nr.description,
+                   b.config AS broker_config
             FROM node_requests nr
             LEFT JOIN brokers b ON nr.server_id = b.name
             WHERE nr.status IN ('approved', 'online', 'suspended', 'offline')

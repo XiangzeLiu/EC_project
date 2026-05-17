@@ -30,7 +30,7 @@ log = logging.getLogger("server_economic")
 
 DEFAULT_MANAGER_URL = "http://127.0.0.1:8800"
 DEFAULT_NODE_NAME = "economic-node-01"
-DEFAULT_REGION = "CN"
+DEFAULT_REGION = "tastytrade"  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
 DEFAULT_HOST = ""
 DEFAULT_CAPABILITIES = ["cpi", "gdp", "interest_rate", "employment", "trade_balance"]
 DEFAULT_CONTACT = ""
@@ -176,13 +176,18 @@ class RuntimeState:
         self.token: str = ""               # Bearer Token
         self.manager_url: str = DEFAULT_MANAGER_URL
         self.node_name: str = DEFAULT_NODE_NAME
-        self.region: str = DEFAULT_REGION
+        self.region: str = DEFAULT_REGION  # 存储券商类型值 (tastytrade / interactive_brokers)
         self.status: str = "uninitialized" # uninitialized / registering / approved / running / error
         self.heartbeat_ok: bool = False    # 最近一次心跳是否成功
         self.last_heartbeat_time: float = 0
         self.heartbeat_fail_count: int = 0
         self.ws_clients: list = []         # 已连接的 Client WebSocket 列表
         self._shutdown_flag: bool = False
+
+        # ── 券商相关状态 ──────────────────────────────
+        self.broker_connected: bool = False      # 券商是否已连接
+        self.broker_type: str = ""               # 当前券商类型
+        self.broker_config_version: int = 0      # SM 端配置版本号
 
     @property
     def is_shutting_down(self) -> bool:

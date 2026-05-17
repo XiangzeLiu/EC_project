@@ -46,6 +46,9 @@ class SEApiClient:
     def get_economic_data(self) -> dict | None:
         return self.get("/api/economic-data")
 
+    def get_logs(self, limit: int = 100) -> dict | None:
+        return self.get(f"/api/logs?limit={limit}")
+
     def ping_sm(self, manager_url: str) -> dict | None:
         return self.post("/api/register/ping", {"manager_url": manager_url})
 

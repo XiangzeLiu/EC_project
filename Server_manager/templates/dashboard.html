@@ -234,11 +234,11 @@
       color: #fff;
     }
     .nc-name { font-size: 15px; font-weight: 600; color: #1d2236; }
-    .nc-info { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-    .nc-row { display: flex; }
-    .nc-label { color: #b9c0d2; width: 64px; flex-shrink: 0; }
-    .nc-value { color: #3f475f; }
-    .nc-value-mono { color: #3f475f; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
+    .nc-info { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+    .nc-row { display: flex; align-items: baseline; }
+    .nc-label { color: #8a93ab; width: 70px; flex-shrink: 0; font-size: 13px; }
+    .nc-value { color: #3f475f; font-size: 13px; }
+    .nc-value-mono { color: #3f475f; font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 13px; word-break: break-all; }
     .nc-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.06); }
 
     /* -- online -- */
@@ -292,11 +292,11 @@
     .acct-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .acct-head-left { display: flex; align-items: center; gap: 8px; }
     .acct-name { font-size: 14px; font-weight: 600; color: #1d2236; }
-    .acct-info { display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
-    .acct-row { display: flex; }
-    .acct-label { color: #b9c0d2; width: 64px; flex-shrink: 0; }
-    .acct-value { color: #3f475f; }
-    .acct-value-mono { color: #3f475f; font-family: ui-monospace, monospace; }
+    .acct-info { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+    .acct-row { display: flex; align-items: baseline; }
+    .acct-label { color: #8a93ab; width: 70px; flex-shrink: 0; font-size: 13px; }
+    .acct-value { color: #3f475f; font-size: 13px; }
+    .acct-value-mono { color: #3f475f; font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 13px; }
     .acct-actions { display: flex; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.06); }
 
     /* ═══ Action Buttons (xs size) ═══ */
@@ -328,8 +328,9 @@
 
     /* Token copy */
     .token-copy {
-      font-family: ui-monospace, monospace; font-size: 11px;
-      color: #8a93ab; cursor: pointer; max-width: 140px;
+      font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 13px;
+      color: #8a93ab; cursor: pointer; max-width: 180px;
       overflow: hidden; text-overflow: ellipsis;
       display: inline-block; white-space: nowrap; vertical-align: middle;
       transition: color 0.15s;
@@ -383,14 +384,14 @@
     /* Modal detail rows */
     .detail-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
     .detail-label { color: #b9c0d2; font-size: 13px; width: 96px; flex-shrink: 0; }
-    .detail-val { color: #1d2236; }
-    .detail-val-mono { color: #1d2236; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    .detail-val { color: #1d2236; font-size: 13px; }
+    .detail-val-mono { color: #1d2236; font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; }
 
     /* Modal form fields */
     .field-group { margin-bottom: 14px; }
     .field-label { display: block; font-size: 12px; color: #b9c0d2; margin-bottom: 6px; }
     .field-readonly {
-      padding: 8px 13px; border-radius: 8px; font-size: 12px;
+      padding: 8px 13px; border-radius: 8px; font-size: 13px;
       background: #f7f8fb; color: #5b6480;
       font-family: ui-monospace, monospace;
     }
@@ -813,6 +814,7 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
 // ═══════════════════════════════════════════════════
 function renderPending(nodes){
   var c=document.getElementById('pending-body'), b=document.getElementById('pending-count');
+  _pendingCache = nodes||[]; // 缓存待审核节点，审批时用于自动填充券商类型
   if(!nodes||nodes.length===0){
     c.innerHTML='<div class="empty-state"><i class="ri-emotion-happy-line"></i>暂无待审核的注册请求</div>';
     b.style.display='none'; return;
@@ -826,7 +828,7 @@ function renderPending(nodes){
     return '<div class="node-card nc-pending">'
       +'<div class="nc-head"><div class="nc-head-left"><span class="nc-status-pending" style="display:inline-flex;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:#ea580c">&#9002; 待审核</span><span class="nc-name">'+escapeHtml(n.node_name)+'</span></div></div>'
       +'<div class="nc-info">'
-      +'  <div class="nc-row"><span class="nc-label">区域</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">能力</span><div style="display:flex;flex-wrap:wrap;gap:4px">'+capTags+'</div></div>'
       +'  <div class="nc-row"><span class="nc-label">主机</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.host||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">联系</span><span class="nc-value">'+escapeHtml(n.contact||'-')+'</span></div>'
@@ -844,6 +846,7 @@ function renderPending(nodes){
 //  渲染已注册节点
 // ═══════════════════════════════════════════════════
 var _nodesCache=[];
+var _pendingCache=[];
 function renderNodes(nodes){
   _nodesCache = nodes||[];
   var c=document.getElementById('nodes-body');
@@ -894,22 +897,25 @@ function renderNodes(nodes){
     var ts=n.token ? n.token.substring(0,14)+'...' : '-';
 
     var ab='', lk=isOcc?'disabled':'';
+    // 所有状态都有"详情"和"配置"按钮
+    var detailBtn='<button class="btn-xs btn-pri" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>';
+    var configBtn='<button class="btn-xs btn-pl" onclick="showNodeConfig(\''+escapeHtml(n.server_id||'')+'\')">配置</button>';
     if(isOcc){
-      ab='<button class="btn-xs btn-pri" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+      ab=detailBtn+configBtn
         +'<span class="occupied-badge"><i class="ri-lock-line"></i> 被 '+escapeHtml(n.occupied_by)+' 占用</span>';
     }else if(st==='online'){
-      ab='<button class="btn-xs btn-pri" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+      ab=detailBtn+configBtn
         +'<button class="btn-xs btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)" '+lk+'>暂停</button>'
         +'<button class="btn-xs btn-del" onclick="deleteNode(\''+escapeHtml(n.serverId||n.server_id)+'\',this)" '+lk+'>删除</button>';
     }else if(st==='suspended'){
-      ab='<button class="btn-xs btn-pri" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+      ab=detailBtn+configBtn
         +'<button class="btn-xs btn-ok" onclick="resumeNode(\''+escapeHtml(n.server_id)+'\',this)" '+lk+'>恢复</button>'
         +'<button class="btn-xs btn-del" onclick="deleteNode(\''+escapeHtml(n.serverId||n.server_id)+'\',this)" '+lk+'>删除</button>';
     }else if(st==='offline'){
-      ab='<button class="btn-xs btn-pri" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+      ab=detailBtn+configBtn
         +'<button class="btn-xs btn-del" onclick="deleteNode(\''+escapeHtml(n.serverId||n.server_id)+'\',this)" '+lk+'>删除</button>';
     }else{
-      ab='<button class="btn-xs btn-pri" onclick="showNodeDetail(\''+escapeHtml(n.server_id||'')+'\')">详情</button>'
+      ab=detailBtn+configBtn
         +'<button class="btn-xs btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)" '+lk+'>暂停</button>'
         +'<button class="btn-xs btn-del" onclick="deleteNode(\''+escapeHtml(n.serverId||n.server_id)+'\',this)" '+lk+'>删除</button>';
     }
@@ -918,12 +924,12 @@ function renderNodes(nodes){
       +'<div class="nc-head"><div class="nc-head-left">'
       +'<span class="nc-status-pill" style="background:'+ic+'"><i class="ri-checkbox-circle-fill" style="margin-right:4px;font-size:11px"></i>'+sl+'</span>'
       +'<span class="nc-name">'+escapeHtml(n.node_name)+'</span></div></div>'
-      +(isOcc?'<div class="nc-row" style="margin-bottom:10px"><span class="nc-label">占用者</span><span style="color:#9333ea;font-weight:600">'+escapeHtml(n.occupied_by)+'</span></div>':'')
+      +(isOcc?'<div class="nc-row" style="margin-bottom:10px"><span class="nc-label">占用者</span><span style="color:#9333ea;font-weight:600;font-size:13px">'+escapeHtml(n.occupied_by)+'</span></div>':'')
       +'<div class="nc-info">'
-      +'  <div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.server_id||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">区域</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value-mono">'+escapeHtml(n.server_id||'-')+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">当前 IP</span><span class="nc-value">'+escapeHtml(n.current_ip||n.host||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">最后心跳</span><span style="color:#5b6480">'+hbInfo+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">最后心跳</span><span class="nc-value">'+hbInfo+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">Token</span><span class="token-copy" title="点击复制 Token" onclick="copyToken(\''+(n.token||'')+'\',this)">'+ts+'</span></div>'
       +'</div>'
       +'<div class="nc-actions">'+ab+'</div></div>';
@@ -952,13 +958,103 @@ async function refreshNodes(){
 }
 
 async function approveNode(rid,b){
-  b.disabled=true;b.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 处理中...';
+  // 获取该节点的券商信息用于自动填充
+  var nodeData=_pendingCache.find(function(x){return x.request_id===rid;})||{};
+  var autoBroker=nodeData.region||'';
+  var brokerOptions='';
+  ['tastytrade','interactive_brokers'].forEach(function(bt){
+    var sel=(bt===autoBroker||(autoBroker===''&&bt==='tastytrade'))?'selected':'';
+    var label=bt==='tastytrade'?'Tastytrade':'Interactive Brokers (IB)';
+    brokerOptions+='<option value="'+bt+'" '+sel+'>'+label+'</option>';
+  });
+
+  var html='<div class="modal-mask" id="approve-config-modal">'
+    +'<div class="modal-panel" style="max-width:560px" onclick="event.stopPropagation()">'
+    +'  <div class="modal-head"><h3>审批通过 - 节点配置</h3>'
+    +'    <button class="modal-close-btn" aria-label="close"><i class="ri-close-line"></i></button></div>'
+    +'  <div class="modal-body">'
+    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">请填写以下四项信息，审批通过后 SE 将根据此配置进行券商 API 连接</p>'
+    // 字段1: 券商类型（自动填充，可修改）
+    +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
+    +'<select class="sel" id="app-broker-type" onchange="toggleBrokerFields()" style="width:100%">'
+    +'  <option value="" disabled>请选择...</option>'
+    +brokerOptions
+    +'</select></div>'
+
+    // 字段2: 账户用户名
+    +'    <div class="field-group"><label class="field-label">账户用户名 <span style="color:#ef4444">*</span></label><input class="inp" id="app-acct-user" placeholder="券商账户登录用户名" /></div>'
+
+    // 字段3: 账户密码
+    +'    <div class="field-group"><label class="field-label">账户密码 <span style="color:#ef4444">*</span></label><input class="inp" type="password" id="app-acct-pwd" placeholder="券商账户登录密码" /></div>'
+
+    // 字段4: 券商凭证（根据类型切换）
+    +'<div id="fields-tastytrade">'
+    +'  <div class="field-group"><label class="field-label">Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" placeholder="Tastytrade Session Secret" /></div>'
+    +'  <div class="field-group"><label class="field-label">Token <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-token" placeholder="Tastytrade Session Token" /></div>'
+    +'  <div class="field-group"><label class="field-label">账号（选填）</label><input class="inp" id="app-tt-acct" placeholder="留空使用默认账号" /></div>'
+    +'</div>'
+
+    +'<div id="fields-ib" style="display:none">'
+    +'  <div class="field-group"><label class="field-label">Host <span style="color:#ef4444">*</span></label><input class="inp" id="app-ib-host" placeholder="IB TWS IP 地址" value="8.210.169.202" /></div>'
+    +'  <div class="field-group"><label class="field-label">Port <span style="color:#ef4444">*</span></label><input class="inp" id="app-ib-port" placeholder="7496" value="7496" /></div>'
+    +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="app-ib-clientid" placeholder="19" value="19" /></div>'
+    +'</div>'
+
+    +'  </div>'
+    +'  <div class="modal-foot">'
+    +'    <button class="btn-xs" onclick="document.getElementById(\'approve-config-modal\').remove()">取消</button>'
+    +'    <button class="btn-xs btn-pri" onclick="doApproveWithConfig(\''+rid+\'\',this)">确认通过</button>'
+    +'  </div>'
+    +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+  document.querySelector('#approve-config-modal .modal-close-btn').onclick=function(){
+    document.getElementById('approve-config-modal').remove();
+    if(b){b.disabled=false;b.innerHTML='<i class="ri-check-line"></i> 通过';}
+  };
+  if(autoBroker) toggleBrokerFields();
+}
+
+function toggleBrokerFields(){
+  var t=document.getElementById('app-broker-type').value;
+  document.getElementById('fields-tastytrade').style.display=(t==='tastytrade')?'block':'none';
+  document.getElementById('fields-ib').style.display=(t==='interactive_brokers')?'block':'none';
+}
+
+async function doApproveWithConfig(rid,btn){
+  var bt=document.getElementById('app-broker-type').value;
+  if(!bt){toast('\u8bf7\u9009\u62e9\u5238\u5546\u7c7b\u578b','warn');return;}
+
+  // 新增：账户信息校验
+  var acctUser=document.getElementById('app-acct-user').value.trim();
+  var acctPwd=document.getElementById('app-acct-pwd').value.trim();
+  if(!acctUser){toast('\u8bf7\u586b\u5199\u8d26\u6237\u7528\u6237\u540d','warn');return;}
+  if(!acctPwd){toast('\u8bf7\u586b\u5199\u8d26\u6237\u5bc6\u7801','warn');return;}
+
+  var creds={};
+  if(bt==='tastytrade'){
+    var s=document.getElementById('app-tt-secret').value.trim();
+    var t=document.getElementById('app-tt-token').value.trim();
+    if(!s||!t){toast('\u8bf7\u586b\u5199 Secret \u548c Token','warn');return;}
+    creds={"secret":s,"token":t,"account_number":document.getElementById('app-tt-acct').value.trim()};
+  }else{
+    var h=document.getElementById('app-ib-host').value.trim();
+    var p=document.getElementById('app-ib-port').value.trim();
+    if(!h||!p){toast('\u8bf7\u586b\u5199 Host \u548c Port','warn');return;}
+    creds={"host":h,"port":parseInt(p)||0,"client_id":parseInt(document.getElementById('app-ib-clientid').value)||19};
+  }
+  
+  btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> \u63d0\u4ea4\u4e2d...';
   try{
-    var r=await fetch('/api/nodes/'+rid+'/approve',{method:'POST',credentials:'same-origin'});
+    var r=await fetch('/api/nodes/'+rid+'/approve',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({broker_type:bt,credentials:creds,account_username:acctUser,account_password:acctPwd})
+    });
     var d=await r.json();
-    if(d.ok){toast('节点已通过审核','ok');refreshNodes();}
-    else{toast('失败:'+(d.error||d.detail),'err');b.disabled=false;b.innerHTML='<i class="ri-check-line"></i> 通过';}
-  }catch(e){toast('网络错误:'+e.message,'err');b.disabled=false;b.innerHTML='<i class="ri-check-line"></i> 通过';}
+    if(d.ok){toast('\u8282\u70b9\u5df2\u901a\u8fc7\u5ba1\u6838\uff0c\u5238\u5546\u914d\u7f6e\u5df2\u4fdd\u5b58','ok');
+      document.getElementById('approve-config-modal').remove();refreshNodes();}
+    else{toast('\u5931\u8d25:'+(d.error||d.detail),'err');btn.disabled=false;btn.innerHTML='\u786e\u8ba4\u901a\u8fc7';}
+  }catch(e){toast('\u7f51\u7edc\u9519\u8bef:'+e.message,'err');btn.disabled=false;btn.innerHTML='\u786e\u8ba4\u901a\u8fc7';}
 }
 
 async function rejectNode(rid,b){
@@ -1013,12 +1109,35 @@ function showNodeDetail(sid){
 
   var hbInfo='-';
   if(n.last_heartbeat){
-    try{var hbD=new Date(n.last_heartbeat);hbInfo=hbD.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2digit'});}
+    try{var hbD=new Date(n.last_heartbeat);hbInfo=hbD.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2digit',second:'2digit'});}
     catch(e){hbInfo=n.last_heartbeat;}
   }
   var ts=n.token||'-';
-  var brokers='-';
-  try{var _b=JSON.parse(n.allowed_brokers||'[]');brokers=_b.length?_b.join(', '):'-';}catch(e){}
+
+  // 解析 broker_config
+  var cfg={};
+  try{cfg=JSON.parse(n.broker_config||'{}');}catch(e){}
+  var acctUser=cfg.account_username||'-';
+  var brokerType=cfg.broker_type||n.region||'-';
+  var creds=cfg.credentials||{};
+  var credsDisplay='';
+  if(brokerType==='tastytrade'){
+    var ttSecret=creds.secret||'';
+    var ttToken=creds.token||'';
+    credsDisplay='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5b6480">'
+      +'<div>Secret: <span class="detail-val-mono">'+(ttSecret?ttSecret.substring(0,8)+'***':'-')+'</span></div>'
+      +'<div>Token: <span class="detail-val-mono">'+(ttToken?ttToken.substring(0,8)+'***':'-')+'</span></div>'
+      +(creds.account_number?'<div>Account: <span class="detail-val-mono">'+escapeHtml(creds.account_number)+'</span></div>':'')
+      +'</div>';
+  }else if(brokerType==='interactive_brokers'){
+    credsDisplay='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5b6480">'
+      +'<div>Host: <span class="detail-val-mono">'+escapeHtml(creds.host||'-')+'</span></div>'
+      +'<div>Port: <span>'+escapeHtml(creds.port||'-')+'</span></div>'
+      +(creds.client_id?'<div>Client ID: <span>'+escapeHtml(creds.client_id)+'</span></div>':'')
+      +'</div>';
+  }else{
+    credsDisplay='<span style="color:#94a3b8">-</span>';
+  }
 
   var stMap={'online':'运行中','suspended':'已暂停','offline':'已离线','approved':'已批准','pending':'待审核','rejected':'已拒绝'};
   var stLabel=stMap[n.req_status]||n.req_status;
@@ -1026,32 +1145,156 @@ function showNodeDetail(sid){
   var scMap={'occupied':'#9333ea','online':'#16a34a','approved':'#2563eb','suspended':'#d97706','offline':'#dc2626'};
   var sc=scMap[ds]||'#1677ff';
 
+  // 券商类型标签
+  var btBadge=brokerType!=='-'?
+    '<span style="display:inline-flex;padding:3px 10px;border-radius:999px;font-size:11px;color:#fff;background:#6b21a8">'+escapeHtml(brokerType)+'</span>'
+    :'<span style="color:#94a3b8">-</span>';
+
   var html=''
-    +'<div class="modal-mask" onclick="this.remove()">'
-    +'  <div class="modal-panel" style="max-width:520px" onclick="event.stopPropagation()">'
+    +'<div class="modal-mask" id="node-detail-modal">'
+    +'  <div class="modal-panel" style="max-width:540px" onclick="event.stopPropagation()">'
     +'    <div class="modal-head">'
     +'      <h3>节点详情 - '+escapeHtml(n.node_name)+'</h3>'
-    +'      <button class="modal-close-btn" aria-label="close"><i class="ri-close-line"></i></button>'
+    +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'node-detail-modal\').remove()"><i class="ri-close-line"></i></button>'
     +'    </div>'
-    +'    <div class="modal-body" style="max-height:60vh;overflow-y:auto">'
-    +(ds==='occupied'?'<div class="detail-row" style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid #eef0f6"><span class="detail-label">占用状态</span><span style="color:#9333ea;font-weight:500;font-size:13px"><i class="ri-lock-line" style="margin-right:4px"></i> 已被 '+escapeHtml(n.occupied_by)+' 占用</span></div>':'')
+    +'    <div class="modal-body" style="max-height:60vh;overflow-y:auto"'
+    // 基础信息区
+    +'>'
+    +(ds==='occupied'?'<div class="detail-row"><span class="detail-label">占用状态</span><span style="color:#9333ea;font-weight:500;font-size:13px"><i class="ri-lock-line" style="margin-right:4px"></i> 已被 '+escapeHtml(n.occupied_by)+' 占用</span></div>':'')
     +'<div class="detail-row"><span class="detail-label">Server ID</span><span class="detail-val-mono">'+escapeHtml(n.server_id)+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">节点名称</span><span class="detail-val">'+escapeHtml(n.node_name)+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">状态</span><span style="display:inline-flex;padding:3px 12px;border-radius:999px;font-size:11px;color:#fff;background:'+sc+'"><i class="ri-checkbox-circle-fill" style="margin-right:4px;font-size:11px"></i>'+stLabel+'</span></div>'
-    +'<div class="detail-row"><span class="detail-label">区域</span><span class="detail-val">'+escapeHtml(n.region||'-')+'</span></div>'
+    +'</div>'
+
+    // 分割线 + 账户与券商配置区
+    +'<div style="padding:14px 24px;border-top:1px solid #eef0f6;background:#fafbff">'
+    +'  <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:10px"><i class="ri-settings-3-line" style="margin-right:4px"></i>账户与券商配置</div>'
+    +'<div class="detail-row"><span class="detail-label">券商类型</span><span>'+btBadge+'</span></div>'
+    +'<div class="detail-row"><span class="detail-label">账户用户名</span><span class="detail-val">'+escapeHtml(acctUser)+'</span></div>'
+    +'<div class="detail-row"><span class="detail-label">账户密码</span><span class="detail-val-mono">'+(cfg.account_password?'\u2022\u2022\u2022\u2022\u2022\u2022': '-')+'</span></div>'
+    +'<div class="detail-row"><span class="detail-label">凭证信息</span><span>'+credsDisplay+'</span></div>'
+    +'</div>'
+
+    // 连接信息区
+    +'<div class="modal-body" style="max-height:none;overflow:visible">'
     +'<div class="detail-row"><span class="detail-label">注册 IP</span><span class="detail-val-mono">'+escapeHtml(n.host||'-')+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">当前 IP</span><span class="detail-val">'+escapeHtml(n.current_ip||'-')+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">最后心跳</span><span class="detail-val">'+hbInfo+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">Token</span><span class="detail-val-mono"><span class="token-copy" onclick="copyToken(\''+(n.token||'')+'\',this)">'+ts+'</span></span></div>'
     +'<div class="detail-row"><span class="detail-label">创建时间</span><span class="detail-val">'+fmtTime(n.created_at)+'</span></div>'
-    +'<div class="detail-row"><span class="detail-label">更新时间</span><span class="detail-val">'+fmtTime(n.updated_at)+'</span></div>'
-    +'    </div>'
+    +'<div class="detail-row" style="margin-bottom:0"><span class="detail-label">更新时间</span><span class="detail-val">'+fmtTime(n.updated_at)+'</span></div>'
+    +'</div>'
+
     +'    <div class="modal-foot">'
-    +'      <button class="btn-xs btn-pri" onclick="this.closest(\'.modal-mask\').remove()">关闭</button>'
+    +'      <button class="btn-xs btn-pri" onclick="document.getElementById(\'node-detail-modal\').remove();showNodeConfig(\''+sid+'\')">编辑配置</button>'
+    +'      <button class="btn-xs" onclick="document.getElementById(\'node-detail-modal\').remove()">关闭</button>'
     +'    </div>'
     +'  </div>'
     +'</div>';
   document.body.insertAdjacentHTML('beforeend',html);
+}
+
+// ═══════════════════════════════════════════════════
+//  节点配置（修改券商/账户信息）
+// ═══════════════════════════════════════════════════
+function showNodeConfig(sid){
+  var n=_nodesCache.find(function(x){return x.server_id===sid;});
+  if(!n){toast('未找到节点信息','err');return;}
+
+  // 解析现有配置
+  var cfg={};
+  try{cfg=JSON.parse(n.broker_config||'{}');}catch(e){}
+  var curBroker=cfg.broker_type||'';
+  var curAcctUser=cfg.account_username||'';
+  var curAcctPwd=cfg.account_password||'';
+  var creds=cfg.credentials||{};
+  var ttSecret=(creds.secret)||'';
+  var ttToken=(creds.token)||'';
+  var ttAcctNum=(creds.account_number)||'';
+  var ibHost=(creds.host)||'';
+  var ibPort=(creds.port)||'';
+  var ibCid=(creds.client_id)||'19';
+
+  var html='<div class="modal-mask" id="node-config-modal">'
+    +'<div class="modal-panel" style="max-width:560px" onclick="event.stopPropagation()">'
+    +'  <div class="modal-head"><h3>节点配置 - '+escapeHtml(n.node_name)+'</h3>'
+    +'    <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'node-config-modal\').remove()"><i class="ri-close-line"></i></button></div>'
+    +'  <div class="modal-body">'
+    // 券商类型
+    +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
+    +'<select class="sel" id="cfg-broker-type" onchange="toggleCfgFields()" style="width:100%">'
+    +'  <option value="" disabled>\u8bf7\u9009\u62e9...</option>'
+    +'  <option value="tastytrade" '+(curBroker==='tastytrade'?'selected':'')+'>Tastytrade</option>'
+    +'  <option value="interactive_brokers" '+(curBroker==='interactive_brokers'?'selected':'')+'>Interactive Brokers (IB)</option>'
+    +'</select></div>'
+    // 账户信息
+    +'    <div class="field-group"><label class="field-label">账户用户名 <span style="color:#ef4444">*</span></label><input class="inp" id="cfg-acct-user" value="'+escapeHtml(curAcctUser)+'" placeholder="\u5238\u5546\u8d26\u6237\u7528\u6237\u540d" /></div>'
+    +'    <div class="field-group"><label class="field-label">账户密码 <span style="color:#94a3b8">\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539</span></label><input class="inp" type="password" id="cfg-acct-pwd" placeholder="\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539\u5bc6\u7801" /></div>'
+    // TT 凭证
+    +'<div id="cfg-fields-tastytrade"' + (curBroker==='tastytrade'||curBroker===''? '' : ' style="display:none"') + '>'
+    +'  <div class="field-group"><label class="field-label">Secret</label><input class="inp" id="cfg-tt-secret" value="'+escapeHtml(ttSecret)+'" placeholder="Tastytrade Session Secret" /></div>'
+    +'  <div class="field-group"><label class="field-label">Token</label><input class="inp" id="cfg-tt-token" value="'+escapeHtml(ttToken)+'" placeholder="Tastytrade Session Token" /></div>'
+    +'  <div class="field-group"><label class="field-label">Account Number</label><input class="inp" id="cfg-tt-acct" value="'+escapeHtml(ttAcctNum)+'" placeholder="Tastytrade Account Number (选填)" /></div>'
+    +'</div>'
+    // IB 凭证
+    +'<div id="cfg-fields-ib"' + (curBroker==='interactive_brokers'? '' : ' style="display:none"') + '>'
+    +'  <div class="field-group"><label class="field-label">Host</label><input class="inp" id="cfg-ib-host" value="'+escapeHtml(ibHost)+'" placeholder="IB TWS IP Address" /></div>'
+    +'  <div class="field-group"><label class="field-label">Port</label><input class="inp" id="cfg-ib-port" value="'+escapeHtml(ibPort+'')+'" placeholder="7496" /></div>'
+    +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="cfg-ib-clientid" value="'+escapeHtml(ibCid+'')+'" placeholder="19" /></div>'
+    +'</div>'
+
+    +'  </div>'
+    +'  <div class="modal-foot">'
+    +'    <button class="btn-xs" onclick="document.getElementById(\'node-config-modal\').remove()">取消</button>'
+    +'    <button class="btn-xs btn-pri" onclick="doSaveNodeConfig(\''+sid+\'\',this)">保存配置</button>'
+    +'  </div>'
+    +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function toggleCfgFields(){
+  var t=document.getElementById('cfg-broker-type').value;
+  document.getElementById('cfg-fields-tastytrade').style.display=(t==='tastytrade')?'block':'none';
+  document.getElementById('cfg-fields-ib').style.display=(t==='interactive_brokers')?'block':'none';
+}
+
+async function doSaveNodeConfig(sid,btn){
+  var bt=document.getElementById('cfg-broker-type').value;
+  if(!bt){toast('\u8bf7\u9009\u62e9\u5238\u5546\u7c7b\u578b','warn');return;}
+  var acctUser=document.getElementById('cfg-acct-user').value.trim();
+  if(!acctUser){toast('\u8bf7\u586b\u5199\u8d26\u6237\u7528\u6237\u540d','warn');return;}
+  var acctPwd=document.getElementById('cfg-acct-pwd').value.trim(); // 留空表示不修改
+
+  var creds={};
+  if(bt==='tastytrade'){
+    var s=document.getElementById('cfg-tt-secret').value.trim();
+    var t=document.getElementById('cfg-tt-token').value.trim();
+    creds={"secret":s,"token":t,"account_number":document.getElementById('cfg-tt-acct').value.trim()};
+  }else{
+    var h=document.getElementById('cfg-ib-host').value.trim();
+    var p=document.getElementById('cfg-ib-port').value.trim();
+    creds={"host":h,"port":parseInt(p)||0,"client_id":parseInt(document.getElementById('cfg-ib-clientid').value)||19};
+  }
+
+  btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> \u4fdd\u5b58\u4e2d...';
+  try{
+    var r=await fetch('/api/nodes/'+encodeURIComponent(sid)+'/config',{
+      method:'PUT',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        broker_type:bt,
+        credentials:creds,
+        account_username:acctUser,
+        account_password:acctPwd || undefined,
+      })
+    });
+    var d=await r.json();
+    if(d.ok){
+      toast(d.message||'配置已保存','ok');
+      document.getElementById('node-config-modal').remove();
+      refreshNodes();
+    }else{toast('\u5931\u8d25:'+(d.error||''),'err');btn.disabled=false;btn.innerHTML='\u4fdd\u5b58\u914d\u7f6e';}
+  }catch(e){toast('\u7f51\u7edc\u9519\u8bef:'+e.message,'err');btn.disabled=false;btn.innerHTML='\u4fdd\u5b58\u914d\u7f6e';}
 }
 
 function copyToken(tok,el){
@@ -1217,10 +1460,10 @@ function showAccountDetail(id){
       var a=d.data;
       try{var _b=JSON.parse(a.allowed_brokers);a._br=_b.length?_b.join(', '):'-';}catch(e){a._br='-';}
       var html=''
-        +'<div class="modal-mask" onclick="this.remove()">'
+        +'<div class="modal-mask" id="acct-detail-modal">'
         +'  <div class="modal-panel" style="max-width:520px" onclick="event.stopPropagation()">'
         +'    <div class="modal-head"><h3>账户详情 - '+escapeHtml(a.username)+'</h3>'
-        +'      <button class="modal-close-btn"><i class="ri-close-line"></i></button></div>'
+        +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-detail-modal\').remove()"><i class="ri-close-line"></i></button></div>'
         +'    <div class="modal-body">'
         +'      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-val">'+a.id+'</span></div>'
         +'      <div class="detail-row"><span class="detail-label">用户名</span><span class="detail-val">'+escapeHtml(a.username)+'</span></div>'
@@ -1233,7 +1476,7 @@ function showAccountDetail(id){
         +'      <div class="detail-row"><span class="detail-label">更新时间</span><span class="detail-val">'+fmtTime(a.updated_at)+'</span></div>'
         +'    </div>'
         +'    <div class="modal-foot">'
-        +'      <button class="btn-xs btn-pri" onclick="this.closest(\'.modal-mask\').remove()">关闭</button>'
+        +'      <button class="btn-xs btn-pri" onclick="document.getElementById(\'acct-detail-modal\').remove()">关闭</button>'
         +'    </div></div></div>';
       document.body.insertAdjacentHTML('beforeend',html);
     })
@@ -1242,10 +1485,10 @@ function showAccountDetail(id){
 
 function showAccountEdit(id,user,seAddr,broker,desc){
   var html=''
-    +'<div class="modal-mask" onclick="this.remove()">'
+    +'<div class="modal-mask" id="acct-edit-modal">'
     +'  <div class="modal-panel" style="max-width:520px" onclick="event.stopPropagation()">'
     +'    <div class="modal-head"><h3>编辑账户 - '+escapeHtml(user)+'</h3>'
-    +'      <button class="modal-close-btn"><i class="ri-close-line"></i></button></div>'
+    +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-edit-modal\').remove()"><i class="ri-close-line"></i></button></div>'
     +'    <div class="modal-body">'
     +'      <div class="field-group"><label class="field-label">用户名（不可修改）</label><div class="field-readonly">'+escapeHtml(user)+'</div></div>'
     +'      <div class="field-group"><label class="field-label">SE 地址 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" /></div>'
@@ -1254,7 +1497,7 @@ function showAccountEdit(id,user,seAddr,broker,desc){
     +'      <div class="field-group"><label class="field-label">新密码（留空不修改）</label><input class="inp" type="password" id="edit-pwd" placeholder="留空则不修改密码" /></div>'
     +'    </div>'
     +'    <div class="modal-foot">'
-    +'      <button class="btn-xs" onclick="this.closest(\'.modal-mask\').remove()">取消</button>'
+    +'      <button class="btn-xs" onclick="document.getElementById(\'acct-edit-modal\').remove()">取消</button>'
     +'      <button class="btn-xs btn-pri" onclick="doUpdateAccount('+id+',this)">保存修改</button>'
     +'    </div></div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
