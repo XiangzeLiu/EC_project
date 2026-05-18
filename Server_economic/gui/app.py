@@ -13,12 +13,14 @@ Server_economic Desktop GUI — 子服务端控制面板（桌面版）
     python Server_economic/gui/app.py
 """
 
+import ctypes
 import json
 import socket
 import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
+
 
 from .api_client import SEApiClient
 
@@ -72,19 +74,30 @@ class SEControlPanel(tk.Tk):
 
     def __init__(self):
         super().__init__()
+
+        self._ui_scale = self._setup_dpi_scaling()
+        self._apply_scaled_fonts()
+
         self.title("Server_economic — 控制面板")
         self.configure(bg=BG_DARK)
 
-        # ── 窗口尺寸与居中 ──────────────────────────────
+        # ── 窗口尺寸与居中（4K 友好）──────────────────────
         self.update_idletasks()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        w = min(1200, int(sw * 0.85))
-        h = min(750, int(sh * 0.82))
-        x = (sw - w) // 2
-        y = (sh - h) // 2
+        self._screen_w = sw
+        self._screen_h = sh
+
+        w = min(int(sw * 0.86), self._s(2300))
+        h = min(int(sh * 0.88), self._s(1400))
+        w = max(w, self._s(1280))
+        h = max(h, self._s(760))
+
+        x = max((sw - w) // 2, 0)
+        y = max((sh - h) // 2, 0)
         self.geometry(f"{w}x{h}+{x}+{y}")
-        self.minsize(1000, 600)
+        self.minsize(self._s(1100), self._s(680))
+
 
         # ── API 客户端 ─────────────────────────────────
         self.api = SEApiClient()
@@ -105,60 +118,121 @@ class SEControlPanel(tk.Tk):
         self._schedule_poll()
         self._update_uptime_loop()
 
+    def _s(self, px: int) -> int:
+        return max(1, int(px * self._ui_scale))
+
+    def _setup_dpi_scaling(self) -> float:
+        """启用高 DPI 感知并返回 UI 缩放系数。"""
+        try:
+            if tk.TkVersion >= 8.6:
+                try:
+                    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+                except Exception:
+                    try:
+                        ctypes.windll.user32.SetProcessDPIAware()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        scale = 1.0
+        try:
+            dpi = float(self.winfo_fpixels("1i"))
+            scale = max(1.0, min(2.0, dpi / 96.0))
+            self.tk.call("tk", "scaling", dpi / 72.0)
+        except Exception:
+            pass
+
+        return scale
+
+    def _apply_scaled_fonts(self):
+        """根据 DPI 缩放全局字体与 ttk 控件尺寸。"""
+        global FONT_TITLE, FONT_BOLD, FONT_NORMAL, FONT_MONO, FONT_MONO_SM
+
+        FONT_TITLE = ("Segoe UI", self._s(21), "bold")
+        FONT_BOLD = ("Segoe UI", self._s(16), "bold")
+        FONT_NORMAL = ("Segoe UI", self._s(16))
+        FONT_MONO = ("Consolas", self._s(15))
+        FONT_MONO_SM = ("Consolas", self._s(14))
+
+
+
+
+        self.option_add("*Font", FONT_NORMAL)
+
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure("TCombobox", padding=self._s(5), fieldbackground=INPUT_BG)
+        style.configure("Treeview", rowheight=self._s(30), font=FONT_MONO_SM)
+        style.configure("Treeview.Heading", font=FONT_BOLD)
+
     # ════════════════════════════════════════════════════
     #  UI 构建方法
     # ════════════════════════════════════════════════════
 
+
     def _build_top_bar(self):
         """顶部导航栏：标题 + 状态徽章 + 运行时间 + 刷新按钮"""
-        bar = tk.Frame(self, bg=BG_SECONDARY, height=48)
+        bar = tk.Frame(self, bg=BG_SECONDARY, height=self._s(58))
         bar.pack(fill="x")
         bar.pack_propagate(False)
 
         # 左侧：图标 + 标题
         tk.Label(
-            bar, text="\u2699  Server_economic", font=FONT_TITLE,
+            bar, text="⚙  Server_economic", font=FONT_TITLE,
             fg=TEXT_PRIMARY, bg=BG_SECONDARY, anchor="w",
-        ).pack(side="left", padx=(20, 0))
+        ).pack(side="left", padx=(self._s(20), 0))
 
         # 右侧：状态 + 时间 + 刷新
         right_frame = tk.Frame(bar, bg=BG_SECONDARY)
-        right_frame.pack(side="right", padx=(0, 20))
+        right_frame.pack(side="right", padx=(0, self._s(20)))
 
         self.status_var = tk.StringVar(value="--")
         self.status_lbl = tk.Label(
             right_frame, textvariable=self.status_var,
             font=FONT_BOLD, fg=TEXT_MUTED, bg="#21262d",
-            padx=12, pady=3, relief="flat",
+            padx=self._s(12), pady=self._s(4), relief="flat",
         )
-        self.status_lbl.pack(side="left", padx=(0, 16))
+        self.status_lbl.pack(side="left", padx=(0, self._s(16)))
 
         self.uptime_var = tk.StringVar(value="--:--:--")
         tk.Label(right_frame, textvariable=self.uptime_var, font=FONT_MONO_SM,
                  fg=TEXT_MUTED, bg=BG_SECONDARY).pack(side="left")
 
         tk.Button(
-            right_frame, text="\u21BB", font=FONT_NORMAL,
+            right_frame, text="↻", font=FONT_NORMAL,
             command=self._on_manual_refresh,
             width=3, relief="flat",
             bg=BG_CARD, fg=TEXT_PRIMARY, activebackground=BORDER_COLOR,
-        ).pack(side="left", padx=(10, 0))
+        ).pack(side="left", padx=(self._s(12), 0))
+
 
     def _build_main_area(self):
-        """主区域：左侧注册面板 + 右侧内容区"""
+        """主区域：可拖拽左右分栏（4K 友好）"""
         main = tk.Frame(self, bg=BG_DARK)
-        main.pack(fill="both", expand=True, padx=4, pady=4)
+        main.pack(fill="both", expand=True, padx=self._s(8), pady=self._s(8))
+
+        paned = tk.PanedWindow(
+            main, orient="horizontal", sashwidth=self._s(8),
+            bg=BG_DARK, bd=0, relief="flat", showhandle=False,
+        )
+        paned.pack(fill="both", expand=True)
 
         # ── 左侧：注册面板 ──────────────────────────────
-        left = tk.Frame(main, bg=BG_SECONDARY, width=360)
-        left.pack(side="left", fill="y", padx=(0, 4))
+        left = tk.Frame(paned, bg=BG_SECONDARY, width=self._s(420))
         left.pack_propagate(False)
         self._build_register_panel(left)
 
         # ── 右侧：内容区 ────────────────────────────────
-        right = tk.Frame(main, bg=BG_DARK)
-        right.pack(side="left", fill="both", expand=True)
+        right = tk.Frame(paned, bg=BG_DARK)
         self._build_content_panel(right)
+
+        paned.add(left, minsize=self._s(360), stretch="never")
+        paned.add(right, minsize=self._s(700), stretch="always")
+
 
     def _build_register_panel(self, parent):
         """左侧：注册表单 + 日志 + 凭证面板"""
@@ -314,55 +388,69 @@ class SEControlPanel(tk.Tk):
         self.dashboard_frame.pack(fill="both", expand=True)
 
     def _build_dashboard_cards(self, parent):
-        """仪表盘卡片网格（优化布局和字体）"""
+        """仪表盘卡片网格（自适应布局）"""
         self.card_vars = {}
         card_data = [
-            ("node_name",    "节点名称",   "-"),
-            ("region",       "券商类型",   "-"),
-            ("server_id",    "服务端ID",  "-"),
-            ("heartbeat",    "心跳状态",   "--"),
-            ("connections",  "Client连接", "0"),
-            ("broker",       "券商状态",   "-"),
+            ("node_name", "节点名称", "-"),
+            ("region", "券商类型", "-"),
+            ("server_id", "服务端ID", "-"),
+            ("heartbeat", "心跳状态", "--"),
+            ("connections", "Client连接", "0"),
+            ("broker", "券商状态", "-"),
         ]
 
-        # 上部: 6 个卡片 (3×2 网格)
-        top_grid = tk.Frame(parent, bg=BG_DARK)
-        top_grid.pack(fill="both", expand=True, padx=8, pady=(8, 4))
+        header = tk.Frame(parent, bg=BG_DARK)
+        header.pack(fill="x", padx=self._s(10), pady=(self._s(8), self._s(2)))
+        tk.Label(
+            header,
+            text="运行概览",
+            font=FONT_BOLD,
+            fg=TEXT_PRIMARY,
+            bg=BG_DARK,
+            anchor="w",
+        ).pack(side="left")
 
+        # 上部卡片：2 行自适应列数
+        top_grid = tk.Frame(parent, bg=BG_DARK)
+        top_grid.pack(fill="x", expand=False, padx=self._s(8), pady=(self._s(4), self._s(6)))
+
+        cols = 4 if self._screen_w >= 3000 else 3
         for i, (key, label, default) in enumerate(card_data):
-            row_i, col_i = divmod(i, 3)
+            row_i, col_i = divmod(i, cols)
             card = self._make_card(top_grid, label, default, key)
-            card.grid(row=row_i, column=col_i, padx=6, pady=6, sticky="nsew")
+            card.grid(row=row_i, column=col_i, padx=self._s(6), pady=self._s(6), sticky="ew")
             top_grid.columnconfigure(col_i, weight=1)
-            top_grid.rowconfigure(row_i, weight=1)
+
 
         # 下部: 心跳统计子区域
-        sub_frame = tk.Frame(parent, bg=BG_CARD, bd=1, relief="solid")
-        sub_frame.pack(fill="x", padx=8, pady=8)
+        sub_frame = tk.Frame(parent, bg=BG_CARD, bd=1, relief="solid", highlightthickness=1, highlightbackground=BORDER_COLOR)
+        sub_frame.pack(fill="x", padx=self._s(8), pady=self._s(8))
 
-        tk.Label(sub_frame, text="\u26A1 心跳 & 券商",
+        tk.Label(sub_frame, text="⚡ 心跳与连接健康",
                  font=FONT_BOLD, fg=TEXT_PRIMARY, bg=BG_CARD,
-                 anchor="w").pack(fill="x", padx=14, pady=(10, 6))
+                 anchor="w").pack(fill="x", padx=self._s(14), pady=(self._s(10), self._s(6)))
 
         hb_grid = tk.Frame(sub_frame, bg=BG_CARD)
-        hb_grid.pack(fill="x", padx=14, pady=(0, 10))
+        hb_grid.pack(fill="x", padx=self._s(14), pady=(0, self._s(10)))
         hb_items = [
-            ("hb_total",    "总次数",  "-", "info"),
-            ("hb_ok",       "成功",    "-", "ok"),
-            ("hb_fail",     "失败",    "-", "err"),
-            ("hb_interval", "间隔",   "30s", "info"),
+            ("hb_total", "总次数", "-", "info"),
+            ("hb_ok", "成功", "-", "ok"),
+            ("hb_fail", "失败", "-", "err"),
+            ("hb_interval", "间隔", "20s", "info"),
         ]
         for i, (key, label, default, cls) in enumerate(hb_items):
             c = self._make_small_stat(hb_grid, label, default, key, color_cls=cls)
-            c.grid(row=0, column=i, padx=6, sticky="ew")
+            c.grid(row=0, column=i, padx=self._s(6), sticky="ew")
             hb_grid.columnconfigure(i, weight=1)
+
 
     def _make_small_stat(self, parent, label, default, key, color_cls=None):
         """小型统计项（用于底部统计栏）"""
         frame = tk.Frame(parent, bg=BG_CARD)
         lbl = tk.Label(frame, text=label.upper(),
-                       font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, anchor="w")
-        lbl.pack(anchor="w", padx=10, pady=(8, 2))
+                       font=("Segoe UI", self._s(11)), fg=TEXT_MUTED, bg=BG_CARD, anchor="w")
+
+        lbl.pack(anchor="w", padx=self._s(10), pady=(self._s(8), self._s(2)))
 
         color_map = {
             "ok": ACCENT_GREEN, "err": ACCENT_RED,
@@ -372,10 +460,12 @@ class SEControlPanel(tk.Tk):
         val_var = tk.StringVar(value=default)
         self.card_vars[key] = val_var
         val_lbl = tk.Label(frame, textvariable=val_var,
-                           font=("Segoe UI", 13, "bold"), fg=fg, bg=BG_CARD)
-        val_lbl.pack(anchor="w", padx=10, pady=(2, 8))
+                           font=("Segoe UI", self._s(15), "bold"), fg=fg, bg=BG_CARD)
+
+        val_lbl.pack(anchor="w", padx=self._s(10), pady=(self._s(2), self._s(8)))
         self.card_vars[key + "_label"] = val_lbl
         return frame
+
 
     def _build_log_panel(self, parent):
         """运行日志面板 — 显示 Client 与 SE 之间的消息交互"""
@@ -412,35 +502,39 @@ class SEControlPanel(tk.Tk):
 
         # 日志主体 — Treeview 表格
         cols = ("时间", "级别", "Session", "摘要")
-        self.log_tree = ttk.Treeview(
-            parent, columns=cols, show="headings", height=18,
-        )
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure("LogTree",
+
+        tree_wrap = tk.Frame(parent, bg=BG_DARK)
+        tree_wrap.pack(fill="both", expand=True, padx=self._s(8), pady=self._s(8))
+
+        style = ttk.Style(self)
+        style.configure("LogTree.Treeview",
                         background=BG_CARD, foreground=TEXT_PRIMARY,
                         fieldbackground=BG_CARD, borderwidth=0,
-                        font=FONT_MONO_SM,)
-        style.configure("LogTree.Heading",
+                        font=FONT_MONO_SM, rowheight=self._s(30))
+        style.configure("LogTree.Treeview.Heading",
                         background=BG_DARK, foreground=TEXT_SECONDARY,
                         font=FONT_BOLD, relief="flat")
-        style.map("LogTree", background=[("selected", BORDER_COLOR)])
+        style.map("LogTree.Treeview", background=[("selected", BORDER_COLOR)])
+
+        self.log_tree = ttk.Treeview(
+            tree_wrap, columns=cols, show="headings", height=18, style="LogTree.Treeview"
+        )
         self.log_tree.tag_configure("recv", foreground=ACCENT_BLUE)
         self.log_tree.tag_configure("send", foreground=ACCENT_GREEN)
         self.log_tree.tag_configure("conn", foreground=TEXT_SECONDARY)
         self.log_tree.tag_configure("err", foreground=ACCENT_RED)
 
-        col_widths = {"时间": 100, "级别": 50, "Session": 130, "摘要": 480}
+        col_widths = {"时间": self._s(120), "级别": self._s(70), "Session": self._s(180), "摘要": self._s(860)}
         for col in cols:
             self.log_tree.heading(col, text=col)
-            self.log_tree.column(col, anchor="w", width=col_widths.get(col, 150),
-                                 minwidth=60)
+            self.log_tree.column(col, anchor="w", width=col_widths.get(col, self._s(150)), minwidth=self._s(70))
 
-        self.log_tree.pack(fill="both", expand=True, padx=8, pady=8)
-
-        # 滚动条
-        ysb = ttk.Scrollbar(parent, orient="vertical", command=self.log_tree.yview)
+        ysb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.log_tree.yview)
         self.log_tree.configure(yscrollcommand=ysb.set)
+
+        self.log_tree.pack(side="left", fill="both", expand=True)
+        ysb.pack(side="right", fill="y")
+
 
         # 详情区域
         detail_frame = tk.Frame(parent, bg=BG_CARD, bd=1, relief="solid")
@@ -490,11 +584,22 @@ class SEControlPanel(tk.Tk):
 
     def _make_card(self, parent, label, default, key, color_cls=None):
         """创建状态卡片"""
-        frame = tk.Frame(parent, bg=BG_CARD, relief="solid", bd=1)
+        frame = tk.Frame(
+            parent,
+            bg=BG_CARD,
+            relief="solid",
+            bd=1,
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            padx=self._s(1),
+            pady=self._s(1),
+        )
 
-        lbl = tk.Label(frame, text=label.upper(), font=("Segoe UI", 9),
+        lbl = tk.Label(frame, text=label.upper(), font=("Segoe UI", self._s(12)),
                        fg=TEXT_MUTED, bg=BG_CARD, anchor="w")
-        lbl.pack(anchor="w", padx=12, pady=(10, 2))
+
+        lbl.pack(anchor="w", padx=self._s(10), pady=(self._s(7), self._s(1)))
+
 
         color = {
             "ok": ACCENT_GREEN, "err": ACCENT_RED,
@@ -502,13 +607,15 @@ class SEControlPanel(tk.Tk):
         }.get(color_cls, TEXT_PRIMARY)
         val_var = tk.StringVar(value=default)
         self.card_vars[key] = val_var
-        val_lbl = tk.Label(frame, textvariable=val_var, font=("Segoe UI", 18, "bold"),
-                           fg=color, bg=BG_CARD)
-        val_lbl.pack(anchor="w", padx=12, pady=(2, 10))
-        # 存储标签引用以便后续动态改色
+        val_lbl = tk.Label(frame, textvariable=val_var, font=("Segoe UI", self._s(17), "bold"),
+                           fg=color, bg=BG_CARD, anchor="w", justify="left")
+
+        val_lbl.pack(anchor="w", padx=self._s(10), pady=(self._s(1), self._s(7)))
+
         self.card_vars[key + "_label"] = val_lbl
 
         return frame
+
 
     @staticmethod
     def _log(widget, msg, level="info"):
@@ -636,7 +743,7 @@ class SEControlPanel(tk.Tk):
         self.card_vars["hb_total"].set(str(hb.get("total", 0)))
         self.card_vars["hb_ok"].set(str(hb.get("ok_count", hb.get("ok", 0))))
         self.card_vars["hb_fail"].set(str(hb.get("fail", 0)))
-        interval_s = str(hb.get("interval", 30)) + "s"
+        interval_s = str(hb.get("interval", 20)) + "s"
         self.card_vars["hb_interval"].set(interval_s)
 
         # ── 注册状态判断 → 锁定/解锁 ──────────────────

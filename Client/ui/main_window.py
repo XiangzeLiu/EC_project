@@ -348,8 +348,11 @@ class TradingTerminal(tk.Tk):
                 # 占用已在 _validate_se / _retry_se_connect 验证通过时注册，此处无需重复
                 self._update_init_step("se", "Connected", ACCENT_GREEN)
                 self._se_connected = True
+                if self.session:
+                    self.session.bind_se_client(self._se_client)
                 # 全部步骤完成，延迟一小段时间后进入主界面
                 self.after(400, self._enter_main_interface)
+
         self.after(0, _ui)
 
     def _on_init_se_msg(self, msg: dict):
@@ -388,7 +391,10 @@ class TradingTerminal(tk.Tk):
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
+        if self.session:
+            self.session.bind_se_client(None)
         self._se_connected = False
+
 
     def _on_init_retry(self):
         """用户点击重试：重新尝试 SE 验证+连接（不重新输入账号密码）"""
@@ -520,7 +526,10 @@ class TradingTerminal(tk.Tk):
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
+        if self.session:
+            self.session.bind_se_client(None)
         self._se_connected = False
+
         self.http.token = ""
         self.session = None
 
@@ -651,6 +660,9 @@ class TradingTerminal(tk.Tk):
         if self._se_client:
             self._se_client.on_message = self._on_se_message
             self._se_client.on_status = self._on_se_status
+            if self.session:
+                self.session.bind_se_client(self._se_client)
+
 
         # 销毁初始化界面
         if self._init_frame:
@@ -1471,7 +1483,10 @@ class TradingTerminal(tk.Tk):
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
+        if self.session:
+            self.session.bind_se_client(None)
         self._se_connected = False
+
         # 释放节点占用
         self._release_se_occupation()
         self._se_btn.config(text="Connect SE", state="normal")
@@ -1485,9 +1500,12 @@ class TradingTerminal(tk.Tk):
             if "Authenticated" in msg:
                 self._se_connected = True
                 self._se_btn.config(text="Disconnect", state="normal")
+                if self.session:
+                    self.session.bind_se_client(self._se_client)
                 self.log_area.log(f"[SE] {msg}", "ok")
                 
                 # ★ 重连成功后自动恢复节点占用（防止占用丢失）
+
                 # 场景：SE 掉线→SM 标记离线并释放占用→SE 恢复→Client 重连成功
                 # 注意：此处运行在 UI 线程中，使用 async 模式避免冻结界面
                 # （主连接流程中的 occupy 已是同步的，此处为辅助保活）
@@ -1701,7 +1719,10 @@ class TradingTerminal(tk.Tk):
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
+        if self.session:
+            self.session.bind_se_client(None)
         self._se_connected = False
+
 
         # 隐藏弹窗
         if self._reconnect_dialog:
@@ -1736,7 +1757,10 @@ class TradingTerminal(tk.Tk):
         # 断开 SE 连接
         if self._se_client:
             self._se_client.stop()
+        if self.session:
+            self.session.bind_se_client(None)
         if self._ws_stream:
+
             self._ws_stream.stop()
         # 释放节点占用（防止关闭窗口后节点被永久锁定）
         self._release_se_occupation()

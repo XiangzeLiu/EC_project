@@ -349,7 +349,7 @@
     .modal-mask {
       position: fixed; inset: 0;
       background: rgba(17,20,42,0.45);
-      backdrop-filter: blur(4px);
+      backdrop-filter: none;
       z-index: 1000;
       display: flex; align-items: center; justify-content: center;
       animation: fadeIn 0.18s ease;
@@ -1003,7 +1003,7 @@ async function approveNode(rid,b){
     +'  </div>'
     +'  <div class="modal-foot">'
     +'    <button class="btn-xs" onclick="document.getElementById(\'approve-config-modal\').remove()">取消</button>'
-    +'    <button class="btn-xs btn-pri" onclick="doApproveWithConfig(\''+rid+\'\',this)">确认通过</button>'
+    +'    <button class="btn-xs btn-pri" onclick="doApproveWithConfig(\''+rid+'\',this)">确认通过</button>'
     +'  </div>'
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
@@ -1246,7 +1246,7 @@ function showNodeConfig(sid){
     +'  </div>'
     +'  <div class="modal-foot">'
     +'    <button class="btn-xs" onclick="document.getElementById(\'node-config-modal\').remove()">取消</button>'
-    +'    <button class="btn-xs btn-pri" onclick="doSaveNodeConfig(\''+sid+\'\',this)">保存配置</button>'
+    +'    <button class="btn-xs btn-pri" onclick="doSaveNodeConfig(\''+sid+'\',this)">保存配置</button>'
     +'  </div>'
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
@@ -1452,33 +1452,43 @@ async function resumeAccount(id){
   }catch(e){toast('网络错误:'+e.message,'err');}
 }
 
+function _renderAccountDetailModal(a){
+  try{var _b=JSON.parse(a.allowed_brokers);a._br=_b.length?_b.join(', '):'-';}catch(e){a._br='-';}
+  var old=document.getElementById('acct-detail-modal');
+  if(old) old.remove();
+  var html=''
+    +'<div class="modal-mask" id="acct-detail-modal">'
+    +'  <div class="modal-panel" style="max-width:520px" onclick="event.stopPropagation()">'
+    +'    <div class="modal-head"><h3>账户详情 - '+escapeHtml(a.username)+'</h3>'
+    +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-detail-modal\').remove()"><i class="ri-close-line"></i></button></div>'
+    +'    <div class="modal-body">'
+    +'      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-val">'+a.id+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">用户名</span><span class="detail-val">'+escapeHtml(a.username)+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">角色</span><span class="detail-val">'+escapeHtml(a.role)+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">状态</span><span>'+(a.status==='active'?'<span class="badge" style="background:#f0fdf4;color:#16a34a"><span class="dot dot-on" style="margin-right:4px"></span>正常</span>':'<span class="badge" style="background:#fef2f2;color:#ef4444"><span class="dot dot-err" style="margin-right:4px"></span>已暂停</span>')+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">SE 地址</span><span class="detail-val-mono">'+escapeHtml(a.se_address||'-')+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">券商</span><span class="detail-val">'+escapeHtml(a._br)+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">描述</span><span class="detail-val">'+escapeHtml(a.description||'-')+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">创建时间</span><span class="detail-val">'+fmtTime(a.created_at)+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">更新时间</span><span class="detail-val">'+fmtTime(a.updated_at)+'</span></div>'
+    +'    </div>'
+    +'    <div class="modal-foot">'
+    +'      <button class="btn-xs btn-pri" onclick="document.getElementById(\'acct-detail-modal\').remove()">关闭</button>'
+    +'    </div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
 function showAccountDetail(id){
+  var local=(_acctCache||[]).find(function(x){return x.id===id;});
+  if(local){
+    _renderAccountDetailModal(local);
+    return;
+  }
   fetch('/api/accounts/'+id+'/detail',{credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){
       if(!d.ok){toast('获取详情失败:'+(d.error||''),'err');return;}
-      var a=d.data;
-      try{var _b=JSON.parse(a.allowed_brokers);a._br=_b.length?_b.join(', '):'-';}catch(e){a._br='-';}
-      var html=''
-        +'<div class="modal-mask" id="acct-detail-modal">'
-        +'  <div class="modal-panel" style="max-width:520px" onclick="event.stopPropagation()">'
-        +'    <div class="modal-head"><h3>账户详情 - '+escapeHtml(a.username)+'</h3>'
-        +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-detail-modal\').remove()"><i class="ri-close-line"></i></button></div>'
-        +'    <div class="modal-body">'
-        +'      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-val">'+a.id+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">用户名</span><span class="detail-val">'+escapeHtml(a.username)+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">角色</span><span class="detail-val">'+escapeHtml(a.role)+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">状态</span><span>'+(a.status==='active'?'<span class="badge" style="background:#f0fdf4;color:#16a34a"><span class="dot dot-on" style="margin-right:4px"></span>正常</span>':'<span class="badge" style="background:#fef2f2;color:#ef4444"><span class="dot dot-err" style="margin-right:4px"></span>已暂停</span>')+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">SE 地址</span><span class="detail-val-mono">'+escapeHtml(a.se_address||'-')+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">券商</span><span class="detail-val">'+escapeHtml(a._br)+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">描述</span><span class="detail-val">'+escapeHtml(a.description||'-')+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">创建时间</span><span class="detail-val">'+fmtTime(a.created_at)+'</span></div>'
-        +'      <div class="detail-row"><span class="detail-label">更新时间</span><span class="detail-val">'+fmtTime(a.updated_at)+'</span></div>'
-        +'    </div>'
-        +'    <div class="modal-foot">'
-        +'      <button class="btn-xs btn-pri" onclick="document.getElementById(\'acct-detail-modal\').remove()">关闭</button>'
-        +'    </div></div></div>';
-      document.body.insertAdjacentHTML('beforeend',html);
+      _renderAccountDetailModal(d.data);
     })
     .catch(function(e){toast('网络错误:'+e.message,'err');});
 }
@@ -1621,7 +1631,6 @@ function tryRenderOverview(){
 }
 
 /* 初始加载：先加载 nodes（accounts 的状态判断依赖 _nodesCache），再加载 accounts */
-refreshNodes();
 refreshNodes().then(function(){
   /* nodes 缓存就绪后再加载 accounts，确保 renderAccounts 能正确判断"使用中"状态 */
   return refreshAccounts();

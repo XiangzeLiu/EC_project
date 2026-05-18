@@ -37,7 +37,7 @@ DEFAULT_CONTACT = ""
 DEFAULT_DESCRIPTION = ""
 
 # 心跳间隔（秒），与 Server_manager 返回的 next_interval 保持一致
-DEFAULT_HEARTBEAT_INTERVAL = 30
+DEFAULT_HEARTBEAT_INTERVAL = 20
 
 # WebSocket 服务端口（供 Client 连接）
 DEFAULT_WS_PORT = 8900

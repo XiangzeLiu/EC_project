@@ -526,9 +526,18 @@ def get_node_broker_config(server_id: str) -> dict | None:
         if not row:
             return None
         cfg = json.loads(row["config"]) if row["config"] else {}
+        credentials = dict(cfg.get("credentials", {}) or {})
+
+        # 统一凭证模型：支持 2 要素（token/secret）与 4 要素（username/password/token/secret）
+        # 账号口令保留在 SM 配置中，SE 仅按需拉取并在内存短暂使用，不做本地持久化。
+        if cfg.get("account_username") is not None and "account_username" not in credentials:
+            credentials["account_username"] = cfg.get("account_username", "")
+        if cfg.get("account_password") is not None and "account_password" not in credentials:
+            credentials["account_password"] = cfg.get("account_password", "")
+
         return {
             "broker_type": row["broker_type"] or cfg.get("broker_type", "tastytrade"),
-            "credentials": cfg.get("credentials", {}),
+            "credentials": credentials,
             "enabled": cfg.get("enabled", True),
             "config_version": row["config_version"] or 0,
             "_raw_config": cfg,
@@ -648,9 +657,9 @@ def verify_node_token_for_config(token: str, target_server_id: str) -> bool:
 # ── 心跳超时配置 ────────────────────────────────────────────────────────
 
 # 心跳超时阈值（秒）：超过此时间未收到心跳则判定为离线
-# 建议设为心跳间隔的 3 倍（默认间隔30s → 超时90s）
+# 建议设为心跳间隔的 3 倍（默认间隔20s → 超时60s）
 # 此值用于后台自动巡检和前端刷新展示，较长可避免网络抖动导致误判
-HEARTBEAT_TIMEOUT_SECONDS = 90
+HEARTBEAT_TIMEOUT_SECONDS = 60
 
 
 def check_offline_nodes(timeout_seconds: int | None = None) -> int:
@@ -948,7 +957,7 @@ def resume_node(server_id: str) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         # 恢复为 online 状态（与前端 renderNodes 的 st==='online' 判断一致，
         # 这样恢复后卡片立即显示绿色"运行中"底色）
-        # 同时更新 last_heartbeat 时间戳，避免后台巡检在90秒内将其标回离线
+        # 同时更新 last_heartbeat 时间戳，避免后台巡检在60秒内将其标回离线
         conn.execute("""
             UPDATE node_requests SET status='online' WHERE server_id = ? AND status = 'suspended'
         """, (server_id,))

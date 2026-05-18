@@ -17,6 +17,9 @@ import asyncio
 import json
 import logging
 import time
+import urllib.error
+import urllib.request
+
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -69,7 +72,8 @@ async def handle_client_connection(ws: WebSocket):
 
         # 验证 Token
         client_token = msg.get("payload", {}).get("token", "")
-        if not _validate_client_token(client_token):
+        if not await _validate_client_token(client_token):
+
             from ..services.message_log import on_auth
             on_auth(session_id, False, "无效Token或已过期")
             await _send_error(ws, "TOKEN_INVALID", "认证令牌无效或已过期")
@@ -171,19 +175,40 @@ def secrets_token(n: int = 16) -> str:
     return secrets.token_hex(n)
 
 
-def _validate_client_token(token: str) -> bool:
+async def _validate_client_token(token: str) -> bool:
     """
     验证 Client 提供的 Token
 
-    当前策略：
-      - 空Token 允许通过（开发模式）
-      - 后续可对接 Server_manager 的客户端认证 API
+    策略：
+      - 空 token 拒绝
+      - 调用 SM /auth/verify-token 做真实校验
+      - 调用时使用当前节点 token（state.token）作为鉴权
     """
     if not token:
-        log.debug("Empty token accepted (dev mode)")
-        return True
-    # TODO: 调用 Server_manager POST /auth/verify-token 验证
-    return True
+        return False
+
+    if not state.manager_url or not state.token:
+        log.warning("token validation skipped: manager_url/token missing")
+        return False
+
+    url = f"{state.manager_url.rstrip('/')}/auth/verify-token"
+    body = json.dumps({"token": token}).encode("utf-8")
+
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {state.token}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return bool(data.get("ok") and data.get("valid"))
+    except urllib.error.HTTPError as e:
+        log.warning(f"token verify failed: HTTP {e.code}")
+        return False
+    except Exception as e:
+        log.warning(f"token verify failed: {e}")
+        return False
+
 
 
 def _send_error(ws: WebSocket, code: str, message: str):
@@ -359,7 +384,27 @@ async def _handle_position_query(msg: dict, sid: str) -> dict:
     }
 
 
+async def _handle_order_query(msg: dict, sid: str) -> dict:
+    """处理订单查询（live/all）"""
+    from ..services.trading_svc import get_orders
+
+    payload = msg.get("payload", {})
+    mode = (payload.get("mode") or "live").lower()
+    if mode not in ("live", "all"):
+        mode = "live"
+
+    log.info(f"[{sid}] ORDER_QUERY: mode={mode}")
+    result = await get_orders(mode=mode, session_id=sid)
+    return {
+        "type": "ORDER_LIST_RESPONSE",
+        "id": msg.get("id", ""),
+        "timestamp": int(time.time() * 1000),
+        "payload": result,
+    }
+
+
 async def _handle_quote_subscribe(msg: dict, sid: str) -> dict:
+
     """处理行情订阅/取消订阅"""
     from ..services.quote_provider import handle_subscribe, handle_unsubscribe
     
@@ -391,6 +436,7 @@ _MESSAGE_HANDLERS: dict[str, callable] = {
     "ORDER_SUBMIT":       _handle_order_submit,
     "ORDER_CANCEL":       _handle_order_cancel,
     "POSITION_QUERY":     _handle_position_query,
+    "ORDER_QUERY":        _handle_order_query,
     "QUOTE_SUBSCRIBE":    _handle_quote_subscribe,
 }
 

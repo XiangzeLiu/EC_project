@@ -51,6 +51,7 @@ from .config import (
     DEFAULT_NODE_NAME,
     DEFAULT_REGION,
     DEFAULT_WS_PORT,
+    DEFAULT_HEARTBEAT_INTERVAL,
     init_logging,
 )
 from .services.registration import (
@@ -215,7 +216,7 @@ async def api_await_approval(request_id: str = Query(...)):
                                         global _heartbeat
                                         if not _heartbeat:
                                             from .services.heartbeat import HeartbeatSender
-                                            _heartbeat = HeartbeatSender(interval=30)
+                                            _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
                                             await _heartbeat.start()
                                         # ★ 初始化券商连接（从 SM 拉取配置）
                                         from .services.config_sync import init_broker
@@ -321,7 +322,7 @@ async def api_status():
         "fail": hb.get("fail", 0),
         "backoff": hb.get("backoff", 1),
         "running": hb.get("running", False),
-        "interval": getattr(_heartbeat, 'interval', 30) if _heartbeat else 30,
+        "interval": getattr(_heartbeat, 'interval', DEFAULT_HEARTBEAT_INTERVAL) if _heartbeat else DEFAULT_HEARTBEAT_INTERVAL,
     }
 
     return {
@@ -433,7 +434,7 @@ async def on_startup():
 
     # 2) 有凭证则启动心跳循环
     if state.token and state.status in ("approved", "online", "running"):
-        _heartbeat = HeartbeatSender(interval=30)
+        _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
         await _heartbeat.start()
 
         await asyncio.sleep(1.5)

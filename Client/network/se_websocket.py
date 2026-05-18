@@ -14,9 +14,11 @@ SE WebSocket Client
 import asyncio
 import json
 import logging
+import queue
 import threading
 import time
 from typing import Callable
+
 
 import websockets
 
@@ -57,8 +59,12 @@ class SEWebSocketClient:
         # 待发送的请求队列 (由外部线程安全地添加请求)
         self._pending_requests: list[dict] = []
         self._req_lock = threading.Lock()
+        # 同步请求等待队列：{req_id: Queue(maxsize=1)}
+        self._response_waiters: dict[str, queue.Queue] = {}
+        self._resp_lock = threading.Lock()
         # ★ 连接丢失事件：任一子协程检测到断连时 set，其他协程立即响应
         self._conn_lost: asyncio.Event | None = None
+
 
     @property
     def is_active(self) -> bool:
@@ -131,7 +137,41 @@ class SEWebSocketClient:
             self._pending_requests.append(msg)
         return req_id
 
+    def request_sync(self, msg_type: str, payload: dict | None = None, timeout: float = 10.0) -> dict | None:
+        """
+        发送请求并同步等待同 ID 响应。
+
+        Returns:
+            响应消息 dict；超时或未连接时返回 None。
+        """
+        if not self._connected:
+            return None
+
+        req_id = f"req_{int(time.time() * 1000)}"
+        msg = {
+            "type": msg_type,
+            "id": req_id,
+            "timestamp": int(time.time() * 1000),
+            "payload": payload or {},
+        }
+
+        q: queue.Queue = queue.Queue(maxsize=1)
+        with self._resp_lock:
+            self._response_waiters[req_id] = q
+
+        with self._req_lock:
+            self._pending_requests.append(msg)
+
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        finally:
+            with self._resp_lock:
+                self._response_waiters.pop(req_id, None)
+
     # ── 交易操作便捷方法 ──────────────────────────────────────
+
 
     def send_order_submit(self, symbol: str, qty: int, price: float,
                           action: str = "Buy to Open",
@@ -333,7 +373,19 @@ class SEWebSocketClient:
 
             msg_type = msg.get("type", "")
 
+            # 优先唤醒同步等待者（按请求 id 关联）
+            req_id = msg.get("id", "")
+            if req_id:
+                with self._resp_lock:
+                    waiter = self._response_waiters.get(req_id)
+                if waiter:
+                    try:
+                        waiter.put_nowait(msg)
+                    except Exception:
+                        pass
+
             if msg_type == "ERROR":
+
                 if self.on_status:
                     err_payload = msg.get("payload", {})
                     self.on_status(f"Error [{err_payload.get('code', '')}]: {err_payload.get('message', '')}")

@@ -19,7 +19,7 @@ log = logging.getLogger("node_state")
 
 # ── 常量 ────────────────────────────────────────────────────────────────────
 
-HEARTBEAT_TIMEOUT = 90  # 默认心跳超时秒数（空闲节点）
+HEARTBEAT_TIMEOUT = 60  # 默认心跳超时秒数（空闲节点）
 OCCUPIED_HEARTBEAT_TIMEOUT = 15  # 占用状态下心跳超时秒数（快速检测掉线）
 PROBE_ADVANCE_SECONDS = 8  # 提前多少秒开始主动探测（在超时前 N 秒）
 
@@ -57,7 +57,7 @@ class NodeState:
         """心跳是否活跃（占用状态下使用更短的超时阈值以快速检测掉线）"""
         if self.last_heartbeat <= 0:
             return False
-        # 被占用的节点使用短超时（15秒），空闲节点使用默认超时（90秒）
+        # 被占用的节点使用短超时（15秒），空闲节点使用默认超时（60秒）
         timeout = OCCUPIED_HEARTBEAT_TIMEOUT if self.occupied_by else HEARTBEAT_TIMEOUT
         return (time.monotonic() - self.last_heartbeat) < timeout
 
@@ -229,7 +229,7 @@ class NodeStateManager:
         扫描所有节点，标记心跳超时的为离线 + 自动释放占用。
         
         关键改进：
-          - 被占用的节点使用更短的超时阈值（15秒 vs 90秒）
+          - 被占用的节点使用更短的超时阈值（15秒 vs 60秒）
           - 这样当子节点在占用状态下掉线时，能更快检测到并释放
         
         返回被标记为离线的 server_id 列表。
@@ -464,7 +464,7 @@ class NodeStateManager:
         state.occupied_by = username
         state.occupied_at = time.monotonic()
         # ★ 关键修复：同步刷新心跳时间戳
-        # occupy 后 is_alive 阈值从 90s(空闲) 切换到 15s(占用)，
+        # occupy 后 is_alive 阈值从 60s(空闲) 切换到 15s(占用)，
         # 如果不刷新 last_heartbeat，旧时间戳会立即超过 15s 阈值，
         # 导致 refresh-status 时 check_offline_nodes 误判为离线并自动释放占用
         state.last_heartbeat = time.monotonic()

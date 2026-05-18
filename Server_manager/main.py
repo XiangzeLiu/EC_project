@@ -607,7 +607,7 @@ async def node_heartbeat(request: Request):
     状态守卫：suspended 节点心跳不改变暂停状态。
     
     改进（占用感知）：
-      - 如果节点被占用，返回更短的心跳间隔（5秒 vs 30秒）
+      - 如果节点被占用，返回更短的心跳间隔（5秒 vs 20秒）
       - 这样 SE 会在占用状态下更频繁地发送心跳，
         结合 SM 端的短超时阈值（15秒），能更快检测到掉线
     """
@@ -633,7 +633,7 @@ async def node_heartbeat(request: Request):
     # ★ 占用感知：被占用的节点使用更短的心跳间隔
     state = node_state.manager.get(sid)
     is_occupied = bool(state and state.occupied_by)
-    next_interval = 5 if is_occupied else 30  # 占用状态下5秒一跳，否则30秒
+    next_interval = 5 if is_occupied else 20  # 占用状态下5秒一跳，否则20秒
 
     response = {
         "status": "ok",
@@ -1201,7 +1201,7 @@ async def _heartbeat_monitor_loop():
       - 掉线时自动释放占用，防止节点被永久锁定
     """
     await asyncio.sleep(10)
-    log.info("Heartbeat monitor started (interval=%ds, timeout=%ds/occupied=%ds)" %
+    log.info("Heartbeat monitor started (check_interval=%ds, timeout=%ds/occupied=%ds)" %
              (_HEARTBEAT_CHECK_INTERVAL, node_state.HEARTBEAT_TIMEOUT, node_state.OCCUPIED_HEARTBEAT_TIMEOUT))
     while True:
         try:

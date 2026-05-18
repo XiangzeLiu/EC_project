@@ -4,7 +4,8 @@ Auth Router
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
 
 from models import LoginRequest, LoginResponse, LogoutResponse
 from config import SERVER_TOKEN, session_store, log, load_users_from_json
@@ -87,8 +88,53 @@ async def login(req: LoginRequest):
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
+@router.post("/verify-token")
+async def verify_client_token(request: Request):
+    """
+    供 SE 调用：验证 Client Token 是否有效
+
+    鉴权要求：
+      - 调用方必须是已注册节点（Bearer 为节点 token）
+      - 请求体必须包含 client token
+    """
+    auth_header = request.headers.get("authorization", "")
+    node_token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not node_token:
+        raise HTTPException(status_code=401, detail="Missing node token")
+
+    from database import verify_node_token
+    node = verify_node_token(node_token)
+    if not node:
+        raise HTTPException(status_code=401, detail="Invalid node token")
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    client_token = (body.get("token") or "").strip()
+    if not client_token:
+        return {"ok": False, "valid": False, "reason": "missing_client_token"}
+
+    from config import active_client_tokens, SERVER_TOKEN
+    if client_token == SERVER_TOKEN:
+        return {"ok": True, "valid": True, "username": "server", "token_type": "server"}
+
+    user_info = active_client_tokens.get(client_token)
+    if not user_info:
+        return {"ok": True, "valid": False, "reason": "invalid_or_expired"}
+
+    return {
+        "ok": True,
+        "valid": True,
+        "username": user_info.get("username", ""),
+        "token_type": "client",
+    }
+
+
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(_=None):
+
     """用户登出（客户端级别断开，不影响服务器券商连接）"""
     from auth import invalidate_client_token
     # 尝试从请求头获取 Token 并使其失效

@@ -3,7 +3,7 @@ Heartbeat Sender — 向 Server_manager 定期发送心跳保活
 
 协议: POST /nodes/heartbeat
 认证: Authorization: Bearer {token}
-间隔: 默认 30s（可由 SM 的 next_interval 动态调整）
+间隔: 默认 20s（可由 SM 的 next_interval 动态调整）
 
 特性:
   - 失败指数退避重试（1s→2s→4s→...→最大60s）
@@ -29,7 +29,7 @@ class HeartbeatSender:
 
     def __init__(
         self,
-        interval: float = 30.0,
+        interval: float = 20.0,
         max_backoff: float = 60.0,
     ):
         self.interval = interval
@@ -154,7 +154,7 @@ class HeartbeatSender:
                     # ★ 占用感知的动态间隔调整
                     # SM 会告知此节点是否被占用：
                     #   - 被占用 → next_interval=5s（快速心跳，配合SM端15秒超时实现快速掉线检测）
-                    #   - 未被占用 → next_interval=30s（正常心跳）
+                    #   - 未被占用 → next_interval=20s（正常心跳）
                     if next_interval and next_interval > 0:
                         new_interval = float(next_interval)
                         self.interval = new_interval

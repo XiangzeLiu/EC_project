@@ -31,7 +31,9 @@ except ImportError:
             def __repr__(self): return f"ZoneInfo('{self._key}')"
 
 from ..network.http_client import HttpClient
+from ..network.se_websocket import SEWebSocketClient
 from ..constants import STATUS_MAP, LIVE_STATUSES, TZ_ET_NAME, SESSION_START_H, SESSION_END_H
+
 
 
 # ── Sanitize ────────────────────────────────────────────────────────────────────
@@ -59,7 +61,26 @@ class TradingSession:
         self.se_address: str = ""
         self.allowed_brokers: list[str] = []
 
+        # SE 直连客户端（由 UI 在连上/断开时绑定）
+        self._se_client: SEWebSocketClient | None = None
+
+    def bind_se_client(self, se_client: SEWebSocketClient | None):
+        """绑定/解绑 SE 直连客户端"""
+        self._se_client = se_client
+
+    def _can_use_se(self) -> bool:
+        return bool(self._se_client and self._se_client.is_connected)
+
+    def _request_se(self, msg_type: str, payload: dict, timeout: float = 10.0) -> dict | None:
+        if not self._can_use_se():
+            return None
+        try:
+            return self._se_client.request_sync(msg_type, payload, timeout=timeout)
+        except Exception:
+            return None
+
     # ── Auth ────────────────────────────────────────────────────────────────────
+
 
     def login(self, username: str, password: str) -> tuple[bool, str]:
         """
@@ -108,14 +129,35 @@ class TradingSession:
         if not self.connected:
             return []
         try:
-            _, pos_resp = self.http.get("/positions")
-            pos_rows = pos_resp.get("positions", [])
-            _, ord_resp = self.http.get("/orders/history")
-            orders_raw = ord_resp.get("orders", [])
-            return self._calc_today_activity(pos_rows, orders_raw)
+            if not self._can_use_se():
+                self._pos_error = "SE not connected"
+                return []
+
+            resp = self._request_se("POSITION_QUERY", {}, timeout=12.0)
+            if not isinstance(resp, dict):
+                self._pos_error = "SE请求超时或连接异常（可能券商未连接/凭证错误）"
+                return []
+
+            payload = resp.get("payload", {}) or {}
+            if payload.get("success"):
+                pos_rows = payload.get("positions", []) or []
+                # 当前 SE 暂未返回订单历史，这里按“仅持仓”构建界面数据
+                return self._calc_today_activity(pos_rows, [])
+
+            err_code = payload.get("error_code", "")
+            if err_code == "BROKER_OFFLINE":
+                self._pos_error = "券商未连接（请检查SM中的四要素配置）"
+            elif err_code == "NO_BROKER":
+                self._pos_error = "SE未加载可用券商配置"
+            else:
+                self._pos_error = sanitize(payload.get("message", "SE持仓查询失败"))
+            return []
         except Exception as e:
             self._pos_error = sanitize(str(e))
             return []
+
+
+
 
     def _mock_positions(self) -> list[dict]:
         """模拟模式下的预定义持仓数据"""
@@ -319,13 +361,21 @@ class TradingSession:
         if self.mock_mode or not self.connected:
             return []
         try:
-            path = "/orders/live" if mode == "live" else "/orders/history"
-            _, resp = self.http.get(path)
-            raw = resp.get("orders", [])
+            if not self._can_use_se():
+                return []
+
+            se_mode = "live" if mode == "live" else "all"
+            se_resp = self._request_se("ORDER_QUERY", {"mode": se_mode}, timeout=12.0)
+            payload = (se_resp or {}).get("payload", {}) if isinstance(se_resp, dict) else {}
+            if not payload.get("success"):
+                return []
+            raw = payload.get("orders", []) or []
+
             result = []
 
             ET = self._ET
             for o in raw:
+
                 try:
                     if mode == "all":
                         o_ts_str = o.get("updated_at", "")
@@ -369,12 +419,18 @@ class TradingSession:
         if not self.connected:
             return False, "Not connected"
         try:
-            status, resp = self.http.delete(f"/orders/{order_id}")
-            if status in (200, 201, 204):
+            if not self._can_use_se():
+                return False, "SE not connected"
+
+            resp = self._request_se("ORDER_CANCEL", {"order_id": order_id}, timeout=10.0)
+            payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+            if payload.get("success"):
                 return True, f"Order {str(order_id)[-6:]} cancelled"
-            return False, sanitize(resp.get("detail", f"Cancel failed (HTTP {status})"))
+            return False, sanitize(payload.get("message", "Cancel failed"))
         except Exception as e:
             return False, sanitize(f"撤单失败: {e}")
+
+
 
     def place_order(self, symbol: str, qty: int, price: float,
                     action: str, order_type: str = "limit", tif: str = "Day") -> tuple[bool, str]:
@@ -399,20 +455,26 @@ class TradingSession:
         if not self.connected:
             return False, "Not connected"
         try:
-            status, resp = self.http.post("/orders/place", {
+            if not self._can_use_se():
+                return False, "SE not connected"
+
+            resp = self._request_se("ORDER_SUBMIT", {
                 "symbol": symbol,
                 "qty": qty,
                 "price": price,
                 "action": action,
                 "order_type": order_type,
                 "tif": tif,
-            })
-            if status in (200, 201):
-                oid = resp.get("order_id", "")
+            }, timeout=12.0)
+            payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+            if payload.get("success"):
+                oid = payload.get("order_id", "")
                 return True, f"Order submitted — ID: {str(oid)[-8:]}"
-            return False, sanitize(resp.get("detail", f"Order failed (HTTP {status})"))
+            return False, sanitize(payload.get("message", "Order failed"))
         except Exception as e:
             return False, sanitize(f"Order failed: {e}")
+
+
 
     def enable_mock_mode(self):
         """启用模拟模式"""
