@@ -17,7 +17,9 @@ import logging
 import queue
 import threading
 import time
+import uuid
 from typing import Callable
+
 
 
 import websockets
@@ -127,12 +129,15 @@ class SEWebSocketClient:
             请求 ID
         """
         req_id = f"req_{int(time.time() * 1000)}"
+        p = dict(payload or {})
+        p.setdefault("trace_id", f"trc_{uuid.uuid4().hex[:16]}")
         msg = {
             "type": msg_type,
             "id": req_id,
             "timestamp": int(time.time() * 1000),
-            "payload": payload or {},
+            "payload": p,
         }
+
         with self._req_lock:
             self._pending_requests.append(msg)
         return req_id
@@ -148,12 +153,15 @@ class SEWebSocketClient:
             return None
 
         req_id = f"req_{int(time.time() * 1000)}"
+        p = dict(payload or {})
+        p.setdefault("trace_id", f"trc_{uuid.uuid4().hex[:16]}")
         msg = {
             "type": msg_type,
             "id": req_id,
             "timestamp": int(time.time() * 1000),
-            "payload": payload or {},
+            "payload": p,
         }
+
 
         q: queue.Queue = queue.Queue(maxsize=1)
         with self._resp_lock:
@@ -308,8 +316,9 @@ class SEWebSocketClient:
                 "type": "CONNECT",
                 "id": f"conn_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
-                "payload": {"token": self.token},
+                "payload": {"token": self.token, "trace_id": f"trc_{uuid.uuid4().hex[:16]}"},
             }
+
             await ws.send(json.dumps(connect_msg))
 
             # 阶段2: 等待 CONNECT_ACK

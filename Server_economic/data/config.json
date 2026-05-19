@@ -1,8 +1,8 @@
 {
-  "server_id": "node_economic-node-01_79f76865",
-  "token": "t7Bz7qWvqBXtu_pUDJEM1PgYolTb1OHLZVvSmSpQj8U",
+  "server_id": "node_economic-node-01_36d7fdcb",
+  "token": "ArfgUXtmnWWHpRaKQqvYIaFdJSs3f2wPzCTDutMH_w0",
   "manager_url": "http://127.0.0.1:8800",
   "node_name": "economic-node-01",
   "region": "tastytrade",
-  "saved_at": "2026-05-17T07:52:21.232744+00:00"
+  "saved_at": "2026-05-19T18:58:56.821229+00:00"
 }

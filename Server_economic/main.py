@@ -57,10 +57,12 @@ from .config import (
 from .services.registration import (
     run_full_registration,
     submit_registration,
+    cancel_registration_request,
     await_approval,
     check_and_restore_session,
     test_connection,
 )
+
 from .services.heartbeat import HeartbeatSender
 from .services.economic_data import get_all_indicators, generate_summary_report
 from .network.ws_server import handle_client_connection, broadcast_message
@@ -110,7 +112,17 @@ async def api_register_ping(body: dict):
 
     if ok:
         return {"ok": True, "latency": latency, "message": msg}
-    return {"ok": False, "error": msg}
+
+    err_type = "SM_PING_FAILED"
+    if "WinError 10061" in str(msg) or "urlopen error" in str(msg):
+        err_type = "SM_UNREACHABLE"
+    return {
+        "ok": False,
+        "error": msg,
+        "error_type": err_type,
+        "manager_url": manager_url,
+    }
+
 
 
 @app.post("/api/register/submit")
@@ -149,8 +161,71 @@ async def api_register_submit(body: dict):
         return {"ok": False, "error": f"Internal error: {e}"}
 
 
+@app.post("/api/register/cancel")
+async def api_register_cancel(body: dict):
+    """取消/废弃一次注册申请（用于 GUI 等待审批时用户主动取消）。"""
+    request_id = (body.get("request_id") or "").strip()
+    reason = (body.get("reason") or "node_cancelled_by_user").strip()
+    force_discard_approved = bool(body.get("force_discard_approved", True))
+
+    if not request_id:
+        return {"ok": False, "error": "request_id is required"}
+
+    manager_url = body.get("manager_url", state.manager_url)
+    if manager_url:
+        state.manager_url = manager_url
+
+    log = logging.getLogger("server_economic.main")
+    result = cancel_registration_request(
+        request_id=request_id,
+        reason=reason,
+        force_discard_approved=force_discard_approved,
+    )
+    log.info(f"[Register Cancel] request_id={request_id}, result={result}")
+    return result
+
+
+@app.get("/api/register/pre-approve-check")
+async def api_register_pre_approve_check(request_id: str = Query(...)):
+    """供 SM 审批前问询：确认该 request 仍有效，避免审批废弃申请。"""
+    from .config import load_register_state
+
+    rid = (request_id or "").strip()
+    if not rid:
+        return {"ok": False, "can_approve": False, "reason": "request_id is required"}
+
+    reg_state = load_register_state()
+    if not reg_state:
+        return {
+            "ok": True,
+            "can_approve": False,
+            "reason": "request_abandoned_or_not_waiting",
+        }
+
+    waiting_rid = (reg_state.get("request_id") or "").strip()
+    if waiting_rid != rid:
+        return {
+            "ok": True,
+            "can_approve": False,
+            "reason": "request_mismatch_or_abandoned",
+            "current_request_id": waiting_rid,
+        }
+
+    if state.server_id and state.token and state.status in ("approved", "running", "online"):
+        return {
+            "ok": True,
+            "can_approve": False,
+            "reason": "already_registered",
+            "server_id": state.server_id,
+        }
+
+    return {"ok": True, "can_approve": True, "reason": "waiting_approval"}
+
+
 @app.get("/api/register/await-approval")
 async def api_await_approval(request_id: str = Query(...)):
+
+
     """
     Step C: SSE 等待审核结果
     代理 SM 的 SSE 流到前端，同时在后端解析 approved 事件并保存凭证/更新状态
@@ -219,15 +294,17 @@ async def api_await_approval(request_id: str = Query(...)):
                                             _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
                                             await _heartbeat.start()
                                         # ★ 初始化券商连接（从 SM 拉取配置）
-                                        from .services.config_sync import init_broker
+                                        from .services.config_sync import init_broker, start_config_event_listener
                                         try:
                                             broker_ok = await init_broker()
                                             if broker_ok:
                                                 log.info("[Await Approval] Broker initialized OK")
                                             else:
                                                 log.warning("[Await Approval] Broker init failed (will retry via heartbeat)")
+                                            start_config_event_listener()
                                         except Exception as be:
                                             log.error(f"[Await Approval] Broker init exception: {be}")
+
                                     else:
                                         reason = result.get("reason", "")
                                         log.warning(f"[Await Approval] REJECTED: {reason}")
@@ -442,9 +519,17 @@ async def on_startup():
         label = "OK" if ok else "FAIL (%s)" % msg
         print("  [%s] 首次心跳: %s" % (">" if ok else "!", label))
 
+        # 启动配置事件监听（配置快速生效）
+        try:
+            from .services.config_sync import start_config_event_listener
+            start_config_event_listener()
+        except Exception as ce:
+            log.warning(f"start config event listener failed: {ce}")
+
         state.status = "running"
     elif not has_creds:
         state.status = "uninitialized"
+
 
     # 3) 输出启动信息
     ws_port = args.ws_port or DEFAULT_WS_PORT

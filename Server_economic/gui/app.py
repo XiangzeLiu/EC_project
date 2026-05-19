@@ -108,6 +108,20 @@ class SEControlPanel(tk.Tk):
         self._uptime_start: float = time.time()
         self._sse_thread: threading.Thread | None = None
         self._sse_cancelled: bool = False
+        self._register_in_progress: bool = False
+        self._wait_overlay: tk.Toplevel | None = None
+        self._wait_modal: tk.Toplevel | None = None
+        self._wait_title_label: tk.Label | None = None
+        self._wait_req_label: tk.Label | None = None
+        self._wait_cancel_btn: tk.Button | None = None
+        self._cancel_in_progress: bool = False
+        self._current_request_id: str = ""
+
+        self._current_manager_url: str = ""
+        self._abandoned_request_ids: dict[str, float] = {}
+
+
+
 
         # ── 构建 UI ────────────────────────────────────
         self._build_top_bar()
@@ -749,9 +763,10 @@ class SEControlPanel(tk.Tk):
         # ── 注册状态判断 → 锁定/解锁 ──────────────────
         has_creds = bool(reg.get("has_credentials"))
         sid = reg.get("server_id", "")
-        is_registered = bool(sid and status_val in (
-            "approved", "running", "online"
-        ) or (sid and has_creds))
+        is_registered = bool(
+            sid and has_creds and status_val in ("approved", "running", "online")
+        )
+
 
         if is_registered and not self._registered:
             self._registered = True
@@ -771,7 +786,11 @@ class SEControlPanel(tk.Tk):
                     st_color = TEXT_MUTED
             self.cred_info["状态"].config(text=st_text, fg=st_color)
             self.cred_frame.pack(fill="x", before=self.log_text.master)
-            self._log(self.log_text, "*** 注册成功并已锁定 ***", "ok")
+            if self._register_in_progress:
+                self._log(self.log_text, "*** 注册成功并已锁定 ***", "ok")
+            else:
+                self._log(self.log_text, "*** 检测到本地已保存凭证，表单已锁定（非本次新注册）***", "warn")
+
         elif not is_registered and self._registered:
             self._registered = False
             self._lock_form(False)
@@ -853,10 +872,15 @@ class SEControlPanel(tk.Tk):
 
     def _do_register(self):
         """执行三步注册流程（在后台线程中）"""
+        if self._register_in_progress:
+            self._toast("请稍候", "当前已有注册流程在进行中，请勿重复提交", "warn")
+            return
+
         mgr_url = self.fm_mgr_url.get().strip()
         node_name = self.fm_node_name.get().strip()
         region = self.fm_region.get()
         host = self.fm_host.get().strip()
+
 
         # 校验
         if not mgr_url:
@@ -869,7 +893,12 @@ class SEControlPanel(tk.Tk):
         payload = {"manager_url": mgr_url, "node_name": node_name,
                    "region": region, "host": host}
 
+        self._current_manager_url = mgr_url
+        self._sse_cancelled = False
+        self._current_request_id = ""
+
         self._log(self.log_text, "======== 注册开始 ========" , "ok")
+
         self._log(self.log_text, f"[1/3] 参数: {json.dumps(payload)}", "info")
 
         # 锁定 UI（表单 + 按钮）
@@ -877,55 +906,386 @@ class SEControlPanel(tk.Tk):
         self.btn_register.configure(text="等待审批中...", bg=ACCENT_YELLOW, state="disabled")
         self.progress_bar.pack(fill="x", padx=16, pady=4)
         self.progress_bar.start(10)
+        # 立即弹出等待层（先显示“提交中”）
+        self._show_wait_modal("", "正在提交注册申请，请稍候...")
 
         # 在线程中运行注册（避免阻塞 UI）
+        self._register_in_progress = True
+
         t = threading.Thread(target=lambda: self._register_thread(payload), daemon=True)
         t.start()
+
 
     def _register_thread(self, payload):
         """注册流程的后台线程"""
         mgr_url = payload["manager_url"]
 
-        # Step 1: Ping
-        self.after(0, lambda: self._log(self.log_text, "[1/3] 测试连通性...", "info"))
+        # Step 0: 本地 SE API 健康检查（避免误判为 SM 拒绝连接）
+        self.after(0, lambda: self._log(self.log_text, "[0/3] 检查本地子节点服务...", "info"))
+        local_result = self.api.ping_local()
+        if local_result and local_result.get("ok"):
+            self.after(0, lambda r=local_result: self._handle_local_ping(r))
+        else:
+            # 本地 API 不可用时，走直连 SM 兜底路径（避免无法注册）
+            err_type = (local_result or {}).get("error_type", "") if isinstance(local_result, dict) else ""
+            if err_type == "SE_LOCAL_UNREACHABLE":
+                self.after(0, lambda: self._log(self.log_text, "[0/3] 本地服务不可达，自动切换直连 SM 注册", "warn"))
+                self._register_thread_direct_fallback(payload)
+                self.after(0, self._finish_register_ui)
+                return
+            self.after(0, lambda r=local_result: self._handle_local_ping(r))
+            self.after(0, self._finish_register_ui)
+            return
+
+
+        # Step 1: Ping SM
+        self.after(0, lambda: self._log(self.log_text, "[1/3] 测试管理端连通性...", "info"))
         ping_result = self.api.ping_sm(mgr_url)
         self.after(0, lambda r=ping_result: self._handle_ping(r))
         if not ping_result or not ping_result.get("ok"):
+            self.after(0, self._finish_register_ui)
             return
 
         # Step 2: Submit
         self.after(0, lambda: self._log(self.log_text, "[2/3] 提交注册请求...", "info"))
+
         submit_result = self.api.submit_registration(payload)
         self.after(0, lambda r=submit_result: self._handle_submit(r))
         if not submit_result or not submit_result.get("ok"):
+            self.after(0, self._finish_register_ui)
             return
 
         req_id = submit_result.get("request_id", "")
+        self._current_request_id = req_id
         self.after(0, lambda: self._log(self.log_text, f"[2/3] 提交成功 request_id={req_id}", "ok"))
 
         # Step 3: SSE Wait
         self.after(0, lambda: self._log(self.log_text, "[3/3] 等待审批 (SSE)...", "warn"))
+        self.after(0, lambda r=req_id: self._show_wait_modal(r))
         self._sse_cancelled = False
         for event in self.api.sse_await_approval(req_id):
             if self._sse_cancelled:
                 break
-            self.after(0, lambda e=event: self._handle_sse_event(e))
+            self.after(0, lambda e=event, r=req_id: self._handle_sse_event(e, r))
             if event.get("approved") is not False or event.get("reason"):
                 break
+
 
         # 完成：恢复 UI
         self.after(0, self._finish_register_ui)
 
+    def _register_thread_direct_fallback(self, payload):
+        """本地 API 不可用时，GUI 线程直连 SM 执行注册流程"""
+        self.after(0, lambda: self._log(self.log_text, "[FALLBACK] 本地 API 不可用，切换直连 SM 注册", "warn"))
+        try:
+            try:
+                from ..config import state
+                from ..services.registration import test_connection, submit_registration, await_approval
+            except Exception:
+                from Server_economic.config import state
+                from Server_economic.services.registration import test_connection, submit_registration, await_approval
+
+            state.manager_url = payload.get("manager_url", "") or state.manager_url
+            state.node_name = payload.get("node_name", "") or state.node_name
+            state.region = payload.get("region", "") or state.region
+
+            self.after(0, lambda: self._log(self.log_text, "[1/3] 测试管理端连通性...", "info"))
+            ok, msg = test_connection()
+            if ok:
+                self.after(0, lambda: self._log(self.log_text, "[1/3] 成功 (fallback)", "ok"))
+            else:
+                self.after(0, lambda m=msg: self._handle_ping({"ok": False, "error": m}))
+                return
+
+            self.after(0, lambda: self._log(self.log_text, "[2/3] 提交注册请求...", "info"))
+            result = submit_registration(
+                node_name=payload.get("node_name"),
+                region=payload.get("region"),
+                host=payload.get("host"),
+            )
+            if not result:
+                self.after(0, lambda: self._handle_submit({"ok": False, "error": "Registration submission failed"}))
+                return
+
+            req_id = result.get("request_id", "")
+            self._current_request_id = req_id
+            self.after(0, lambda r=req_id: self._log(self.log_text, f"[2/3] 提交成功 request_id={r}", "ok"))
+            self.after(0, lambda: self._log(self.log_text, "[3/3] 等待审批 (SSE)...", "warn"))
+            self.after(0, lambda r=req_id: self._show_wait_modal(r))
+
+            event = await_approval(request_id=req_id, timeout=3600, shutdown_check=lambda: self._sse_cancelled)
+            if self._sse_cancelled:
+                return
+            if not event:
+                event = {"approved": False, "reason": "SSE等待失败或超时"}
+            self.after(0, lambda e=event, r=req_id: self._handle_sse_event(e, r))
+
+
+        except Exception as e:
+            self.after(0, lambda err=str(e): self._log(self.log_text, f"[FALLBACK] 失败: {err}", "err"))
+
+
+    def _show_wait_modal(self, request_id: str = "", title: str = "注册申请已提交，正在等待管理员审批"):
+        """等待审批弹窗（模态+黑色透明遮罩，锁定主界面）。"""
+        # 若弹窗已存在，直接更新内容，避免闪烁
+        if self._wait_modal is not None and self._wait_modal.winfo_exists():
+            if self._wait_title_label is not None:
+                self._wait_title_label.config(text=title)
+            if self._wait_req_label is not None:
+                self._wait_req_label.config(
+                    text=(f"request_id: {request_id}" if request_id else "request_id: 提交中...")
+                )
+            if self._wait_cancel_btn is not None:
+                if request_id:
+                    self._wait_cancel_btn.config(text="取消本次申请", state="normal")
+                    self._wait_modal.protocol("WM_DELETE_WINDOW", self._cancel_current_registration)
+                else:
+                    self._wait_cancel_btn.config(text="提交中...", state="disabled")
+                    self._wait_modal.protocol("WM_DELETE_WINDOW", lambda: None)
+            self._wait_modal.lift()
+            return
+
+
+        self.update_idletasks()
+        x = self.winfo_rootx()
+        y = self.winfo_rooty()
+        w = self.winfo_width()
+        h = self.winfo_height()
+
+        # 透明遮罩层
+        overlay = tk.Toplevel(self)
+        overlay.overrideredirect(True)
+        overlay.configure(bg="#000")
+        overlay.geometry(f"{max(w,1)}x{max(h,1)}+{x}+{y}")
+        overlay.transient(self)
+        try:
+            overlay.attributes("-alpha", 0.35)
+            overlay.attributes("-topmost", True)
+        except Exception:
+            pass
+        self._wait_overlay = overlay
+
+        # 中央弹窗
+        top = tk.Toplevel(self)
+        top.title("等待审批")
+        top.configure(bg=BG_SECONDARY)
+        top.resizable(False, False)
+        top.transient(self)
+        try:
+            top.attributes("-topmost", True)
+        except Exception:
+            pass
+
+        self._wait_title_label = tk.Label(
+            top,
+            text=title,
+            bg=BG_SECONDARY,
+            fg=TEXT_PRIMARY,
+            font=FONT_BOLD,
+            padx=16,
+            pady=12,
+        )
+        self._wait_title_label.pack(fill="x")
+
+        self._wait_req_label = tk.Label(
+            top,
+            text=(f"request_id: {request_id}" if request_id else "request_id: 提交中..."),
+            bg=BG_SECONDARY,
+            fg=TEXT_MUTED,
+            font=FONT_MONO_SM,
+            padx=16,
+            pady=4,
+        )
+        self._wait_req_label.pack(fill="x")
+
+        btn_row = tk.Frame(top, bg=BG_SECONDARY)
+        btn_row.pack(fill="x", padx=16, pady=(8, 14))
+
+        self._wait_cancel_btn = tk.Button(
+            btn_row,
+            text=("取消本次申请" if request_id else "提交中..."),
+            command=self._cancel_current_registration,
+            bg=ACCENT_YELLOW,
+            fg="#000",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            state=("normal" if request_id else "disabled"),
+        )
+        self._wait_cancel_btn.pack(side="right")
+
+        top.protocol("WM_DELETE_WINDOW", self._cancel_current_registration if request_id else (lambda: None))
+        self._wait_modal = top
+
+        self._cancel_in_progress = False
+
+        top.update_idletasks()
+        mw = top.winfo_width()
+        mh = top.winfo_height()
+        cx = x + (w - mw) // 2
+        cy = y + (h - mh) // 2
+        top.geometry(f"+{max(cx,0)}+{max(cy,0)}")
+
+        try:
+            top.grab_set()
+            top.focus_force()
+        except Exception:
+            pass
+
+    def _close_wait_modal(self):
+        if self._wait_modal is not None:
+            try:
+                self._wait_modal.grab_release()
+            except Exception:
+                pass
+            try:
+                self._wait_modal.destroy()
+            except Exception:
+                pass
+            self._wait_modal = None
+        if self._wait_overlay is not None:
+            try:
+                self._wait_overlay.destroy()
+            except Exception:
+                pass
+            self._wait_overlay = None
+        self._wait_title_label = None
+        self._wait_req_label = None
+        self._wait_cancel_btn = None
+        self._cancel_in_progress = False
+
+
+    def _remember_abandoned_request(self, request_id: str):
+        rid = (request_id or "").strip()
+        if not rid:
+            return
+        now = time.time()
+        self._abandoned_request_ids[rid] = now
+        # 防止长期运行时集合无限增长（保留最近 200 条）
+        if len(self._abandoned_request_ids) > 200:
+            for old_rid in list(self._abandoned_request_ids.keys())[:80]:
+                self._abandoned_request_ids.pop(old_rid, None)
+
+    def _purge_abandoned_requests(self, keep_seconds: int = 86400):
+        now = time.time()
+        for rid, ts in list(self._abandoned_request_ids.items()):
+            if now - ts > keep_seconds:
+                self._abandoned_request_ids.pop(rid, None)
+
+    def _cancel_request_on_sm(self, request_id: str) -> dict:
+
+        """通知 SM 取消/废弃 request。优先走本地 API，不通时直连。"""
+        r = self.api.cancel_registration(request_id, self._current_manager_url)
+        if r and isinstance(r, dict) and r.get("ok"):
+            return r
+
+        try:
+            try:
+                from ..config import state
+                from ..services.registration import cancel_registration_request
+            except Exception:
+                from Server_economic.config import state
+                from Server_economic.services.registration import cancel_registration_request
+
+            if self._current_manager_url:
+                state.manager_url = self._current_manager_url
+            return cancel_registration_request(
+                request_id=request_id,
+                reason="node_cancelled_by_user",
+                force_discard_approved=True,
+            )
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _discard_abandoned_approval(self, request_id: str):
+        """晚到的 approved 结果：二次通知 SM 丢弃，避免建立管理状态。"""
+        result = self._cancel_request_on_sm(request_id)
+        if result.get("ok"):
+            self._log(self.log_text, f"[OK] 已丢弃废弃申请: {request_id}", "warn")
+            self._toast("已丢弃废弃申请", f"request_id={request_id}\n已通知 SM 丢弃该申请", "warn")
+        else:
+            err = result.get("error", "未知错误")
+            self._log(self.log_text, f"[!] 丢弃废弃申请失败: {err}", "err")
+        self._abandoned_request_ids.pop(request_id, None)
+
+    def _cancel_current_registration_worker(self, request_id: str):
+        result = self._cancel_request_on_sm(request_id)
+        if result.get("ok"):
+            self._remember_abandoned_request(request_id)
+            self._sse_cancelled = True
+            self.after(0, lambda: self._log(self.log_text, f"[CANCEL] 已废弃申请: {request_id}", "warn"))
+            self.after(0, lambda: self._toast("已取消", "已通知 SM 废弃该申请，可重新发起注册", "ok"))
+            self.after(0, self._close_wait_modal)
+            self.after(0, self._finish_register_ui)
+            return
+
+        err = result.get("error", "未知错误")
+        self.after(0, lambda e=err: self._log(self.log_text, f"[CANCEL] 取消失败，继续等待审批: {e}", "err"))
+        self.after(0, lambda e=err: self._toast("取消失败", f"通知 SM 取消失败：{e}\n当前仍在等待审批", "err"))
+
+        def _restore_cancel_btn():
+            self._cancel_in_progress = False
+            if self._wait_cancel_btn is not None:
+                self._wait_cancel_btn.configure(text="取消本次申请", state="normal")
+
+        self.after(0, _restore_cancel_btn)
+
+    def _cancel_current_registration(self):
+        """用户主动取消等待审批（异步执行，避免阻塞 UI）。"""
+        rid = (self._current_request_id or "").strip()
+        if not rid:
+            self._close_wait_modal()
+            self._finish_register_ui()
+            return
+
+        if self._cancel_in_progress:
+            return
+
+        if not messagebox.askyesno(
+            "取消注册",
+            "确定要取消当前注册申请吗？\n取消后将回到可重新注册状态。",
+        ):
+            return
+
+        self._cancel_in_progress = True
+        if self._wait_cancel_btn is not None:
+            self._wait_cancel_btn.configure(text="取消中...", state="disabled")
+
+        self._log(self.log_text, f"[CANCEL] 用户发起取消: {rid}", "warn")
+        threading.Thread(
+            target=lambda r=rid: self._cancel_current_registration_worker(r),
+            daemon=True,
+        ).start()
+
+    def _handle_local_ping(self, result):
+
+        """处理本地 SE API 健康检查结果"""
+
+        if result and result.get("ok"):
+            self._log(self.log_text, "[0/3] 本地服务可用", "ok")
+        else:
+            err = (
+                result.get("error")
+                if isinstance(result, dict) and result.get("error")
+                else ("无响应" if not result else "本地服务响应异常")
+            )
+            self._log(self.log_text, f"[0/3] 失败: {err}", "err")
+            self._toast("本地服务不可用", err, "err")
+            self._reset_register_ui()
+
+
     def _handle_ping(self, result):
-        """处理 Ping 结果"""
+        """处理 SM Ping 结果"""
         if result and result.get("ok"):
             latency = result.get("latency", "?")
             self._log(self.log_text, f"[1/3] 成功 ({latency}ms)", "ok")
         else:
             err = result.get("error", "未知") if result else "无响应"
             self._log(self.log_text, f"[1/3] 失败: {err}", "err")
-            self._toast("连接测试失败", err, "err")
+            self._toast("SM 连通性测试失败", err, "err")
             self._reset_register_ui()
+
 
     def _handle_submit(self, result):
         """处理 Submit 结果"""
@@ -938,16 +1298,34 @@ class SEControlPanel(tk.Tk):
             self._toast("提交失败", err, "err")
             self._reset_register_ui()
 
-    def _handle_sse_event(self, event):
+    def _handle_sse_event(self, event, request_id: str = ""):
         """处理 SSE 事件"""
+        rid = request_id or self._current_request_id
+
+        # 该请求已被用户取消：若晚到 approved，则通知 SM 丢弃
+        if rid and rid in self._abandoned_request_ids:
+            if event.get("approved"):
+                self._log(self.log_text, f"[!] 收到已废弃申请的通过结果，正在丢弃: {rid}", "warn")
+                self._discard_abandoned_approval(rid)
+            else:
+                self._abandoned_request_ids.pop(rid, None)
+            return
+
+
         if event.get("approved"):
             sid = event.get("server_id", "")
             self._log(self.log_text, f"*** 已批准! server_id={sid} ***", "ok")
+            # 先关闭模态层并释放 grab，避免 messagebox 被遮挡导致“假死”
+            self._close_wait_modal()
+            # 标记为已注册，避免 _finish_register_ui 误解锁
+            self._registered = True
             self._toast("注册审批通过", "注册已获批准！", "ok")
-            # 立即刷新状态 → 触发表单锁定
-            self._refresh_status()
+            # 延后刷新，避免与弹窗叠加造成主线程卡顿
+            self.after(50, self._refresh_status)
         elif event.get("reason"):
             reason = event.get("reason", "")
+            # 先关闭模态层并释放 grab，避免错误弹窗被遮挡
+            self._close_wait_modal()
             # 区分：真正的拒绝 vs SSE 流错误
             if reason.startswith("SSE") or "stream error" in reason.lower() or "连接中断" in reason:
                 self._log(self.log_text, f"[!] 连接中断: {reason}", "err")
@@ -958,8 +1336,13 @@ class SEControlPanel(tk.Tk):
             # 拒绝/错误后标记为需要解锁，_finish_register_ui 会恢复表单
             self._registered = False
 
+
+
     def _reset_register_ui(self):
         """重置注册 UI（失败后恢复）"""
+        self._register_in_progress = False
+        self._close_wait_modal()
+        self._purge_abandoned_requests()
         self._lock_form(False)
         self.btn_register.configure(text="提交注册", bg=ACCENT_BLUE, state="normal")
         self.progress_bar.stop()
@@ -967,11 +1350,18 @@ class SEControlPanel(tk.Tk):
 
     def _finish_register_ui(self):
         """注册流程结束后的 UI 清理"""
+        self._register_in_progress = False
+        self._close_wait_modal()
+        self._purge_abandoned_requests()
         self.progress_bar.stop()
         self.progress_bar.pack_forget()
+        self._current_request_id = ""
         if not self._registered:
             self._lock_form(False)
             self.btn_register.configure(text="提交注册", bg=ACCENT_BLUE, state="normal")
+
+
+
 
     # ── 重新注册 ─────────────────────────────────────────
 
@@ -1005,10 +1395,25 @@ class SEControlPanel(tk.Tk):
 
     def on_close(self):
         """窗口关闭时清理资源"""
+        if self._register_in_progress:
+            if not messagebox.askyesno("退出确认", "当前正在等待审批，确定要退出吗？"):
+                return
+            self._sse_cancelled = True
+            rid = (self._current_request_id or "").strip()
+            if rid:
+                self._remember_abandoned_request(rid)
+                threading.Thread(
+                    target=lambda r=rid: self._cancel_request_on_sm(r),
+                    daemon=True,
+                ).start()
+
+        self._close_wait_modal()
         self._sse_cancelled = True
         if self._poll_job:
             self.after_cancel(self._poll_job)
         self.destroy()
+
+
 
 
 # ── 输入背景色常量（延迟定义，避免循环引用）─────────────

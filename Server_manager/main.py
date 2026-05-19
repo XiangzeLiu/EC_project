@@ -32,6 +32,8 @@ if _SCRIPT_DIR not in sys.path:
 
 import asyncio
 import logging
+import uuid
+
 
 # SSL 证书处理（解决 Windows 证书链不完整问题）
 try:
@@ -48,16 +50,17 @@ from fastapi.templating import Jinja2Templates
 
 from config import (
     SERVER_HOST, SERVER_PORT, session_store,
-    quote_clients, subscribed_syms, is_configured, log,
+    quote_clients, subscribed_syms, log,
 )
+
 import database
 import node_state
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.order_router import router as order_router
 from routers.position_router import router as position_router
-from services.tastytrade_svc import SDK_OK
 from services.quote_service import ib_preconnect, quote_stream_loop, broadcast_quote
+
 
 
 # ── FastAPI App ───────────────────────────────────────────────────────────
@@ -65,15 +68,15 @@ from services.quote_service import ib_preconnect, quote_stream_loop, broadcast_q
 app = FastAPI(
     title="Trading Server Manager",
     description=(
-        "### 交易系统 Server Manager\n\n"
+        "### 交易系统 Server Manager（控制面）\n\n"
         "- **认证管理**：用户登录/登出，支持 JSON 文件 / 配置文件 / 数据库多级认证\n"
-        "- **订单管理**：下单、撤单、活动订单查询、历史订单查询\n"
-        "- **持仓查询**：当前持仓列表，含 Demo 模式模拟数据\n"
-        "- **健康检查**：服务状态监控\n"
-        "- **行情推送**：WebSocket 实时行情订阅\n\n"
+        "- **节点管理**：注册、审核、占用、状态与心跳管理\n"
+        "- **配置管理**：SE 券商配置下发与版本控制\n"
+        "- **健康检查**：服务状态监控\n\n"
         "---\n\n"
-        "**运行模式**：DEMO（模拟数据） | LIVE（真实券商连接）"
+        "**职责边界**：SM 不直接执行券商交易，交易请求统一由 SE 执行"
     ),
+
     version="1.0.0",
     # 禁用内置 /docs，使用下方自定义版本（带语言切换）
     docs_url=None,
@@ -219,10 +222,11 @@ async def admin_dashboard(request: Request):
     sid = _get_session_id(request)
     admin_username = _admin_sessions.get(sid, {}).get("username", "Unknown")
 
-    # 服务状态信息
-    server_mode = "LIVE" if session_store.get("connected") else "DEMO"
-    sdk_status = "\u53EF\u7528" if SDK_OK else "\u4E0D\u53EF\u7528"
+    # 服务状态信息（控制面不直接承载交易 SDK）
+    server_mode = "CONTROL_PLANE"
+    sdk_status = "N/A"
     ib_connected = False
+
     try:
         from services.quote_service import get_ib_app
         ib_app = get_ib_app()
@@ -476,16 +480,84 @@ async def quote_websocket(ws: WebSocket):
 
 import secrets
 import json as _json
+import urllib.parse
+import urllib.request
+import urllib.error
+import socket
+
 
 # SSE 等待队列：{request_id: [asyncio.Queue, ...]}
 _node_sse_queues: dict[str, list] = {}
+# 配置变更通知 SSE 队列：{server_id: [asyncio.Queue, ...]}
+_config_sse_queues: dict[str, list] = {}
+
 
 # 注册请求过期清理间隔（每小时扫描一次）
 _NODE_EXPIRE_CHECK_INTERVAL = 3600
 
 
+def _discard_pending_request_by_probe(request_id: str, reason: str) -> dict:
+    """审批前问询失败时，废弃 pending 申请。"""
+    result = database.cancel_node_request(
+        request_id=request_id,
+        reason=reason,
+        reviewer="sm_probe",
+        force_discard_approved=False,
+    )
+    data = _json.dumps({
+        "approved": False,
+        "reason": reason,
+        "message": "注册已废弃",
+    })
+    _push_sse_result(request_id, data)
+    return result
+
+
+def _probe_se_request_alive(req: dict, request_id: str, timeout_s: int = 10) -> tuple[str, str]:
+    """审批前向 SE 问询 request 是否仍在等待。
+
+    返回:
+      - ("ok", "")：可正常审批
+      - ("abandoned", reason)：明确判定为已废弃/异常申请（应废弃）
+      - ("unknown", reason)：网络不可达等不确定情况（不应误废弃）
+    """
+    host = (req.get("host") or "").strip()
+    if not host:
+        return "unknown", "SE网络异常（缺少主机地址）"
+
+    base = host if host.startswith("http://") or host.startswith("https://") else f"http://{host}"
+    params = urllib.parse.urlencode({"request_id": request_id})
+    url = f"{base.rstrip('/')}/api/register/pre-approve-check?{params}"
+
+    try:
+        req_obj = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req_obj, timeout=timeout_s) as resp:
+            payload = _json.loads(resp.read().decode("utf-8", errors="replace"))
+            if payload.get("ok") and payload.get("can_approve"):
+                return "ok", ""
+
+            reason = str(payload.get("reason") or "").strip()
+            # 仅当 SE 明确回报“已废弃/不等待当前请求”时才按废弃处理
+            if reason in (
+                "request_abandoned_or_not_waiting",
+                "request_mismatch_or_abandoned",
+            ):
+                return "abandoned", f"SE网络异常或废弃申请（{reason}）"
+
+            # 其他场景不在此处误判废弃
+            return "unknown", f"SE问询返回不可审批（{reason or 'unknown'}）"
+    except socket.timeout:
+        return "unknown", "SE网络异常（问询超时>10s）"
+    except urllib.error.URLError as e:
+        return "unknown", f"SE网络异常（{e}）"
+    except Exception as e:
+        return "unknown", f"SE网络异常（{e}）"
+
+
+
 @app.get("/ping")
 async def ping():
+
     """连通性测试 — 子服务端填写注册页面前调用"""
     return {"status": "pong"}
 
@@ -598,8 +670,54 @@ async def await_approval(request_id: str):
     )
 
 
+@app.get("/nodes/config-events")
+async def node_config_events(request: Request, server_id: str = ""):
+    """SE 订阅配置变更事件（SSE）"""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not token or not database.verify_node_token_for_config(token, server_id):
+        return StreamingResponse(
+            iter(["event: error\ndata: {\"ok\": false, \"error\": \"Unauthorized\"}\n\n"]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    queue = asyncio.Queue(maxsize=20)
+    if server_id not in _config_sse_queues:
+        _config_sse_queues[server_id] = []
+    _config_sse_queues[server_id].append(queue)
+
+    async def event_stream():
+        try:
+            hello = _json.dumps({"type": "HELLO", "server_id": server_id})
+            yield f"event: config\ndata: {hello}\n\n"
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    yield f"event: config\ndata: {msg}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            if server_id in _config_sse_queues:
+                queues = _config_sse_queues[server_id]
+                if queue in queues:
+                    queues.remove(queue)
+                if not queues:
+                    del _config_sse_queues[server_id]
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/nodes/heartbeat")
 async def node_heartbeat(request: Request):
+
     """
     已注册节点的心跳保活（需 Bearer Token）
 
@@ -745,9 +863,39 @@ async def approve_node(request: Request, request_id: str):
     account_username = body.get("account_username", "").strip()
     account_password = body.get("account_password", "").strip()
 
+    req = database.get_node_request_by_id(request_id)
+    if not req:
+        return {"ok": False, "error": "Request not found"}
+    if (req.get("status") or "").strip() != "pending":
+        return {"ok": False, "error": f"Request already processed: {req.get('status', '-')}", "status": req.get("status", "")}
+
+    # 审批前问询 SE：仅在“明确废弃/异常申请”时才自动废弃
+    loop = asyncio.get_event_loop()
+    probe_state, probe_msg = await loop.run_in_executor(
+        None,
+        lambda: _probe_se_request_alive(req, request_id, 10),
+    )
+    if probe_state == "abandoned":
+        discard_result = await loop.run_in_executor(
+            None,
+            lambda: _discard_pending_request_by_probe(request_id, probe_msg),
+        )
+        log.warning(f"[approve] probe says abandoned, request discarded: {request_id}, reason={probe_msg}, result={discard_result}")
+        return {
+            "ok": False,
+            "error": probe_msg,
+            "discarded": True,
+            "request_id": request_id,
+        }
+    if probe_state == "unknown":
+        # 网络不可达等不确定情况，不误判废弃，继续人工审批通过流程
+        log.warning(f"[approve] probe unknown, continue approval: {request_id}, detail={probe_msg}")
+
+
     result = database.approve_node_request(request_id)
     if not result:
         return {"ok": False, "error": "Request not found or already processed"}
+
 
     # 将券商配置 + 账户信息一并写入 brokers.config
     if broker_type or broker_credentials or account_username:
@@ -758,6 +906,10 @@ async def approve_node(request: Request, request_id: str):
             account_username=account_username,
             account_password=account_password,
         )
+        cfg = database.get_node_broker_config(result["server_id"])
+        if cfg:
+            _push_config_change(result["server_id"], int(cfg.get("config_version", 0) or 0))
+
 
     # 审批通过后，将节点加载到内存状态管理器
     approved_rows = database.get_approved_nodes_for_memory_load()
@@ -810,8 +962,51 @@ async def reject_node(request: Request, request_id: str, reason: str = ""):
     return {"ok": True, "message": "\u5df2\u62d2\u7edd"}
 
 
+@app.post("/nodes/cancel-request")
+async def cancel_node_request_by_se(request: Request):
+    """SE 主动取消/废弃注册请求（用于等待审批期间点击取消）。"""
+    body = await request.json() if await request.body() else {}
+    request_id = (body.get("request_id") or "").strip()
+    reason = (body.get("reason") or "node_cancelled").strip()
+    force_discard_approved = bool(body.get("force_discard_approved", True))
+
+    if not request_id:
+        return {"ok": False, "error": "request_id is required"}
+
+    result = database.cancel_node_request(
+        request_id=request_id,
+        reason=reason,
+        reviewer="se_node",
+        force_discard_approved=force_discard_approved,
+    )
+    if not result.get("ok"):
+        return result
+
+    action = result.get("action", "")
+    if action == "cancelled_pending":
+        data = _json.dumps({
+            "approved": False,
+            "reason": "节点已取消本次注册申请",
+            "message": "注册已取消",
+        })
+        _push_sse_result(request_id, data)
+    elif action == "discarded_approved":
+        sid = result.get("server_id", "")
+        if sid:
+            node_state.manager.set_deleted(sid)
+        data = _json.dumps({
+            "approved": False,
+            "reason": "该申请已被节点端废弃（审批结果已丢弃）",
+            "message": "注册已废弃",
+        })
+        _push_sse_result(request_id, data)
+
+    return result
+
+
 @app.post("/api/nodes/{server_id}/delete")
 async def delete_node(request: Request, server_id: str):
+
     """管理员彻底删除已批准节点"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
@@ -917,6 +1112,7 @@ async def get_node_config(request: Request, server_id: str = "", token: str = ""
     if not cfg:
         return {"ok": False, "error": "Node not found", "config_version": -1}
 
+    trace_id = request.headers.get("x-trace-id", "") or f"trc_{uuid.uuid4().hex[:16]}"
     return {
         "ok": True,
         "server_id": server_id,
@@ -924,7 +1120,9 @@ async def get_node_config(request: Request, server_id: str = "", token: str = ""
         "broker_type": cfg["broker_type"],
         "credentials": cfg["credentials"],
         "enabled": cfg["enabled"],
+        "trace_id": trace_id,
     }
+
 
 
 @app.put("/api/nodes/{server_id}/config")
@@ -952,7 +1150,11 @@ async def update_node_config(request: Request, server_id: str):
         account_password=account_password if account_password else None,
     )
     if ok:
+        cfg = database.get_node_broker_config(server_id)
+        if cfg:
+            _push_config_change(server_id, int(cfg.get("config_version", 0) or 0))
         return {"ok": True, "message": f"\u914d\u7f6e\u5df2\u66f4\u65b0 ({server_id})"}
+
     return {"ok": False, "error": "\u66f4\u65b0\u5931\u8d25"}
 
 
@@ -964,7 +1166,9 @@ async def reload_node_config(request: Request, server_id: str):
 
     new_ver = database.increment_reload_flag(server_id)
     if new_ver > 0:
+        _push_config_change(server_id, int(new_ver))
         return {"ok": True, "message": f"\u5df2\u89e6\u53d1\u91cd\u8f7d\uff0c\u7248\u672c={new_ver}", "config_version": new_ver}
+
     return {"ok": False, "error": "\u8282\u70b9\u4e0d\u5b58\u5728"}
 
 
@@ -1147,7 +1351,20 @@ def _push_sse_result(request_id: str, data_json: str):
             pass
 
 
+def _push_config_change(server_id: str, version: int):
+    """向指定 server_id 的配置事件 SSE 连接推送 config_changed"""
+    import asyncio
+    data = _json.dumps({"type": "CONFIG_CHANGED", "server_id": server_id, "config_version": version})
+    queues = _config_sse_queues.get(server_id, [])
+    for q in queues[:]:
+        try:
+            q.put_nowait(data)
+        except asyncio.QueueFull:
+            pass
+
+
 def _sse_error_event(msg: str):
+
     """生成一条错误 SSE 事件后关闭"""
     data = _json.dumps({"approved": False, "reason": msg, "message": msg})
     yield f"event: register_result\ndata: {data}\n\n"
@@ -1278,34 +1495,16 @@ async def startup():
     # 启动定期 DB 同步任务
     asyncio.create_task(_db_sync_loop())
 
-    # 检查并连接 Tastytrade（可选，不阻塞启动）
-    if is_configured() and SDK_OK:
-        try:
-            from services.tastytrade_svc import _create_session_account
-            s, a = await _create_session_account()
-            session_store["session"] = s
-            session_store["account"] = a
-            session_store["acct_num"] = str(a.account_number)
-            session_store["connected"] = True
-            log.info(f"Tastytrade auto-connected, account: {session_store['acct_num']}")
-        except Exception as e:
-            log.warning(f"Tastytrade auto-connect failed, running in DEMO mode: {e}")
-    else:
-        mode_reason = "SDK not installed" if not SDK_OK else "credentials not configured"
-        log.info(
-            f"Tastytrade not available ({mode_reason}). "
-            f"Server running in DEMO mode — login, orders & positions will use mock data."
-        )
-
     # 启动行情相关后台任务（IB 可选）
     asyncio.create_task(ib_preconnect())
     asyncio.create_task(quote_stream_loop())
 
     log.info("=" * 60)
     log.info(f"Server Manager started on {SERVER_HOST}:{SERVER_PORT}")
-    log.info(f"Mode: {'LIVE (Tastytrade connected)' if session_store.get('connected') else 'DEMO'}")
-    log.info(f"SDK available: {SDK_OK}, IB available: {'ibapi' in __import__('sys').modules or False}")
+    log.info("Mode: CONTROL_PLANE (trading execution is handled by SE)")
+    log.info(f"IB available: {'ibapi' in __import__('sys').modules or False}")
     log.info("=" * 60)
+
 
 
 @app.on_event("shutdown")

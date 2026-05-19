@@ -175,7 +175,7 @@ class HeartbeatSender:
                         f"next_interval={next_interval}s"
                     )
                     
-                    # ★ 检测券商配置版本变更，触发热更新
+                    # ★ 检测券商配置版本变更，触发热更新（带去抖）
                     remote_ver = data.get("config_version", 0)
                     if remote_ver and remote_ver > 0:
                         try:
@@ -184,11 +184,12 @@ class HeartbeatSender:
                             # 非阻塞调用
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
-                                asyncio.ensure_future(check_and_reload(remote_ver))
+                                asyncio.ensure_future(check_and_reload(remote_ver, source="heartbeat"))
                             else:
                                 log.debug(f"[#{seq}] No event loop, skipping config reload check")
                         except Exception as cre:
                             log.warning(f"[#{seq}] Config version check error: {cre}")
+
                     
                     return True, "ok"
 

@@ -792,6 +792,29 @@ function confirmDlg(title, msg){
   });
 }
 
+// 提示弹窗
+function alertDlg(title, msg){
+  return new Promise(function(resolve){
+    var mid='alert-modal-'+Date.now();
+    var html='<div class="modal-mask" id="'+mid+'">'
+      +'<div class="modal-panel">'
+      +'<div class="modal-head">'
+      +'<h3>'+escapeHtml(title)+'</h3>'
+      +'<button class="modal-close-btn" aria-label="close"><i class="ri-close-line"></i></button>'
+      +'</div>'
+      +'<div class="modal-body"><p style="color:#5b6480;font-size:14px;line-height:1.6">'+escapeHtml(msg)+'</p></div>'
+      +'<div class="modal-foot">'
+      +'<button class="btn-xs btn-pri modal-ok">我知道了</button>'
+      +'</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend',html);
+    var m=document.getElementById(mid);
+    var done=function(){ if(m){ m.remove(); } resolve(true); };
+    m.querySelector('.modal-close-btn').onclick=done;
+    m.querySelector('.modal-ok').onclick=done;
+    m.onclick=function(e){ if(e.target===m){ done(); } };
+  });
+}
+
 // ═══════════════════════════════════════════════════
 //  侧边栏导航
 // ═══════════════════════════════════════════════════
@@ -991,7 +1014,6 @@ async function approveNode(rid,b){
     +'<div id="fields-tastytrade">'
     +'  <div class="field-group"><label class="field-label">Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" placeholder="Tastytrade Session Secret" /></div>'
     +'  <div class="field-group"><label class="field-label">Token <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-token" placeholder="Tastytrade Session Token" /></div>'
-    +'  <div class="field-group"><label class="field-label">账号（选填）</label><input class="inp" id="app-tt-acct" placeholder="留空使用默认账号" /></div>'
     +'</div>'
 
     +'<div id="fields-ib" style="display:none">'
@@ -1035,7 +1057,7 @@ async function doApproveWithConfig(rid,btn){
     var s=document.getElementById('app-tt-secret').value.trim();
     var t=document.getElementById('app-tt-token').value.trim();
     if(!s||!t){toast('\u8bf7\u586b\u5199 Secret \u548c Token','warn');return;}
-    creds={"secret":s,"token":t,"account_number":document.getElementById('app-tt-acct').value.trim()};
+    creds={"secret":s,"token":t};
   }else{
     var h=document.getElementById('app-ib-host').value.trim();
     var p=document.getElementById('app-ib-port').value.trim();
@@ -1053,8 +1075,22 @@ async function doApproveWithConfig(rid,btn){
     var d=await r.json();
     if(d.ok){toast('\u8282\u70b9\u5df2\u901a\u8fc7\u5ba1\u6838\uff0c\u5238\u5546\u914d\u7f6e\u5df2\u4fdd\u5b58','ok');
       document.getElementById('approve-config-modal').remove();refreshNodes();}
-    else{toast('\u5931\u8d25:'+(d.error||d.detail),'err');btn.disabled=false;btn.innerHTML='\u786e\u8ba4\u901a\u8fc7';}
-  }catch(e){toast('\u7f51\u7edc\u9519\u8bef:'+e.message,'err');btn.disabled=false;btn.innerHTML='\u786e\u8ba4\u901a\u8fc7';}
+    else{
+      var msg=(d.error||d.detail||'审批失败');
+      var isDiscarded=!!d.discarded;
+      if(isDiscarded){
+        document.getElementById('approve-config-modal').remove();
+        await alertDlg('SE网络异常或异常申请','该申请已废弃（SE网络异常或异常申请）。\n请让节点重新发起注册后再审批。');
+        refreshNodes();
+      }else{
+        toast('\u5931\u8d25:'+msg,'err');
+        btn.disabled=false;btn.innerHTML='\u786e\u8ba4\u901a\u8fc7';
+      }
+    }
+  }catch(e){
+    toast('网络错误:'+e.message,'err');
+    btn.disabled=false;btn.innerHTML='\u786e\u8ba4\u901a\u8fc7';
+  }
 }
 
 async function rejectNode(rid,b){
@@ -1210,7 +1246,6 @@ function showNodeConfig(sid){
   var creds=cfg.credentials||{};
   var ttSecret=(creds.secret)||'';
   var ttToken=(creds.token)||'';
-  var ttAcctNum=(creds.account_number)||'';
   var ibHost=(creds.host)||'';
   var ibPort=(creds.port)||'';
   var ibCid=(creds.client_id)||'19';
@@ -1234,7 +1269,6 @@ function showNodeConfig(sid){
     +'<div id="cfg-fields-tastytrade"' + (curBroker==='tastytrade'||curBroker===''? '' : ' style="display:none"') + '>'
     +'  <div class="field-group"><label class="field-label">Secret</label><input class="inp" id="cfg-tt-secret" value="'+escapeHtml(ttSecret)+'" placeholder="Tastytrade Session Secret" /></div>'
     +'  <div class="field-group"><label class="field-label">Token</label><input class="inp" id="cfg-tt-token" value="'+escapeHtml(ttToken)+'" placeholder="Tastytrade Session Token" /></div>'
-    +'  <div class="field-group"><label class="field-label">Account Number</label><input class="inp" id="cfg-tt-acct" value="'+escapeHtml(ttAcctNum)+'" placeholder="Tastytrade Account Number (选填)" /></div>'
     +'</div>'
     // IB 凭证
     +'<div id="cfg-fields-ib"' + (curBroker==='interactive_brokers'? '' : ' style="display:none"') + '>'
@@ -1269,7 +1303,7 @@ async function doSaveNodeConfig(sid,btn){
   if(bt==='tastytrade'){
     var s=document.getElementById('cfg-tt-secret').value.trim();
     var t=document.getElementById('cfg-tt-token').value.trim();
-    creds={"secret":s,"token":t,"account_number":document.getElementById('cfg-tt-acct').value.trim()};
+    creds={"secret":s,"token":t};
   }else{
     var h=document.getElementById('cfg-ib-host').value.trim();
     var p=document.getElementById('cfg-ib-port').value.trim();

@@ -413,7 +413,81 @@ def reject_node_request(request_id: str, reason: str = "", reviewer: str = "admi
         conn.close()
 
 
+def cancel_node_request(
+    request_id: str,
+    reason: str = "node_cancelled",
+    reviewer: str = "se_node",
+    force_discard_approved: bool = True,
+) -> dict:
+    """SE 主动取消注册请求。
+
+    行为：
+    - pending   -> cancelled
+    - approved/online/offline/suspended -> （可选）彻底废弃并清理 brokers
+    - 其它终态 -> 幂等返回
+    """
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM node_requests WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": "request_not_found"}
+
+        req = dict(row)
+        status = (req.get("status") or "").strip()
+        now = datetime.now(timezone.utc).isoformat()
+
+        if status == "pending":
+            conn.execute(
+                """
+                UPDATE node_requests
+                SET status='cancelled', reject_reason=?, reviewed_by=?, reviewed_at=?
+                WHERE request_id = ?
+                """,
+                (reason or "node_cancelled", reviewer, now, request_id),
+            )
+            conn.commit()
+            return {"ok": True, "action": "cancelled_pending", "request_id": request_id}
+
+        if status in ("approved", "online", "offline", "suspended"):
+            server_id = req.get("server_id", "")
+            if not force_discard_approved:
+                return {
+                    "ok": False,
+                    "error": "already_approved",
+                    "status": status,
+                    "server_id": server_id,
+                }
+
+            if server_id:
+                conn.execute("DELETE FROM brokers WHERE name = ?", (server_id,))
+            conn.execute("DELETE FROM node_requests WHERE request_id = ?", (request_id,))
+            conn.commit()
+            log.warning(f"Node request discarded after approval: {request_id}, server_id={server_id}")
+            return {
+                "ok": True,
+                "action": "discarded_approved",
+                "request_id": request_id,
+                "server_id": server_id,
+            }
+
+        return {
+            "ok": True,
+            "action": "already_final",
+            "request_id": request_id,
+            "status": status,
+        }
+    except Exception as e:
+        log.error(f"cancel_node_request failed: {e}")
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
 def cleanup_expired_requests() -> int:
+
     """清理过期的待审核请求，返回清理数量"""
     conn = _get_conn()
     try:

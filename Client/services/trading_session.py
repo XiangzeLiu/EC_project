@@ -144,7 +144,8 @@ class TradingSession:
                 # 当前 SE 暂未返回订单历史，这里按“仅持仓”构建界面数据
                 return self._calc_today_activity(pos_rows, [])
 
-            err_code = payload.get("error_code", "")
+            err_code = payload.get("code", "") or payload.get("error_code", "")
+
             if err_code == "BROKER_OFFLINE":
                 self._pos_error = "券商未连接（请检查SM中的四要素配置）"
             elif err_code == "NO_BROKER":

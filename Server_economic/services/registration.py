@@ -133,9 +133,42 @@ def submit_registration(
         return None
 
 
+def cancel_registration_request(
+    request_id: str,
+    reason: str = "node_cancelled_by_user",
+    force_discard_approved: bool = True,
+) -> dict:
+    """通知 SM 取消/废弃一次注册请求。"""
+    url = _get_url("/nodes/cancel-request")
+
+    payload = {
+        "request_id": request_id,
+        "reason": reason,
+        "force_discard_approved": force_discard_approved,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            if result.get("ok"):
+                clear_register_state()
+            return result
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        log.error(f"cancel_registration_request HTTP {e.code}: {body}")
+        return {"ok": False, "error": f"HTTP {e.code}: {body[:120]}"}
+    except Exception as e:
+        log.error(f"cancel_registration_request failed: {e}")
+        return {"ok": False, "error": str(e)}
+
+
 # ── Step C: SSE Wait for Approval ─────────────────────────────────────
 
 def await_approval(
+
     request_id: str | None = None,
     timeout: int = 3600,
     on_status_update: Callable[[str], None] | None = None,

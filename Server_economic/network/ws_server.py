@@ -19,6 +19,8 @@ import logging
 import time
 import urllib.error
 import urllib.request
+import uuid
+
 
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -71,11 +73,14 @@ async def handle_client_connection(ws: WebSocket):
             return
 
         # 验证 Token
-        client_token = msg.get("payload", {}).get("token", "")
+        first_payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
+        trace_id = str(first_payload.get("trace_id") or f"trc_{uuid.uuid4().hex[:16]}")
+        client_token = first_payload.get("token", "")
         if not await _validate_client_token(client_token):
 
             from ..services.message_log import on_auth
-            on_auth(session_id, False, "无效Token或已过期")
+            on_auth(session_id, False, "无效Token或已过期", trace_id=trace_id)
+
             await _send_error(ws, "TOKEN_INVALID", "认证令牌无效或已过期")
             await ws.close(code=4003)
             log.warning(f"[{session_id}] Auth failed: invalid token")
@@ -83,8 +88,9 @@ async def handle_client_connection(ws: WebSocket):
 
         authed = True
         from ..services.message_log import on_connect, on_auth
-        on_connect(session_id, f"{ws.client.host}:{ws.client.port}")
-        on_auth(session_id, True)
+        on_connect(session_id, f"{ws.client.host}:{ws.client.port}", trace_id=trace_id)
+        on_auth(session_id, True, trace_id=trace_id)
+
         _connections[ws] = {
             "session_id": session_id,
             "connected_at": connected_at,
@@ -107,8 +113,10 @@ async def handle_client_connection(ws: WebSocket):
                     "status": state.status,
                 },
                 "heartbeat_interval": 30,
+                "trace_id": trace_id,
             },
         }
+
         await ws.send_json(ack)
         log.info(f"[{session_id}] Auth OK, connection established")
 
@@ -142,7 +150,10 @@ async def handle_client_connection(ws: WebSocket):
                 continue
 
             # 业务消息路由
-            response = await _route_message(msg_type, msg, session_id)
+            payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
+            msg_trace_id = str(payload.get("trace_id") or f"trc_{uuid.uuid4().hex[:16]}")
+            response = await _route_message(msg_type, msg, session_id, msg_trace_id)
+
             if response:
                 await ws.send_json(response)
 
@@ -217,7 +228,8 @@ def _send_error(ws: WebSocket, code: str, message: str):
         "type": "ERROR",
         "id": "",
         "timestamp": int(time.time() * 1000),
-        "payload": {"code": code, "message": message},
+        "payload": {"code": code, "message": message, "trace_id": trace_id},
+
     }
     try:
         asyncio.create_task(ws.send_json(resp))
@@ -225,7 +237,8 @@ def _send_error(ws: WebSocket, code: str, message: str):
         pass
 
 
-async def _route_message(msg_type: str, msg: dict, session_id: str) -> dict | None:
+async def _route_message(msg_type: str, msg: dict, session_id: str, trace_id: str = "") -> dict | None:
+
     """
     根据消息类型路由到对应处理器
 
@@ -239,31 +252,36 @@ async def _route_message(msg_type: str, msg: dict, session_id: str) -> dict | No
     """
     # ★ 记录收到消息
     from ..services.message_log import on_recv, on_send
-    on_recv(session_id, msg_type, msg.get("payload"))
+    on_recv(session_id, msg_type, msg.get("payload"), trace_id=trace_id)
+
 
     handler = _MESSAGE_HANDLERS.get(msg_type)
     if handler:
         try:
-            response = await handler(msg, session_id)
+            response = await handler(msg, session_id, trace_id)
             # ★ 记录发送响应
             on_send(session_id, response.get("type", "UNKNOWN"),
-                    response.get("payload"), True)
+                    response.get("payload"), True, trace_id=trace_id)
             return response
+
         except Exception as e:
             log.error(f"Handler error for {msg_type}: {e}")
-            err_resp = _error_response("INTERNAL_ERROR", str(e)[:100])
-            on_send(session_id, "ERROR", err_resp.get("payload"), False)
+            err_resp = _error_response("INTERNAL_ERROR", str(e)[:100], trace_id=trace_id)
+            on_send(session_id, "ERROR", err_resp.get("payload"), False, trace_id=trace_id)
             return err_resp
 
+
     log.warning(f"Unknown message type: {msg_type} from {session_id}")
-    err_resp = _error_response("UNKNOWN_TYPE", f"不支持的消息类型: {msg_type}")
-    on_send(session_id, err_resp["type"], err_resp["payload"], False)
+    err_resp = _error_response("UNKNOWN_TYPE", f"不支持的消息类型: {msg_type}", trace_id=trace_id)
+    on_send(session_id, err_resp["type"], err_resp["payload"], False, trace_id=trace_id)
+
     return err_resp
 
 
 # ── 消息处理器 ────────────────────────────────────────────────────────
 
-async def _handle_economic_query(msg: dict, sid: str) -> dict:
+async def _handle_economic_query(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """查询经济指标数据"""
     from ..services.economic_data import get_indicator, get_all_indicators
 
@@ -281,11 +299,13 @@ async def _handle_economic_query(msg: dict, sid: str) -> dict:
         "type": "ECONOMIC_DATA_RESPONSE",
         "id": msg.get("id", ""),
         "timestamp": int(time.time() * 1000),
-        "payload": {"data": data or {}, "status": "ok"},
+        "payload": {"data": data or {}, "status": "ok", "trace_id": trace_id},
+
     }
 
 
-async def _handle_status_query(msg: dict, sid: str) -> dict:
+async def _handle_status_query(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """查询节点状态"""
     log.info(f"[{sid}] STATUS_QUERY")
     return {
@@ -302,12 +322,15 @@ async def _handle_status_query(msg: dict, sid: str) -> dict:
                 "heartbeat_ok": state.heartbeat_ok,
                 "heartbeat_fail_count": state.heartbeat_fail_count,
                 "connections": len(_connections),
+                "trace_id": trace_id,
             },
         },
+
     }
 
 
-async def _handle_summary_report(msg: dict, sid: str) -> dict:
+async def _handle_summary_report(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """获取经济数据摘要报告"""
     from ..services.economic_data import generate_summary_report
     log.info(f"[{sid}] SUMMARY_REPORT")
@@ -317,29 +340,34 @@ async def _handle_summary_report(msg: dict, sid: str) -> dict:
         "type": "SUMMARY_REPORT",
         "id": msg.get("id", ""),
         "timestamp": int(time.time() * 1000),
-        "payload": {"report": report, "status": "ok"},
+        "payload": {"report": report, "status": "ok", "trace_id": trace_id},
+
     }
 
 
-def _error_response(code: str, message: str) -> dict:
+def _error_response(code: str, message: str, trace_id: str = "") -> dict:
+
     return {
         "type": "ERROR",
         "id": "",
         "timestamp": int(time.time() * 1000),
-        "payload": {"code": code, "message": message},
+        "payload": {"code": code, "message": message, "trace_id": trace_id},
+
     }
 
 
 # ── 交易 Handler ────────────────────────────────────────────────
 
-async def _handle_order_submit(msg: dict, sid: str) -> dict:
+async def _handle_order_submit(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """处理下单请求"""
     from ..services.trading_svc import place_order
     
     payload = msg.get("payload", {})
     log.info(f"[{sid}] ORDER_SUBMIT: {payload.get('symbol')} {payload.get('action')}")
     
-    result = await place_order(params=payload, session_id=sid)
+    result = await place_order(params=payload, session_id=sid, trace_id=trace_id)
+
     return {
         "type": "ORDER_RESPONSE",
         "id": msg.get("id", ""),
@@ -348,7 +376,8 @@ async def _handle_order_submit(msg: dict, sid: str) -> dict:
     }
 
 
-async def _handle_order_cancel(msg: dict, sid: str) -> dict:
+async def _handle_order_cancel(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """处理撤单请求"""
     from ..services.trading_svc import cancel_order
     
@@ -356,7 +385,8 @@ async def _handle_order_cancel(msg: dict, sid: str) -> dict:
     order_id = payload.get("order_id", "")
     log.info(f"[{sid}] ORDER_CANCEL: {order_id}")
     
-    result = await cancel_order(order_id=order_id, session_id=sid)
+    result = await cancel_order(order_id=order_id, session_id=sid, trace_id=trace_id)
+
     return {
         "type": "ORDER_CANCEL_RESPONSE",
         "id": msg.get("id", ""),
@@ -365,7 +395,8 @@ async def _handle_order_cancel(msg: dict, sid: str) -> dict:
     }
 
 
-async def _handle_position_query(msg: dict, sid: str) -> dict:
+async def _handle_position_query(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """处理持仓查询"""
     from ..services.trading_svc import get_positions
     
@@ -375,7 +406,8 @@ async def _handle_position_query(msg: dict, sid: str) -> dict:
         filters = {"symbols": payload["symbols"]}
     
     log.info(f"[{sid}] POSITION_QUERY")
-    result = await get_positions(filters=filters, session_id=sid)
+    result = await get_positions(filters=filters, session_id=sid, trace_id=trace_id)
+
     return {
         "type": "POSITION_RESPONSE",
         "id": msg.get("id", ""),
@@ -384,7 +416,8 @@ async def _handle_position_query(msg: dict, sid: str) -> dict:
     }
 
 
-async def _handle_order_query(msg: dict, sid: str) -> dict:
+async def _handle_order_query(msg: dict, sid: str, trace_id: str = "") -> dict:
+
     """处理订单查询（live/all）"""
     from ..services.trading_svc import get_orders
 
@@ -394,7 +427,8 @@ async def _handle_order_query(msg: dict, sid: str) -> dict:
         mode = "live"
 
     log.info(f"[{sid}] ORDER_QUERY: mode={mode}")
-    result = await get_orders(mode=mode, session_id=sid)
+    result = await get_orders(mode=mode, session_id=sid, trace_id=trace_id)
+
     return {
         "type": "ORDER_LIST_RESPONSE",
         "id": msg.get("id", ""),
@@ -403,7 +437,8 @@ async def _handle_order_query(msg: dict, sid: str) -> dict:
     }
 
 
-async def _handle_quote_subscribe(msg: dict, sid: str) -> dict:
+async def _handle_quote_subscribe(msg: dict, sid: str, trace_id: str = "") -> dict:
+
 
     """处理行情订阅/取消订阅"""
     from ..services.quote_provider import handle_subscribe, handle_unsubscribe
@@ -418,8 +453,12 @@ async def _handle_quote_subscribe(msg: dict, sid: str) -> dict:
         result = await handle_unsubscribe(symbols=symbols, session_id=sid)
     else:
         result = await handle_subscribe(symbols=symbols, session_id=sid)
-    
+
+    if isinstance(result, dict) and "trace_id" not in result:
+        result["trace_id"] = trace_id
+
     return {
+
         "type": "QUOTE_ACK",
         "id": msg.get("id", ""),
         "timestamp": int(time.time() * 1000),
