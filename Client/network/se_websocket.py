@@ -104,7 +104,8 @@ class SEWebSocketClient:
     def _do_stop(self):
         """在 event loop 内执行停止"""
         if self._ws:
-            asyncio.create_task(self._ws.close())
+            # 使用 run_coroutine_threadsafe 避免未等待的协程警告
+            asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)
 
     def send_query_status(self) -> str:
         """发送节点状态查询请求"""
@@ -408,13 +409,24 @@ class SEWebSocketClient:
     async def _heartbeat_loop(self, ws):
         """每15秒发送 PING（同时监听连接丢失事件以快速响应断连）"""
         while self._active:
+            if self._conn_lost is None:
+                break
             try:
                 # ★ 用 asyncio.wait 同时监听 sleep 和 conn_lost 事件
                 #    这样 _receive_loop 检测到断连后，心跳协程最多 ~0.1s 内退出（而非等满 30 秒）
-                await asyncio.wait(
-                    [asyncio.sleep(15), self._conn_lost.wait()],
+                # 创建任务以便可以取消
+                sleep_task = asyncio.create_task(asyncio.sleep(15))
+                event_task = asyncio.create_task(self._conn_lost.wait())
+                done, pending = await asyncio.wait(
+                    [sleep_task, event_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
+                # 取消未完成的任务
+                for task in pending:
+                    task.cancel()
+                # 等待取消的任务完成（避免警告）
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
             except (asyncio.CancelledError, RuntimeError):
                 break
 
@@ -440,12 +452,23 @@ class SEWebSocketClient:
     async def _send_pending_loop(self, ws):
         """检查并发送待处理请求（每50ms检查一次，同时监听连接丢失事件）"""
         while self._active:
+            if self._conn_lost is None:
+                break
             try:
                 # ★ 同时监听 50ms 定时器和 conn_lost 事件
-                await asyncio.wait(
-                    [asyncio.sleep(0.05), self._conn_lost.wait()],
+                # 创建任务以便可以取消
+                sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+                event_task = asyncio.create_task(self._conn_lost.wait())
+                done, pending = await asyncio.wait(
+                    [sleep_task, event_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
+                # 取消未完成的任务
+                for task in pending:
+                    task.cancel()
+                # 等待取消的任务完成（避免警告）
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
             except (asyncio.CancelledError, RuntimeError):
                 break
 

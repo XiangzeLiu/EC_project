@@ -137,7 +137,17 @@ async def api_register_submit(body: dict):
     log.info(f"[Register Submit] Received body: {body}")
     log.info(f"[Register Submit] Current state.manager_url = {state.manager_url}")
 
+    # 已注册节点不允许重复提交注册
+    if state.server_id and state.token and state.status in ("approved", "running", "online"):
+        return {
+            "ok": False,
+            "error": "节点已完成注册，请勿重复提交",
+            "error_type": "ALREADY_REGISTERED",
+            "server_id": state.server_id,
+        }
+
     try:
+
         result = submit_registration(
             node_name=body.get("node_name"),
             region=body.get("region"),
@@ -287,12 +297,15 @@ async def api_await_approval(request_id: str = Query(...)):
                                         state.server_id = sid
                                         state.token = tok
                                         state.status = "approved"
-                                        # 启动心跳
+                                        # 启动心跳（确保审批后立即进入管理态）
                                         global _heartbeat
                                         if not _heartbeat:
                                             from .services.heartbeat import HeartbeatSender
                                             _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
+                                        if not _heartbeat.stats.get("running", False):
                                             await _heartbeat.start()
+                                        state.status = "running"
+
                                         # ★ 初始化券商连接（从 SM 拉取配置）
                                         from .services.config_sync import init_broker, start_config_event_listener
                                         try:

@@ -79,6 +79,10 @@ def submit_registration(
     Returns:
         SM 返回的 JSON 字典（含 request_id），失败返回 None
     """
+    if state.server_id and state.token and state.status in ("approved", "running", "online"):
+        log.warning("submit_registration skipped: node already registered")
+        return None
+
     payload = {
         "node_name": node_name or state.node_name or DEFAULT_NODE_NAME,
         "region": region or state.region or DEFAULT_REGION,
@@ -92,6 +96,7 @@ def submit_registration(
     state.node_name = payload["node_name"]
     state.region = payload["region"]
     state.status = "registering"
+
 
     url = _get_url("/nodes/register-request")
     json_payload = json.dumps(payload).encode("utf-8")

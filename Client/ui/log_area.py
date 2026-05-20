@@ -7,7 +7,8 @@ import datetime
 
 import tkinter as tk
 
-from ..constants import PANEL_BG, TEXT_DIM, ACCENT_GREEN, ACCENT_RED, ACCENT_BLUE, FONT_MONO_SM
+from ..constants import PANEL_BG, BORDER, TEXT_DIM, ACCENT_GREEN, ACCENT_RED, ACCENT_BLUE, ACCENT_YELLOW, FONT_MONO_SM
+
 
 
 class LogArea:
@@ -22,18 +23,26 @@ class LogArea:
         self._text_widget = tk.Text(
             self.frame,
             bg=PANEL_BG, fg=TEXT_DIM,
-            font=("Courier New", 11),
+            font=FONT_MONO_SM,
             relief="flat", bd=0,
             state="disabled", wrap="word",
-            padx=10, pady=4,
+            padx=10, pady=6,
+            highlightthickness=1, highlightbackground=BORDER,
         )
+        vsb = tk.Scrollbar(self.frame, orient="vertical", command=self._text_widget.yview,
+                           bg=PANEL_BG, troughcolor=PANEL_BG, activebackground=BORDER, relief="flat")
+        self._text_widget.configure(yscrollcommand=vsb.set)
+
+        vsb.pack(side="right", fill="y")
         self._text_widget.pack(fill="both", expand=True)
 
         # 配置tag样式
         self._text_widget.tag_configure("ok", foreground=ACCENT_GREEN)
         self._text_widget.tag_configure("err", foreground=ACCENT_RED)
         self._text_widget.tag_configure("inf", foreground=ACCENT_BLUE)
+        self._text_widget.tag_configure("warn", foreground=ACCENT_YELLOW)
         return self.frame
+
 
     def log(self, msg: str, tag: str = "inf"):
         """写入一条日志"""

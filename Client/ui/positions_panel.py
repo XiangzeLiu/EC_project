@@ -9,10 +9,12 @@ from tkinter import ttk
 
 
 from ..constants import (
-    PANEL_BG, BORDER, TEXT_PRIMARY, TEXT_MUTED,
+    PANEL_BG, PANEL_ALT_BG, BORDER, TEXT_PRIMARY, TEXT_DIM, TEXT_MUTED,
     ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED,
+    BUTTON_NEUTRAL_BG, BUTTON_HOVER_BG, BUTTON_ACTIVE_BG,
     FONT_MONO, FONT_MONO_SM, FONT_BOLD, FONT_UI_SM,
 )
+
 
 
 class PositionsPanel:
@@ -39,10 +41,15 @@ class PositionsPanel:
         tk.Label(hdr, text="Positions & P&L", bg=PANEL_BG,
                  fg=TEXT_PRIMARY, font=FONT_BOLD).pack(side="left")
 
-        refresh_btn = tk.Button(hdr, text="\u27f3", bg=PANEL_BG, fg=ACCENT_BLUE,
-                                font=FONT_UI_SM, relief="flat", bd=0, padx=4, cursor="hand2",
-                                command=self._on_refresh_clicked)
+        refresh_btn = tk.Button(
+            hdr, text="\u27f3", bg=BUTTON_NEUTRAL_BG, fg=ACCENT_BLUE,
+            font=FONT_UI_SM, relief="flat", bd=0, padx=6, cursor="hand2",
+            activebackground=BUTTON_ACTIVE_BG, activeforeground=ACCENT_BLUE,
+            command=self._on_refresh_clicked,
+        )
         refresh_btn.pack(side="right")
+        self._bind_button_hover(refresh_btn, BUTTON_NEUTRAL_BG)
+
 
         # Totals row
         tot = tk.Frame(self.frame, bg=PANEL_BG)
@@ -55,12 +62,16 @@ class PositionsPanel:
         for lbl, attr in [("Today's Shares", "total_shares_var"),
                           ("Realized Today", "total_real_var"),
                           ("Unrealized P&L", "total_unreal_var")]:
-            cell = tk.Frame(tot, bg=PANEL_BG)
-            cell.pack(side="left", expand=True, fill="x", padx=6)
-            tk.Label(cell, text=lbl, bg=PANEL_BG, fg=TEXT_MUTED,
-                     font=("Segoe UI", 9, "bold")).pack(anchor="w")
-            tk.Label(cell, textvariable=getattr(self, attr), bg=PANEL_BG,
-                     fg=TEXT_PRIMARY, font=("Courier New", 13, "bold")).pack(anchor="w")
+            cell = tk.Frame(
+                tot, bg=PANEL_ALT_BG, padx=8, pady=6,
+                highlightthickness=1, highlightbackground=BORDER,
+            )
+            cell.pack(side="left", expand=True, fill="x", padx=4)
+            tk.Label(cell, text=lbl, bg=PANEL_ALT_BG, fg=TEXT_MUTED,
+                     font=FONT_UI_SM).pack(anchor="w")
+            tk.Label(cell, textvariable=getattr(self, attr), bg=PANEL_ALT_BG,
+                     fg=TEXT_PRIMARY, font=FONT_MONO).pack(anchor="w")
+
 
         # Treeview
         tree_frame = tk.Frame(self.frame, bg=PANEL_BG)
@@ -90,7 +101,7 @@ class PositionsPanel:
 
         self.tree.tag_configure("profit", foreground=ACCENT_GREEN)
         self.tree.tag_configure("loss", foreground=ACCENT_RED)
-        self.tree.tag_configure("flat", foreground="#8090a0")
+        self.tree.tag_configure("flat", foreground=TEXT_DIM)
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
@@ -188,7 +199,13 @@ class PositionsPanel:
         if sel:
             callback(sel[0])
 
+    @staticmethod
+    def _bind_button_hover(btn: tk.Button, normal_bg: str):
+        btn.bind("<Enter>", lambda e: btn.config(bg=BUTTON_HOVER_BG))
+        btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
+
     def live_update_pnl(self, current_quotes: dict):
+
         """用实时行情更新未实现盈亏（不重新请求服务器）"""
         tu = tr = 0.0
         for row in self.tree.get_children():

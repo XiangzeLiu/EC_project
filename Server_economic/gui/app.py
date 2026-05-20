@@ -875,6 +875,11 @@ class SEControlPanel(tk.Tk):
         if self._register_in_progress:
             self._toast("请稍候", "当前已有注册流程在进行中，请勿重复提交", "warn")
             return
+        if self._registered:
+            self._toast("已注册", "当前节点已完成注册，无需重复提交", "warn")
+            self._lock_form(True)
+            return
+
 
         mgr_url = self.fm_mgr_url.get().strip()
         node_name = self.fm_node_name.get().strip()
@@ -967,8 +972,10 @@ class SEControlPanel(tk.Tk):
             if self._sse_cancelled:
                 break
             self.after(0, lambda e=event, r=req_id: self._handle_sse_event(e, r))
-            if event.get("approved") is not False or event.get("reason"):
+            approved_val = event.get("approved")
+            if approved_val is True or approved_val is False or event.get("reason"):
                 break
+
 
 
         # 完成：恢复 UI
@@ -1317,13 +1324,19 @@ class SEControlPanel(tk.Tk):
             self._log(self.log_text, f"*** 已批准! server_id={sid} ***", "ok")
             # 先关闭模态层并释放 grab，避免 messagebox 被遮挡导致“假死”
             self._close_wait_modal()
-            # 标记为已注册，避免 _finish_register_ui 误解锁
+            # 标记为已注册并立即锁表单，避免竞态下被误解锁
             self._registered = True
-            self._toast("注册审批通过", "注册已获批准！", "ok")
+            self._lock_form(True)
+            self.cred_info["服务端ID"].config(text=sid or "-")
+            self.cred_info["令牌"].config(text="(已保存)")
+            self.cred_info["管理服务器地址"].config(text=self._current_manager_url or self.fm_mgr_url.get().strip() or "-")
+            self.cred_info["状态"].config(text="已批准，正在建立管理连接", fg=ACCENT_YELLOW)
+            self.cred_frame.pack(fill="x", before=self.log_text.master)
+            self._toast("注册审批通过", "注册已获批准，正在建立管理连接与心跳", "ok")
             # 延后刷新，避免与弹窗叠加造成主线程卡顿
             self.after(50, self._refresh_status)
-        elif event.get("reason"):
-            reason = event.get("reason", "")
+        elif event.get("approved") is False or event.get("reason"):
+            reason = event.get("reason", "") or "管理员未通过审批"
             # 先关闭模态层并释放 grab，避免错误弹窗被遮挡
             self._close_wait_modal()
             # 区分：真正的拒绝 vs SSE 流错误
@@ -1335,6 +1348,7 @@ class SEControlPanel(tk.Tk):
                 self._toast("注册被拒绝", f"管理员拒绝了注册请求:\n{reason}", "err")
             # 拒绝/错误后标记为需要解锁，_finish_register_ui 会恢复表单
             self._registered = False
+
 
 
 

@@ -92,7 +92,8 @@ class HeartbeatSender:
     async def _loop(self):
         """异步心跳主循环"""
         while self._running and not state.is_shutting_down:
-            ok, msg = self._do_heartbeat()
+            ok, msg = await asyncio.to_thread(self._do_heartbeat)
+
 
             # 根据结果调整下次间隔
             if ok:

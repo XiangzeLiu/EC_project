@@ -8,11 +8,13 @@ from tkinter import ttk
 
 
 from ..constants import (
-    PANEL_BG, BORDER, TEXT_PRIMARY, TEXT_DIM,
+    PANEL_BG, BORDER, TEXT_PRIMARY, TEXT_DIM, TEXT_MUTED,
     ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED,
+    BUTTON_NEUTRAL_BG, BUTTON_HOVER_BG, BUTTON_ACTIVE_BG,
     FONT_MONO_SM, FONT_BOLD, FONT_UI_SM,
     LIVE_STATUSES,
 )
+
 
 
 class OrdersPanel:
@@ -44,22 +46,33 @@ class OrdersPanel:
         self._mode_tab_buttons = {}
 
         for lbl, mode in [("\u25cf Live", "live"), ("All", "all")]:
-            btn = tk.Button(hdr, text=lbl,
-                            bg=ACCENT_BLUE if mode == "live" else PANEL_BG,
-                            fg="#0d0f14" if mode == "live" else TEXT_PRIMARY,
-                            font=FONT_UI_SM, relief="flat", bd=0,
-                            padx=12, pady=4, cursor="hand2",
-                            command=lambda m=mode: self.switch_mode(m))
+            is_live = mode == "live"
+            btn = tk.Button(
+                hdr, text=lbl,
+                bg=ACCENT_BLUE if is_live else BUTTON_NEUTRAL_BG,
+                fg=TEXT_PRIMARY,
+                font=FONT_UI_SM, relief="flat", bd=0,
+                padx=12, pady=4, cursor="hand2",
+                activebackground=BUTTON_ACTIVE_BG, activeforeground=TEXT_PRIMARY,
+                command=lambda m=mode: self.switch_mode(m),
+            )
             btn.pack(side="left", padx=2)
+            self._bind_button_hover(btn, ACCENT_BLUE if is_live else BUTTON_NEUTRAL_BG)
             self._mode_tab_buttons[mode] = btn
+
 
         self.count_var = tk.StringVar(value="No orders")
         tk.Label(hdr, textvariable=self.count_var, bg=PANEL_BG,
                  fg=TEXT_PRIMARY, font=FONT_UI_SM).pack(side="left", padx=8)
 
-        refresh_btn = tk.Button(hdr, text="\u27f3", bg=PANEL_BG, fg=ACCENT_BLUE,
-                                font=FONT_UI_SM, relief="flat", bd=0, padx=4,
-                                cursor="hand2", command=self._on_refresh_clicked)
+        refresh_btn = tk.Button(
+            hdr, text="\u27f3", bg=BUTTON_NEUTRAL_BG, fg=ACCENT_BLUE,
+            font=FONT_UI_SM, relief="flat", bd=0, padx=6,
+            activebackground=BUTTON_ACTIVE_BG, activeforeground=ACCENT_BLUE,
+            cursor="hand2", command=self._on_refresh_clicked,
+        )
+        self._bind_button_hover(refresh_btn, BUTTON_NEUTRAL_BG)
+
         refresh_btn.pack(side="right")
 
         # Treeview area
@@ -85,7 +98,7 @@ class OrdersPanel:
 
         self.tree.tag_configure("buy", foreground=ACCENT_GREEN)
         self.tree.tag_configure("sell", foreground=ACCENT_RED)
-        self.tree.tag_configure("inactive", foreground="#5a6070")
+        self.tree.tag_configure("inactive", foreground=TEXT_MUTED)
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
@@ -96,8 +109,9 @@ class OrdersPanel:
         self._context_menu = tk.Menu(self.frame, tearoff=0,
                                       bg=PANEL_BG, fg=TEXT_PRIMARY,
                                       activebackground=ACCENT_RED,
-                                      activeforeground="#0d0f14",
+                                      activeforeground=TEXT_PRIMARY,
                                       font=FONT_UI_SM)
+
         self._context_menu.add_command(label="\u2715  Cancel Order",
                                        command=self._cancel_selected)
         self.tree.bind("<Button-3>", self._on_right_click)
@@ -112,8 +126,12 @@ class OrdersPanel:
         """切换Live/All模式"""
         self.mode_var.set(mode)
         for m, btn in self._mode_tab_buttons.items():
-            btn.configure(bg=ACCENT_BLUE if m == mode else PANEL_BG,
-                          fg="#0d0f14" if m == mode else TEXT_DIM)
+            selected = m == mode
+            btn.configure(
+                bg=ACCENT_BLUE if selected else BUTTON_NEUTRAL_BG,
+                fg=TEXT_PRIMARY if selected else TEXT_DIM,
+            )
+
         if self.on_refresh:
             self.on_refresh()
 
@@ -164,3 +182,9 @@ class OrdersPanel:
             if v and len(v) >= 1 and v[0] == symbol:
                 result.append(r)  # iid = order id
         return result
+
+    @staticmethod
+    def _bind_button_hover(btn: tk.Button, normal_bg: str):
+        btn.bind("<Enter>", lambda e: btn.config(bg=BUTTON_HOVER_BG))
+        btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
+

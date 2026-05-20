@@ -1,5 +1,5 @@
 """
-Trading Terminal - Main Window
+SC - Main Window
 主窗口：组装所有子组件，管理全局状态、快捷键、轮询、行情流
 """
 
@@ -10,6 +10,22 @@ import random
 import re
 import threading
 import time
+
+# 时区支持（Python 3.9+ 使用 zoneinfo，更低版本回退到 pytz）
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    try:
+        from pytz import timezone as ZoneTimezone
+        # 为 pytz 创建兼容接口
+        class ZoneInfo:
+            def __init__(self, key):
+                self._tz = ZoneTimezone(key)
+            def localize(self, dt):
+                return self._tz.localize(dt)
+    except ImportError:
+        # 如果都没有，使用简化版（无 DST 支持）
+        ZoneInfo = None
 
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -32,7 +48,7 @@ class TradingTerminal(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("\u25cf Trading Terminal")
+        self.title("SC")
 
         # 窗口尺寸与居中
         self.update_idletasks()
@@ -66,12 +82,26 @@ class TradingTerminal(tk.Tk):
         self.status_var: tk.StringVar = None
         self.status_lbl: tk.Label = None
         self.time_var: tk.StringVar = None
+        self._time_zone_cn: bool = True  # True=中国时间, False=美国时间
         self.log_area: LogArea | None = None
+        
+        # 时区对象（用于 DST 支持）
+        if ZoneInfo is not None:
+            try:
+                self._tz_cn = ZoneInfo("Asia/Shanghai")  # 中国时区
+                self._tz_us = ZoneInfo(TZ_ET_NAME)        # 美国东部时区
+            except Exception:
+                self._tz_cn = None
+                self._tz_us = None
+        else:
+            self._tz_cn = None
+            self._tz_us = None
 
         # SE 直连组件
         self._se_client: SEWebSocketClient | None = None
         self._se_connected: bool = False
         self._se_status_var: tk.StringVar = None
+        self._se_status_lbl: tk.Label | None = None
         self._se_btn: tk.Button | None = None
         self._session_id: str = ""
         self._node_info: dict = {}
@@ -108,38 +138,59 @@ class TradingTerminal(tk.Tk):
         center = tk.Frame(self._init_frame, bg=DARK_BG)
         center.place(relx=0.5, rely=0.45, anchor="center")
 
-        tk.Label(center, text="\u25cf TRADING TERMINAL",
-                 bg=DARK_BG, fg=ACCENT_BLUE, font=FONT_TITLE).pack(pady=(0, 8))
+        tk.Label(center, text="SC",
+                 bg=DARK_BG, fg="#4ea1ff", font=FONT_TITLE).pack(pady=(0, 8))
 
         tk.Label(center, text="\u8fde\u63a5\u4e2d\u2026",
                  bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM).pack(pady=(0, 28))
 
-        # 步骤状态标签（内部追踪，不在UI上展示）
+        # 步骤状态标签（显示在 UI 上，便于交易员快速判断连接阶段）
+        steps = tk.Frame(center, bg=DARK_BG)
+        steps.pack(fill="x", pady=(0, 12))
         self._init_steps: dict[str, tuple[tk.Label, tk.StringVar]] = {}
+        for key, title, default in (
+            ("auth", "账户认证", "Waiting"),
+            ("sm", "服务管理器", "Connecting..."),
+            ("se", "子服务器(SE)", "Waiting"),
+        ):
+            row = tk.Frame(steps, bg=DARK_BG)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=f"{title}", bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM, width=12, anchor="w").pack(side="left")
+            var = tk.StringVar(value=default)
+            lbl = tk.Label(row, textvariable=var, bg=DARK_BG,
+                           fg=ACCENT_YELLOW if key == "sm" else TEXT_MUTED,
+                           font=FONT_MONO_SM, anchor="w")
+            lbl.pack(side="left", padx=(6, 0))
+            self._init_steps[key] = (lbl, var)
 
         # 底部提示信息（字体加大）
         self._init_hint_var = tk.StringVar(value="")
         tk.Label(center, textvariable=self._init_hint_var, bg=DARK_BG,
-                 fg=ACCENT_RED, font=FONT_UI, wraplength=440,
-                 justify="center").pack(pady=(20, 0))
+                 fg=ACCENT_RED, font=FONT_UI, wraplength=500,
+                 justify="center").pack(pady=(16, 0))
+
 
         # 按钮容器（重试 + 取消）
         btn_container = tk.Frame(center, bg=DARK_BG)
         btn_container.pack(pady=(16, 0))
         # 重试按钮（初始隐藏）
         self._retry_btn = tk.Button(
-            btn_container,             text="\u91cd\u8bd5", font=FONT_UI_SM,
-            bg=PANEL_BG, fg=ACCENT_BLUE, activebackground=BORDER,
+            btn_container, text="\u91cd\u8bd5", font=FONT_UI_SM,
+            bg=BUTTON_NEUTRAL_BG, fg=ACCENT_BLUE, activebackground=BUTTON_ACTIVE_BG,
             activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
             padx=20, pady=6, command=self._on_init_retry,
         )
+        self._bind_button_hover(self._retry_btn, BUTTON_NEUTRAL_BG)
+
         # 取消按钮（初始隐藏，点击返回登录界面）
         self._cancel_btn = tk.Button(
             btn_container, text="\u53d6\u6d88", font=FONT_UI_SM,
-            bg=PANEL_BG, fg=ACCENT_RED, activebackground=BORDER,
+            bg=BUTTON_NEUTRAL_BG, fg=ACCENT_RED, activebackground=BUTTON_ACTIVE_BG,
             activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
             padx=20, pady=6, command=self._on_init_cancel,
         )
+        self._bind_button_hover(self._cancel_btn, BUTTON_NEUTRAL_BG)
+
 
     def _update_init_step(self, step_key: str, status: str, color: str = None):
         """更新初始化步骤的状态文本和颜色"""
@@ -150,6 +201,20 @@ class TradingTerminal(tk.Tk):
         if color:
             lbl.config(fg=color)
         self.update_idletasks()
+
+    @staticmethod
+    def _bind_button_hover(btn: tk.Button, normal_bg: str):
+        btn.bind("<Enter>", lambda e: btn.config(bg=BUTTON_HOVER_BG))
+        btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
+
+    def _set_se_connection_ui(self, connected: bool):
+        """统一更新 SE 状态文案/颜色与按钮文案"""
+        if self._se_status_var:
+            self._se_status_var.set("SE Connect" if connected else "SE Disconnect")
+        if self._se_status_lbl:
+            self._se_status_lbl.config(fg=ACCENT_GREEN if connected else ACCENT_RED)
+        if self._se_btn:
+            self._se_btn.config(text="Disconnect" if connected else "Connect", state="normal")
 
     def _show_login_first(self):
         """启动时首先弹出登录对话框（用户输入账户密码后才启动连接流程）"""
@@ -679,10 +744,7 @@ class TradingTerminal(tk.Tk):
         # 设置状态栏
         self.status_var.set("\u25cf Connected")
         self.status_lbl.config(fg=ACCENT_GREEN)
-        self._se_status_var.set(f"OK ({self._session_id[:8]}...)" if self._session_id else "OK")
-        # SE 已在初始化阶段连上，按钮显示 Disconnect
-        if self._se_btn and self._se_connected:
-            self._se_btn.config(text="Disconnect", state="normal")
+        self._set_se_connection_ui(self._se_connected)
 
         # 启动各子系统
         node_name = self._node_info.get("node_name", "SE") if self._node_info else "SE"
@@ -700,15 +762,52 @@ class TradingTerminal(tk.Tk):
     def _apply_style(self):
         s = ttk.Style(self)
         s.theme_use("clam")
-        s.configure("Treeview", background=PANEL_BG, foreground=TEXT_PRIMARY,
-                    fieldbackground=PANEL_BG, rowheight=28,
-                    font=FONT_MONO_SM, borderwidth=0, relief="flat")
-        s.configure("Treeview.Heading", background=DARK_BG, foreground=TEXT_DIM,
-                    font=FONT_BOLD, relief="flat")
-        s.map("Treeview", background=[("selected", "#1e2b45")],
-              foreground=[("selected", ACCENT_BLUE)])
+        s.configure(
+            "Treeview",
+            background=PANEL_BG,
+            foreground=TEXT_PRIMARY,
+            fieldbackground=PANEL_BG,
+            rowheight=30,
+            font=FONT_MONO_SM,
+            borderwidth=0,
+            relief="flat",
+        )
+        s.configure(
+            "Treeview.Heading",
+            background=PANEL_ALT_BG,
+            foreground=TEXT_DIM,
+            font=FONT_BOLD,
+            relief="flat",
+            borderwidth=0,
+        )
+        s.map(
+            "Treeview",
+            background=[("selected", TREE_SELECT_BG)],
+            foreground=[("selected", TEXT_PRIMARY)],
+        )
         s.configure("TScrollbar", background=BORDER, troughcolor=DARK_BG, borderwidth=0)
         s.configure("TPanedwindow", background=BORDER)
+
+        s.configure(
+            "TCombobox",
+            fieldbackground=INPUT_BG,
+            background=INPUT_BG,
+            foreground=TEXT_PRIMARY,
+            arrowcolor=TEXT_PRIMARY,
+            bordercolor=BORDER,
+            lightcolor=BORDER,
+            darkcolor=BORDER,
+            insertcolor=TEXT_PRIMARY,
+            relief="flat",
+        )
+        s.map(
+            "TCombobox",
+            fieldbackground=[("readonly", INPUT_BG), ("focus", INPUT_BG)],
+            selectbackground=[("readonly", INPUT_BG)],
+            selectforeground=[("readonly", TEXT_PRIMARY)],
+            foreground=[("readonly", TEXT_PRIMARY)],
+        )
+
 
     # ── UI Build ───────────────────────────────────────────────────────────
 
@@ -724,41 +823,78 @@ class TradingTerminal(tk.Tk):
         top.pack(fill="x")
         top.pack_propagate(False)
 
-        tk.Label(top, text="\u25cf TRADING TERMINAL",
-                 bg=TOP_BAR_BG, fg=ACCENT_BLUE,
+        tk.Label(top, text="SC",
+                 bg=TOP_BAR_BG, fg="#4ea1ff",
                  font=FONT_TITLE).pack(side="left", padx=14)
 
         # 连接状态
         self.status_var = tk.StringVar(value="\u25cf Connecting\u2026")
-        self.status_lbl = tk.Label(top, textvariable=self.status_var,
-                                   bg=TOP_BAR_BG, fg=ACCENT_YELLOW, font=FONT_UI_SM)
-        self.status_lbl.pack(side="left", padx=4)
+        self.status_lbl = tk.Label(
+            top,
+            textvariable=self.status_var,
+            bg=TOP_BAR_BG,
+            fg=ACCENT_YELLOW,
+            font=FONT_BOLD,
+        )
+
+
 
         # ── SE (Server_economic) 直连控制区 ───────────────────────────
         sep = tk.Frame(top, bg=BORDER, width=1)
         sep.pack(side="left", padx=8, fill="y", pady=6)
 
-        tk.Label(top, text="SE:", bg=TOP_BAR_BG, fg=TEXT_DIM,
-                 font=FONT_UI_SM).pack(side="left")
-
-        self._se_status_var = tk.StringVar(value="--")
-        se_st_lbl = tk.Label(top, textvariable=self._se_status_var,
-                             bg=TOP_BAR_BG, fg=TEXT_MUTED, font=FONT_MONO_SM)
-        se_st_lbl.pack(side="left", padx=(2, 8))
+        self._se_status_var = tk.StringVar(value="SE Disconnect")
+        self._se_status_lbl = tk.Label(
+            top,
+            textvariable=self._se_status_var,
+            bg=TOP_BAR_BG,
+            fg=ACCENT_RED,
+            font=("Segoe UI", 11, "bold"),
+        )
+        self._se_status_lbl.pack(side="left", padx=(2, 8))
 
         self._se_btn = tk.Button(
-            top, text="Connect SE", font=FONT_UI_SM,
-            bg=PANEL_BG, fg=ACCENT_BLUE, activebackground=BORDER,
-            activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
-            padx=10, pady=2,
+            top,
+            text="Connect",
+            font=FONT_UI_SM,
+            bg=BUTTON_NEUTRAL_BG,
+            fg=ACCENT_BLUE,
+            activebackground=BUTTON_ACTIVE_BG,
+            activeforeground=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            padx=10,
+            pady=2,
             command=self._toggle_se_connection,
         )
         self._se_btn.pack(side="left", padx=2)
+        self._bind_button_hover(self._se_btn, BUTTON_NEUTRAL_BG)
+        self._set_se_connection_ui(self._se_connected)
+
+
 
         # 时间
         self.time_var = tk.StringVar()
         tk.Label(top, textvariable=self.time_var, bg=TOP_BAR_BG,
-                 fg=TEXT_DIM, font=FONT_MONO).pack(side="right", padx=12)
+                 fg=TEXT_DIM, font=FONT_MONO).pack(side="right", padx=(12, 4))
+
+        # 时区切换按钮
+        self._time_zone_btn = tk.Button(
+            top,
+            text="CN Time",
+            font=("Segoe UI", 9),
+            bg=BUTTON_NEUTRAL_BG,
+            fg=ACCENT_BLUE,
+            activebackground=BUTTON_ACTIVE_BG,
+            activeforeground=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            padx=6,
+            pady=1,
+            command=self._toggle_time_zone,
+        )
+        self._time_zone_btn.pack(side="right", padx=(0, 8))
+        self._bind_button_hover(self._time_zone_btn, BUTTON_NEUTRAL_BG)
 
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
@@ -851,8 +987,38 @@ class TradingTerminal(tk.Tk):
     # ── Clock & Poll ────────────────────────────────────────────────────────
 
     def _tick_clock(self):
-        self.time_var.set(datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S"))
+        """更新时间显示（支持中国/美国时区切换，包含夏令时）"""
+        try:
+            if self._time_zone_cn:
+                # 中国时间
+                if self._tz_cn is not None:
+                    # 使用时区对象（支持 DST）
+                    now = datetime.datetime.now(self._tz_cn)
+                else:
+                    # 回退：UTC+8
+                    now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+            else:
+                # 美国东部时间
+                if self._tz_us is not None:
+                    # 使用时区对象（自动处理 DST）
+                    now = datetime.datetime.now(self._tz_us)
+                else:
+                    # 回退：UTC-5（不考虑 DST）
+                    now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+            
+            time_str = now.strftime("%Y-%m-%d  %H:%M:%S")
+            self.time_var.set(f"{time_str}")
+        except Exception:
+            # 发生异常时使用本地时间
+            self.time_var.set(datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S"))
+        
         self.after(1000, self._tick_clock)
+
+    def _toggle_time_zone(self):
+        """切换中国/美国时间显示"""
+        self._time_zone_cn = not self._time_zone_cn
+        # 更新按钮文本
+        self._time_zone_btn.config(text="CN Time" if self._time_zone_cn else "US Time")
 
     def _poll(self):
         """150ms 主轮询循环"""
@@ -1430,7 +1596,7 @@ class TradingTerminal(tk.Tk):
             # 全部重试耗尽
             self.after(0, lambda: (
                 self.log_area.log(f"[SE] \u2717 \u8fde\u63a5\u5931\u8d25\uff08{max_retries}\u6b21\u5747\u5931\u8d25\uff09: {last_err}", "err"),
-                self._se_btn.config(text="Connect SE", state="normal"),
+                self._set_se_connection_ui(False),
             ))
 
         def _check():
@@ -1444,7 +1610,7 @@ class TradingTerminal(tk.Tk):
                     if occupied_by and occupied_by != self._login_username:
                         self.after(0, lambda ob=occupied_by: (
                             self.log_area.log(f"[SE] 节点已被账户 '{ob}' 占用，无法连接", "err"),
-                            self._se_btn.config(text="Connect SE", state="normal"),
+                            self._set_se_connection_ui(False),
                         ))
                         return
                     # 在线且未被占用 → 同步注册占用 + 连接
@@ -1452,7 +1618,7 @@ class TradingTerminal(tk.Tk):
                     if not occ_ok:
                         self.after(0, lambda: (
                             self.log_area.log("[SE] 节点占用注册失败，无法连接", "err"),
-                            self._se_btn.config(text="Connect SE", state="normal"),
+                            self._set_se_connection_ui(False),
                         ))
                         return
                     # ★ 在后台线程执行 WS 连接（含重试），避免冻结 UI
@@ -1460,12 +1626,12 @@ class TradingTerminal(tk.Tk):
                 else:
                     self.after(0, lambda: (
                         self.log_area.log("[SE] 子服务器不在线，无法连接", "err"),
-                        self._se_btn.config(text="Connect SE", state="normal"),
+                        self._set_se_connection_ui(False),
                     ))
             except Exception as e:
                 self.after(0, lambda: (
                     self.log_area.log(f"[SE] 验证失败: {e}", "err"),
-                    self._se_btn.config(text="Connect SE", state="normal"),
+                    self._set_se_connection_ui(False),
                 ))
         threading.Thread(target=_check, daemon=True).start()
 
@@ -1489,17 +1655,15 @@ class TradingTerminal(tk.Tk):
 
         # 释放节点占用
         self._release_se_occupation()
-        self._se_btn.config(text="Connect SE", state="normal")
-        self._se_status_var.set("Disconnected")
+        self._set_se_connection_ui(False)
         self.log_area.log("[SE] Disconnected", "inf")
 
     def _on_se_status(self, msg: str):
         """SE 连接状态变化回调（来自后台线程，需用 after 切回主线程）"""
         def _ui_update():
-            self._se_status_var.set(msg[:40])
             if "Authenticated" in msg:
                 self._se_connected = True
-                self._se_btn.config(text="Disconnect", state="normal")
+                self._set_se_connection_ui(True)
                 if self.session:
                     self.session.bind_se_client(self._se_client)
                 self.log_area.log(f"[SE] {msg}", "ok")
@@ -1521,6 +1685,7 @@ class TradingTerminal(tk.Tk):
 
             elif "Reconnecting" in msg or "reconnecting" in msg.lower():
                 # ── 运行中自动重连中 → 显示/更新重连弹窗 ──
+                self._set_se_connection_ui(False)
                 if not self._reconnecting and self._init_ready:
                     self._reconnecting = True
                     self._show_reconnect_dialog(msg)
@@ -1536,24 +1701,25 @@ class TradingTerminal(tk.Tk):
                     # 重连过程中认证失败（如 token 过期）→ 停止重连，提示用户
                     self._cancel_reconnect()
                 self._release_se_occupation()
-                self._se_btn.config(text="Connect SE", state="normal")
+                self._set_se_connection_ui(False)
                 self.log_area.log(f"[SE] {msg}", "err")
 
             elif "Connection error" in msg or (msg.startswith("Disconnected:") and not self._se_active_se()):
                 if self._init_ready and self._se_connected and not self._reconnecting:
                     # 运行中断线且尚未进入重连 → 触发自动重连流程
                     self._se_connected = False
+                    self._set_se_connection_ui(False)
                     self.log_area.log("[SE] 子服务器连接断开，正在尝试重新连接...", "warn")
                     self._start_se_reconnect()
                 elif self._reconnecting:
                     # 重连彻底失败（达到最大次数或 stop 后的 Disconnected 通知）
                     self._cancel_reconnect()
                     self._release_se_occupation()
-                    self._se_btn.config(text="Connect SE", state="normal")
+                    self._set_se_connection_ui(False)
                 else:
                     # 初始化阶段失败或手动断开
                     self._release_se_occupation()
-                    self._se_btn.config(text="Connect SE", state="normal")
+                    self._set_se_connection_ui(False)
                     self.log_area.log(f"[SE] {msg}", "err")
 
             else:
@@ -1669,8 +1835,9 @@ class TradingTerminal(tk.Tk):
         # 标题图标
         title_frame = tk.Frame(dlg, bg=DARK_BG)
         title_frame.pack(fill="x", pady=(24, 8))
-        tk.Label(title_frame, text="\u26a0\ufe0f", font=("Segoe UI", 28),
+        tk.Label(title_frame, text="\u26a0\ufe0f", font=FONT_TITLE,
                  bg=DARK_BG, fg=ACCENT_YELLOW).pack()
+
 
         # 主提示文字
         tk.Label(dlg, text="\u5b50\u670d\u52a1\u5668\u8fde\u63a5\u5df2\u65ad\u5f00",
@@ -1691,11 +1858,13 @@ class TradingTerminal(tk.Tk):
 
         cancel_btn = tk.Button(
             btn_frame, text="\u53d6\u6d88\u91cd\u8fde", font=FONT_UI_SM,
-            bg=PANEL_BG, fg=ACCENT_RED, activebackground=BORDER,
+            bg=BUTTON_NEUTRAL_BG, fg=ACCENT_RED, activebackground=BUTTON_ACTIVE_BG,
             activeforeground=TEXT_PRIMARY, relief="flat", cursor="hand2",
             padx=24, pady=6, command=self._cancel_reconnect,
         )
         cancel_btn.pack()
+        self._bind_button_hover(cancel_btn, BUTTON_NEUTRAL_BG)
+
 
     def _hide_reconnect_dialog(self):
         """隐藏重连弹窗（重连成功时调用）"""
@@ -1736,8 +1905,7 @@ class TradingTerminal(tk.Tk):
         self._release_se_occupation()
 
         # 恢复 UI 状态
-        self._se_status_var.set("Disconnected")
-        self._se_btn.config(text="Connect SE", state="normal")
+        self._set_se_connection_ui(False)
         self.log_area.log("[SE] 用户取消了重连，子服务器连接已释放", "warn")
 
     # ── Lifecycle ──────────────────────────────────────────────────────────

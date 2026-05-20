@@ -4,28 +4,38 @@ Constants & Theme Definitions
 """
 
 # ── Colors ──────────────────────────────────────────────────────────────────────
-DARK_BG      = "#0d0f14"
-PANEL_BG     = "#13161e"
-BORDER       = "#1e2330"
-TOP_BAR_BG   = "#080a0e"
-INPUT_BG     = "#1c2030"
-ACCENT_BLUE  = "#4f9eff"
-ACCENT_GREEN = "#00d68f"
-ACCENT_RED   = "#ff4d6a"
-ACCENT_YELLOW = "#e6b422"
-GOLD         = "#f5c418"
-TEXT_PRIMARY = "#e8ecf4"
-TEXT_DIM     = "#6b7590"
-TEXT_MUTED   = "#3a3f52"
+DARK_BG       = "#0f1012"
+PANEL_BG      = "#15171a"
+PANEL_ALT_BG  = "#1b1d21"
+BORDER        = "#2a2d33"
+TOP_BAR_BG    = "#0c0d0f"
+INPUT_BG      = "#1a1c20"
+
+ACCENT_BLUE   = "#b7bcc6"
+ACCENT_GREEN  = "#1a8a5a"
+ACCENT_RED    = "#c94a4a"
+ACCENT_YELLOW = "#d0ad63"
+GOLD          = "#cfae67"
+
+TEXT_PRIMARY  = "#e6e8ec"
+TEXT_DIM      = "#a8adb7"
+TEXT_MUTED    = "#7d838f"
+
+FOCUS_RING       = "#8f949e"
+TREE_SELECT_BG   = "#2b2f36"
+BUTTON_NEUTRAL_BG = "#22252b"
+BUTTON_HOVER_BG   = "#2b3038"
+BUTTON_ACTIVE_BG  = "#353b45"
 
 # ── Fonts ───────────────────────────────────────────────────────────────────────
-FONT_MONO    = ("Courier New", 13)
-FONT_MONO_SM = ("Courier New", 11)
-FONT_UI_SM   = ("Segoe UI", 11)
-FONT_UI      = ("Segoe UI", 13)
-FONT_BOLD    = ("Segoe UI", 11, "bold")
-FONT_TICKER  = ("Courier New", 19, "bold")
-FONT_TITLE   = ("Courier New", 15, "bold")
+FONT_MONO      = ("Courier New", 13)
+FONT_MONO_SM   = ("Courier New", 11)
+FONT_UI_SM     = ("Segoe UI", 11)
+FONT_UI        = ("Segoe UI", 13)
+FONT_BOLD      = ("Segoe UI", 11, "bold")
+FONT_TICKER    = ("Courier New", 19, "bold")
+FONT_TITLE     = ("Courier New", 15, "bold")
+FONT_ACTION_BTN = ("Segoe UI", 12, "bold")
 
 # ── Order Status Mapping ────────────────────────────────────────────────────────
 STATUS_MAP = {
@@ -42,11 +52,11 @@ SESSION_START_H  = 4
 SESSION_END_H    = 20
 
 # ── Polling intervals (ms) ─────────────────────────────────────────────────────
-POLL_INTERVAL    = 150    # 主轮询间隔
-POSITIONS_INTERVAL = 3000  # 持仓刷新间隔 (3s)
-ORDERS_INTERVAL  = 30000  # 订单轮询间隔 (30s)
+POLL_INTERVAL      = 150    # 主轮询间隔
+POSITIONS_INTERVAL = 3000   # 持仓刷新间隔 (3s)
+ORDERS_INTERVAL    = 30000  # 订单轮询间隔 (30s)
 HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
-MOCK_QUOTE_INTERVAL = 500  # 模拟行情推送间隔 (ms)
+MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)
 
 # ── Server defaults ─────────────────────────────────────────────────────────────
 DEFAULT_SERVER_HOST = "127.0.0.1"

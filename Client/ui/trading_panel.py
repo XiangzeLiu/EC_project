@@ -10,9 +10,11 @@ from tkinter import ttk
 
 from ..constants import (
     PANEL_BG, BORDER, INPUT_BG, DARK_BG, TEXT_PRIMARY, TEXT_DIM, TEXT_MUTED,
-    ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED,
-    FONT_UI_SM, FONT_BOLD, FONT_TICKER, FONT_MONO, FONT_MONO_SM,
+    ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, FOCUS_RING,
+
+    FONT_UI_SM, FONT_BOLD, FONT_TICKER, FONT_MONO, FONT_MONO_SM, FONT_ACTION_BTN,
 )
+
 
 
 class TradingPanel:
@@ -60,13 +62,13 @@ class TradingPanel:
     def build(self, parent: tk.Widget) -> tk.Frame:
         """构建交易面板"""
         pf = tk.Frame(parent, bg=PANEL_BG,
-                      highlightthickness=2, highlightbackground=BORDER)
+                      highlightthickness=1, highlightbackground=BORDER)
         self.frame = pf
         # 点击任意位置激活面板
         pf.bind("<Button-1>", lambda e: self._on_activate(self.panel_id))
 
         # ── 行情行 ────────────────────────────────────────────────────────────
-        row1 = tk.Frame(pf, bg=PANEL_BG, height=56)
+        row1 = tk.Frame(pf, bg=PANEL_BG, height=60)
         row1.pack(fill="x")
         row1.pack_propagate(False)
 
@@ -79,11 +81,14 @@ class TradingPanel:
             bg=INPUT_BG, fg=TEXT_PRIMARY,
             insertbackground=TEXT_PRIMARY,
             font=FONT_TICKER, width=5,
-            relief="flat", bd=4,
+            relief="flat", bd=0,
+            highlightthickness=1, highlightbackground=BORDER, highlightcolor=FOCUS_RING,
         )
         self.sym_entry.pack(side="left", ipady=5)
         self.sym_entry.bind("<Return>", lambda e: self._on_symbol_enter(self.panel_id))
-        self.sym_entry.bind("<FocusIn>", lambda e: self._on_activate(self.panel_id))
+        self.sym_entry.bind("<FocusIn>", lambda e: (self._on_activate(self.panel_id), self._on_entry_focus(self.sym_entry)))
+        self.sym_entry.bind("<FocusOut>", lambda e: self._on_entry_blur(self.sym_entry))
+
 
         # 行情数据标签
         self.q_last_var = tk.StringVar(value="—")
@@ -100,9 +105,9 @@ class TradingPanel:
             cell = tk.Frame(row1, bg=PANEL_BG)
             cell.pack(side="left", padx=10)
             tk.Label(cell, text=lbl, bg=PANEL_BG, fg=TEXT_MUTED,
-                     font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 4))
+                     font=FONT_BOLD).pack(side="left", padx=(0, 4))
             tk.Label(cell, textvariable=getattr(self, var_key), bg=PANEL_BG, fg=fg,
-                     font=("Segoe UI", 18, "bold")).pack(side="left")
+                     font=FONT_TICKER).pack(side="left")
 
         # ── 下单行 ────────────────────────────────────────────────────────────
         tk.Frame(pf, bg=BORDER, height=1).pack(fill="x")
@@ -135,11 +140,14 @@ class TradingPanel:
         _qty_vcmd = (pf.register(lambda s: s == "" or s.isdigit()), "%P")
         self.qty_entry = tk.Entry(mid, bg=INPUT_BG, fg=TEXT_PRIMARY,
                                   insertbackground=TEXT_PRIMARY, font=FONT_MONO,
-                                  relief="flat", bd=3, width=5,
+                                  relief="flat", bd=0, width=5,
+                                  highlightthickness=1, highlightbackground=BORDER, highlightcolor=FOCUS_RING,
                                   validate="key", validatecommand=_qty_vcmd)
         self.qty_entry.insert(0, "100")
         self.qty_entry.pack(side="left", ipady=5, padx=(3, 8))
-        self.qty_entry.bind("<FocusIn>", lambda e: self._on_activate(self.panel_id))
+        self.qty_entry.bind("<FocusIn>", lambda e: (self._on_activate(self.panel_id), self._on_entry_focus(self.qty_entry)))
+        self.qty_entry.bind("<FocusOut>", lambda e: self._on_entry_blur(self.qty_entry))
+
 
         # Price (只允许数字和小数点)
         _price_vcmd = (pf.register(
@@ -150,20 +158,28 @@ class TradingPanel:
         self.price_lbl.pack(side="left")
         self.price_entry = tk.Entry(mid, bg=INPUT_BG, fg=TEXT_PRIMARY,
                                     insertbackground=TEXT_PRIMARY, font=FONT_MONO,
-                                    relief="flat", bd=3, width=7,
+                                    relief="flat", bd=0, width=7,
+                                    highlightthickness=1, highlightbackground=BORDER, highlightcolor=FOCUS_RING,
                                     validate="key", validatecommand=_price_vcmd)
         self.price_entry.pack(side="left", ipady=5, padx=(3, 10))
-        self.price_entry.bind("<FocusIn>", lambda e: self._on_activate(self.panel_id))
+        self.price_entry.bind("<FocusIn>", lambda e: (self._on_activate(self.panel_id), self._on_entry_focus(self.price_entry)))
+        self.price_entry.bind("<FocusOut>", lambda e: self._on_entry_blur(self.price_entry))
+
 
         # Buy / Sell buttons
-        self.buy_btn = tk.Button(mid, text="\u25b2 BUY", bg=ACCENT_GREEN, fg="#0d0f14",
-                                 font=("Segoe UI", 12, "bold"), relief="flat", bd=0,
+        self.buy_btn = tk.Button(mid, text="\u25b2 BUY", bg=ACCENT_GREEN, fg=TEXT_PRIMARY,
+                                 font=FONT_ACTION_BTN, relief="flat", bd=0,
+                                 activebackground=ACCENT_GREEN, activeforeground=TEXT_PRIMARY,
                                  padx=14, pady=4, cursor="hand2")
         self.buy_btn.pack(side="left", padx=(0, 4))
-        self.sell_btn = tk.Button(mid, text="\u25bc SELL", bg=ACCENT_RED, fg="#0d0f14",
-                                  font=("Segoe UI", 12, "bold"), relief="flat", bd=0,
+        self.sell_btn = tk.Button(mid, text="\u25bc SELL", bg=ACCENT_RED, fg=TEXT_PRIMARY,
+                                  font=FONT_ACTION_BTN, relief="flat", bd=0,
+                                  activebackground=ACCENT_RED, activeforeground=TEXT_PRIMARY,
                                   padx=14, pady=4, cursor="hand2")
         self.sell_btn.pack(side="left")
+
+        self._bind_button_hover(self.buy_btn, ACCENT_GREEN, "#2d9a6a")
+        self._bind_button_hover(self.sell_btn, ACCENT_RED, "#d95a5a")
 
         # 内部状态变量
         self.order_sym_var = tk.StringVar(value="—")
@@ -226,6 +242,20 @@ class TradingPanel:
         )
         self.price_lbl.configure(fg=TEXT_MUTED if is_market else TEXT_DIM)
 
+    @staticmethod
+    def _bind_button_hover(btn: tk.Button, normal_bg: str, hover_bg: str):
+        btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
+        btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
+
+    @staticmethod
+    def _on_entry_focus(entry: tk.Entry):
+        entry.config(highlightbackground=FOCUS_RING)
+
+    @staticmethod
+    def _on_entry_blur(entry: tk.Entry):
+        entry.config(highlightbackground=BORDER)
+
 
 # 移除不再需要的占位符
+
 
