@@ -133,26 +133,35 @@ class TradingSession:
                 self._pos_error = "SE not connected"
                 return []
 
-            resp = self._request_se("POSITION_QUERY", {}, timeout=12.0)
-            if not isinstance(resp, dict):
+            # Step 1: 获取持仓数据
+            resp_pos = self._request_se("POSITION_QUERY", {}, timeout=12.0)
+            if not isinstance(resp_pos, dict):
                 self._pos_error = "SE请求超时或连接异常（可能券商未连接/凭证错误）"
                 return []
 
-            payload = resp.get("payload", {}) or {}
-            if payload.get("success"):
-                pos_rows = payload.get("positions", []) or []
-                # 当前 SE 暂未返回订单历史，这里按“仅持仓”构建界面数据
-                return self._calc_today_activity(pos_rows, [])
+            payload_pos = resp_pos.get("payload", {}) or {}
+            if not payload_pos.get("success"):
+                err_code = payload_pos.get("code", "") or payload_pos.get("error_code", "")
+                if err_code == "BROKER_OFFLINE":
+                    self._pos_error = "券商未连接（请检查SM中的四要素配置）"
+                elif err_code == "NO_BROKER":
+                    self._pos_error = "SE未加载可用券商配置"
+                else:
+                    self._pos_error = sanitize(payload_pos.get("message", "SE持仓查询失败"))
+                return []
 
-            err_code = payload.get("code", "") or payload.get("error_code", "")
+            pos_rows = payload_pos.get("positions", []) or []
 
-            if err_code == "BROKER_OFFLINE":
-                self._pos_error = "券商未连接（请检查SM中的四要素配置）"
-            elif err_code == "NO_BROKER":
-                self._pos_error = "SE未加载可用券商配置"
-            else:
-                self._pos_error = sanitize(payload.get("message", "SE持仓查询失败"))
-            return []
+            # Step 2: 获取订单历史（用于计算今日交易统计：qty_bot, qty_sld, exes, realized_today）
+            orders_raw = []
+            resp_ord = self._request_se("ORDER_QUERY", {"mode": "all"}, timeout=12.0)
+            if isinstance(resp_ord, dict):
+                payload_ord = resp_ord.get("payload", {}) or {}
+                if payload_ord.get("success"):
+                    orders_raw = payload_ord.get("orders", []) or []
+
+            # Step 3: 计算今日活动数据（持仓 + 订单历史 → 今日交易统计）
+            return self._calc_today_activity(pos_rows, orders_raw)
         except Exception as e:
             self._pos_error = sanitize(str(e))
             return []

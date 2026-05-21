@@ -1045,39 +1045,64 @@ async def resume_node(request: Request, server_id: str):
 
 @app.post("/api/nodes/{server_id}/occupy")
 async def occupy_node(request: Request, server_id: str):
-    """客户端连接 SE 成功后，标记节点被占用（需登录 token）"""
-    from auth import active_client_tokens
+    """客户端连接 SE 前，标记节点被占用（需登录 token，且 token 用户与 username 一致）"""
+    from auth import get_client_username
+
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
-    if not token or token not in active_client_tokens:
+    token_user = get_client_username(token)
+    if not token_user:
         return {"ok": False, "error": "Unauthorized"}
 
     body = await request.json() if await request.body() else {}
-    username = body.get("username", "")
+    username = (body.get("username") or "").strip()
+    if not username:
+        return {"ok": False, "error": "username_required"}
+    if username != token_user:
+        return {
+            "ok": False,
+            "error": "username_token_mismatch",
+            "message": "请求用户名与登录会话不一致",
+        }
 
     # 检查是否已被其他账户占用（从内存读取）
     occ = node_state.manager.get_occupation_info(server_id)
-    if occ and occ.get("occupied_by") and occ["occupied_by"] != username:
-        return {"ok": False, "error": "occupied",
-                "message": f"\u8282\u70b9\u5df2\u88ab\u8d26\u6237 '{occ['occupied_by']}' \u5360\u7528"}
+    if occ and occ.get("occupied_by") and occ["occupied_by"] != token_user:
+        return {
+            "ok": False,
+            "error": "occupied",
+            "message": f"\u8282\u70b9\u5df2\u88ab\u8d26\u6237 '{occ['occupied_by']}' \u5360\u7528",
+        }
 
-    ok, err_msg = node_state.manager.occupy(server_id, username)
+    ok, err_msg = node_state.manager.occupy(server_id, token_user)
     if not ok:
         return {"ok": False, "error": err_msg}
-    return {"ok": True, "message": f"\u8282\u70b9\u5df2\u88ab '{username}' \u5360\u7528"}
+    return {"ok": True, "message": f"\u8282\u70b9\u5df2\u88ab '{token_user}' \u5360\u7528"}
+
 
 
 @app.post("/api/nodes/{server_id}/release")
 async def release_node(request: Request, server_id: str):
-    """客户端断开 SE 连接后，释放节点占用（需登录 token）"""
-    from auth import active_client_tokens
+    """客户端断开 SE 连接后，释放节点占用（需登录 token，且只能释放本人占用）"""
+    from auth import get_client_username
+
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
-    if not token or token not in active_client_tokens:
+    token_user = get_client_username(token)
+    if not token_user:
         return {"ok": False, "error": "Unauthorized"}
 
+    occ = node_state.manager.get_occupation_info(server_id)
+    if occ and occ.get("occupied_by") and occ["occupied_by"] != token_user:
+        return {
+            "ok": False,
+            "error": "forbidden",
+            "message": f"节点当前由 '{occ['occupied_by']}' 占用，不能由 '{token_user}' 释放",
+        }
+
     node_state.manager.release(server_id)
-    return {"ok": True, "message": f"\u5df2\u91ca\u653e\u8282\u70b9"}
+    return {"ok": True, "message": "\u5df2\u91ca\u653e\u8282\u70b9"}
+
 
 
 # ── 券商类型列表 ───────────────────────────────────────────────────────

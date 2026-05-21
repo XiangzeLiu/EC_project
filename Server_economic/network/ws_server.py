@@ -76,7 +76,9 @@ async def handle_client_connection(ws: WebSocket):
         first_payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
         trace_id = str(first_payload.get("trace_id") or f"trc_{uuid.uuid4().hex[:16]}")
         client_token = first_payload.get("token", "")
-        if not await _validate_client_token(client_token):
+        requested_server_id = str(first_payload.get("server_id") or "").strip()
+        if not await _validate_client_token(client_token, requested_server_id):
+
 
             from ..services.message_log import on_auth
             on_auth(session_id, False, "无效Token或已过期", trace_id=trace_id)
@@ -186,7 +188,8 @@ def secrets_token(n: int = 16) -> str:
     return secrets.token_hex(n)
 
 
-async def _validate_client_token(token: str) -> bool:
+async def _validate_client_token(token: str, server_id: str = "") -> bool:
+
     """
     验证 Client 提供的 Token
 
@@ -203,7 +206,8 @@ async def _validate_client_token(token: str) -> bool:
         return False
 
     url = f"{state.manager_url.rstrip('/')}/auth/verify-token"
-    body = json.dumps({"token": token}).encode("utf-8")
+    body = json.dumps({"token": token, "server_id": (server_id or state.server_id)}).encode("utf-8")
+
 
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")

@@ -41,14 +41,17 @@ class SEWebSocketClient:
     """Server_economic WebSocket 客户端（支持自动重连）"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8900,
-                 token: str = "",
+                 token: str = "", server_id: str = "",
                  on_message_callback: Callable[[dict], None] = None,
                  on_status_callback: Callable[[str], None] = None,
                  reconnect_enabled: bool = False):
+
         self.host = host
         self.port = port
         self.token = token
+        self.server_id = server_id
         self.on_message = on_message_callback
+
         self.on_status = on_status_callback
         self._active = False
         self._connected = False
@@ -317,8 +320,13 @@ class SEWebSocketClient:
                 "type": "CONNECT",
                 "id": f"conn_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
-                "payload": {"token": self.token, "trace_id": f"trc_{uuid.uuid4().hex[:16]}"},
+                "payload": {
+                    "token": self.token,
+                    "server_id": self.server_id,
+                    "trace_id": f"trc_{uuid.uuid4().hex[:16]}"
+                },
             }
+
 
             await ws.send(json.dumps(connect_msg))
 

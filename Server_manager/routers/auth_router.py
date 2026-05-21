@@ -8,8 +8,9 @@ from fastapi import APIRouter, HTTPException, Request
 
 
 from models import LoginRequest, LoginResponse, LogoutResponse
-from config import SERVER_TOKEN, session_store, log, load_users_from_json
-from auth import generate_client_token
+from config import SERVER_TOKEN, session_store, log, load_users_from_json, active_client_tokens
+from auth import generate_client_token, get_client_username, invalidate_client_token
+
 
 router = APIRouter(prefix="/auth", tags=["认证管理"])
 
@@ -35,6 +36,13 @@ async def login(req: LoginRequest):
     # 1. 优先从 JSON 文件验证（Demo 模式主要入口）
     account = _verify_user_from_json(req.username, req.password)
     if account:
+        # 检查该用户是否已登录
+        existing_tokens = [t for t, info in active_client_tokens.items()
+                          if info.get("username") == req.username]
+        if existing_tokens:
+            log.warning(f"Duplicate login attempt for already logged-in user: {req.username}")
+            raise HTTPException(status_code=409, detail="该账号已在其他地方登录")
+
         log.info(f"Client logged in via JSON credentials: {req.username}")
         token = generate_client_token(req.username)
         return LoginResponse(
@@ -47,6 +55,13 @@ async def login(req: LoginRequest):
     # 2. 回退到配置文件中的 SERVER_USERNAME/SERVER_PASSWORD
     from config import SERVER_USERNAME, SERVER_PASSWORD
     if req.username == SERVER_USERNAME and req.password == SERVER_PASSWORD:
+        # 检查该用户是否已登录
+        existing_tokens = [t for t, info in active_client_tokens.items()
+                          if info.get("username") == req.username]
+        if existing_tokens:
+            log.warning(f"Duplicate login attempt for already logged-in user: {req.username}")
+            raise HTTPException(status_code=409, detail="该账号已在其他地方登录")
+
         log.info(f"Client logged in via config credentials: {req.username}")
         token = generate_client_token(req.username)
         return LoginResponse(
@@ -61,6 +76,13 @@ async def login(req: LoginRequest):
         from database import verify_account, get_broker_list
         db_account = verify_account(req.username, req.password)
         if db_account:
+            # 检查该用户是否已登录
+            existing_tokens = [t for t, info in active_client_tokens.items()
+                              if info.get("username") == req.username]
+            if existing_tokens:
+                log.warning(f"Duplicate login attempt for already logged-in user: {req.username}")
+                raise HTTPException(status_code=409, detail="该账号已在其他地方登录")
+
             log.info(f"Client logged in (DB): {req.username} role={db_account.get('role')}")
             token = generate_client_token(req.username)
             brokers = [b["name"] for b in get_broker_list()]
@@ -91,7 +113,7 @@ async def login(req: LoginRequest):
 @router.post("/verify-token")
 async def verify_client_token(request: Request):
     """
-    供 SE 调用：验证 Client Token 是否有效
+    供 SE 调用：验证 Client Token 是否有效，并校验该客户端是否有权限连接当前节点。
 
     鉴权要求：
       - 调用方必须是已注册节点（Bearer 为节点 token）
@@ -116,33 +138,72 @@ async def verify_client_token(request: Request):
     if not client_token:
         return {"ok": False, "valid": False, "reason": "missing_client_token"}
 
-    from config import active_client_tokens, SERVER_TOKEN
+    from config import SERVER_TOKEN
     if client_token == SERVER_TOKEN:
-        return {"ok": True, "valid": True, "username": "server", "token_type": "server"}
+        return {
+            "ok": True,
+            "valid": True,
+            "username": "server",
+            "token_type": "server",
+            "server_id": node.get("server_id", ""),
+            "allowed": True,
+        }
 
-    user_info = active_client_tokens.get(client_token)
-    if not user_info:
+    username = get_client_username(client_token)
+    if not username:
         return {"ok": True, "valid": False, "reason": "invalid_or_expired"}
+
+    node_server_id = str(node.get("server_id") or "")
+    requested_server_id = str(body.get("server_id") or "").strip()
+    if requested_server_id and requested_server_id != node_server_id:
+        return {
+            "ok": True,
+            "valid": False,
+            "username": username,
+            "token_type": "client",
+            "server_id": node_server_id,
+            "allowed": False,
+            "reason": "node_server_mismatch",
+        }
+
+    import node_state
+    occ = node_state.manager.get_occupation_info(node_server_id)
+    occupied_by = (occ or {}).get("occupied_by", "") if isinstance(occ, dict) else ""
+    if occupied_by != username:
+        return {
+            "ok": True,
+            "valid": False,
+            "username": username,
+            "token_type": "client",
+            "server_id": node_server_id,
+            "allowed": False,
+            "reason": "not_occupied_by_user",
+            "occupied_by": occupied_by,
+        }
 
     return {
         "ok": True,
         "valid": True,
-        "username": user_info.get("username", ""),
+        "username": username,
         "token_type": "client",
+        "server_id": node_server_id,
+        "allowed": True,
     }
 
 
 @router.post("/logout", response_model=LogoutResponse)
-async def logout(_=None):
-
+async def logout(request: Request):
     """用户登出（客户端级别断开，不影响服务器券商连接）"""
-    from auth import invalidate_client_token
-    # 尝试从请求头获取 Token 并使其失效
-    try:
-        from fastapi import Request
-        # 通过 Depends 上下文获取 request 不可行，此处仅做 Token 清理提示
-        log.info("Client logged out (token cleanup available on next login cycle)")
-    except Exception:
-        pass
-    log.info("Client logged out")
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+
+    if token:
+        if invalidate_client_token(token):
+            log.info("Client logged out and token invalidated")
+        else:
+            log.info("Client logout requested, token not found in active set")
+    else:
+        log.info("Client logout requested without bearer token")
+
     return LogoutResponse(success=True)
+

@@ -31,7 +31,7 @@ class NodeState:
 
     # ── 实时字段（每次心跳更新）──
     status: str = "approved"          # online / offline / suspended / approved
-    last_heartbeat: float = 0.0       # time.monotonic() 时间戳
+    last_heartbeat: float = 0.0       # Unix 时间戳（time.time()）
     current_ip: str = ""
 
     # ── 占用字段（Client 操作时更新）──
@@ -59,7 +59,7 @@ class NodeState:
             return False
         # 被占用的节点使用短超时（15秒），空闲节点使用默认超时（60秒）
         timeout = OCCUPIED_HEARTBEAT_TIMEOUT if self.occupied_by else HEARTBEAT_TIMEOUT
-        return (time.monotonic() - self.last_heartbeat) < timeout
+        return (time.time() - self.last_heartbeat) < timeout
 
     @property
     def heartbeat_timeout(self) -> float:
@@ -149,6 +149,9 @@ class NodeStateManager:
                 from datetime import datetime, timezone
                 dt = datetime.fromisoformat(hb_str)
                 state.last_heartbeat = dt.timestamp()
+                # 兼容历史错误数据：异常早于 2000-01-01 的值视为无效
+                if state.last_heartbeat < 946684800:
+                    state.last_heartbeat = 0.0
             except (ValueError, TypeError):
                 state.last_heartbeat = 0.0
 
@@ -158,7 +161,7 @@ class NodeStateManager:
         if state.status == "online" and state.last_heartbeat > 0:
             # 使用较短的判定阈值（默认超时的 1/3 作为安全边界），
             # 因为 DB 同步间隔最长 5 分钟，如果 heartbeat 比这更老肯定离线
-            hb_age = time.monotonic() - state.last_heartbeat
+            hb_age = time.time() - state.last_heartbeat
             safe_threshold = HEARTBEAT_TIMEOUT / 3  # 30 秒安全阈值
             if hb_age > safe_threshold:
                 old_occ = state.occupied_by
@@ -212,11 +215,11 @@ class NodeStateManager:
         if state.status == "suspended":
             # 只更新 IP 和心跳时间（用于诊断），不改状态
             state.current_ip = current_ip
-            state.last_heartbeat = time.monotonic()
+            state.last_heartbeat = time.time()
             return True, "ok (suspended, heartbeat noted)"
 
         # offline / approved / online → 都可恢复为 online
-        now = time.monotonic()
+        now = time.time()
         state.status = "online"
         state.last_heartbeat = now
         state.current_ip = current_ip
@@ -234,7 +237,7 @@ class NodeStateManager:
         
         返回被标记为离线的 server_id 列表。
         """
-        now = time.monotonic()
+        now = time.time()
         offline_ids = []
 
         for sid, state in self._states.items():
@@ -280,7 +283,7 @@ class NodeStateManager:
         Returns:
             [{"server_id": ..., "current_ip": ..., "occupied_by": ..., "seconds_until_timeout": ...}, ...]
         """
-        now = time.monotonic()
+        now = time.time()
         need_probe = []
 
         for sid, state in self._states.items():
@@ -318,7 +321,7 @@ class NodeStateManager:
         state = self._states.get(server_id)
         if state:
             state._probing = True
-            state._last_probe_time = time.monotonic()
+            state._last_probe_time = time.time()
 
     # ── 主动探活操作 ─────────────────────────────────────────────────────
 
@@ -340,7 +343,7 @@ class NodeStateManager:
         """
         import socket
 
-        now = time.monotonic()
+        now = time.time()
         offline_ids = []
         probed = 0
 
@@ -432,7 +435,7 @@ class NodeStateManager:
         if state.status != "suspended":
             return False, f"cannot resume: current status is '{state.status}'"
         state.status = "online"
-        state.last_heartbeat = time.monotonic()  # 刷新时间戳避免立即被标离线
+        state.last_heartbeat = time.time()  # 刷新时间戳避免立即被标离线
         log.info(f"[NodeState] RESUMED: {server_id}")
         return True, "ok"
 
@@ -467,7 +470,7 @@ class NodeStateManager:
         # occupy 后 is_alive 阈值从 60s(空闲) 切换到 15s(占用)，
         # 如果不刷新 last_heartbeat，旧时间戳会立即超过 15s 阈值，
         # 导致 refresh-status 时 check_offline_nodes 误判为离线并自动释放占用
-        state.last_heartbeat = time.monotonic()
+        state.last_heartbeat = time.time()
         log.info(f"[NodeState] OCCUPIED: {server_id} by '{username}'")
         return True, "ok"
 
@@ -494,7 +497,7 @@ class NodeStateManager:
         # 如果不立即校验，status 仍是 online 且超时阈值从 15s→90s，
         # 导致 Web 刷新显示错误的"在线"状态长达 ~80 秒
         if check_offline and state.status == "online":
-            now = time.monotonic()
+            now = time.time()
             elapsed = now - state.last_heartbeat
             # ★ 使用较短的安全阈值（5秒）：Client 明确释放说明连接有问题，
             #   如果最近 5 秒内没有新心跳，大概率 SE 已死，直接标离线

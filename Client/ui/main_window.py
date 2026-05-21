@@ -359,11 +359,12 @@ class TradingTerminal(tk.Tk):
                 self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
 
                 se_client = SEWebSocketClient(
-                    host=host, port=port, token=token,
+                    host=host, port=port, token=token, server_id=self._se_server_id,
                     on_message_callback=self._on_init_se_msg,
                     on_status_callback=self._on_init_se_status,
                     reconnect_enabled=False,
                 )
+
                 self._se_client = se_client
                 se_client.start()
 
@@ -379,8 +380,21 @@ class TradingTerminal(tk.Tk):
                         break
 
                 if connected:
-                    # 连接成功！恢复自动重连能力
-                    se_client._reconnect_enabled = SE_RECONNECT_ENABLED
+                    # 连接成功！停止旧客户端,创建启用重连的新客户端
+                    se_client.stop()
+                    se_client = SEWebSocketClient(
+                        host=host, port=port, token=token, server_id=self._se_server_id,
+                        on_message_callback=self._on_init_se_msg,
+                        on_status_callback=self._on_init_se_status,
+                        reconnect_enabled=SE_RECONNECT_ENABLED,
+                    )
+                    self._se_client = se_client
+                    se_client.start()
+                    # 等待新客户端连接就绪
+                    for _ in range(50):
+                        _time.sleep(0.1)
+                        if se_client.is_connected:
+                            break
                     return
 
                 # 失败清理
@@ -545,11 +559,12 @@ class TradingTerminal(tk.Tk):
             self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
 
             se_client = SEWebSocketClient(
-                host=host, port=port, token=token,
+                host=host, port=port, token=token, server_id=self._se_server_id,
                 on_message_callback=self._on_init_se_msg,
                 on_status_callback=self._on_init_se_status,
                 reconnect_enabled=False,
             )
+
             self._se_client = se_client
             se_client.start()
 
@@ -565,7 +580,21 @@ class TradingTerminal(tk.Tk):
                     break
 
             if connected:
-                se_client._reconnect_enabled = SE_RECONNECT_ENABLED
+                # 连接成功！停止旧客户端,创建启用重连的新客户端
+                se_client.stop()
+                se_client = SEWebSocketClient(
+                    host=host, port=port, token=token, server_id=self._se_server_id,
+                    on_message_callback=self._on_init_se_msg,
+                    on_status_callback=self._on_init_se_status,
+                    reconnect_enabled=SE_RECONNECT_ENABLED,
+                )
+                self._se_client = se_client
+                se_client.start()
+                # 等待新客户端连接就绪
+                for _ in range(50):
+                    _time.sleep(0.1)
+                    if se_client.is_connected:
+                        break
                 return
 
             self._se_client = None

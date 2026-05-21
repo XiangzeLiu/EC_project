@@ -3,13 +3,14 @@ Authentication Module
 Token 验证、客户端 Token 管理
 """
 
-import hashlib
+import secrets
 import time
 import logging
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from config import SERVER_TOKEN, active_client_tokens, log
+
 
 security = HTTPBearer(auto_error=False)
 
@@ -38,15 +39,27 @@ def generate_client_token(username: str) -> str:
     """
     为登录成功的客户端生成 Token，并注册到活跃 Token 集合中
     """
-    ts = str(int(time.time()))
-    raw = f"{username}:{SERVER_TOKEN}:{ts}"
-    token = hashlib.sha256(raw.encode()).hexdigest()
+    token = secrets.token_urlsafe(32)
     active_client_tokens[token] = {
         "username": username,
-        "created_at": ts,
+        "created_at": time.time(),
     }
     log.info(f"Generated client token for user: {username}")
     return token
+
+
+def get_client_token_info(token: str) -> dict | None:
+    """获取客户端 token 对应的用户信息"""
+    return active_client_tokens.get(token)
+
+
+def get_client_username(token: str) -> str:
+    """从客户端 token 提取用户名，不存在时返回空字符串"""
+    info = get_client_token_info(token)
+    if not info:
+        return ""
+    return str(info.get("username") or "")
+
 
 
 def invalidate_client_token(token: str) -> bool:
