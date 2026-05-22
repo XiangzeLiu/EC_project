@@ -24,6 +24,53 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _sha256(text: str) -> str:
+    import hashlib
+    return hashlib.sha256((text or "").encode()).hexdigest()
+
+
+def ensure_super_admin_account() -> None:
+    """确保系统始终存在且仅存在一个超级管理员账号。"""
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+
+        rows = conn.execute(
+            "SELECT id, username, role, status, created_at FROM accounts WHERE role='super_admin' ORDER BY id ASC"
+        ).fetchall()
+
+        # 若不存在超级管理员，则初始化默认账号：admin / admin_sc
+        if not rows:
+            conn.execute(
+                """
+                INSERT INTO accounts (username, password_hash, role, status, allowed_brokers, se_address, description, created_at, updated_at)
+                VALUES (?, ?, 'super_admin', 'active', '[]', '', '系统内置超级管理员', ?, ?)
+                """,
+                ("admin", _sha256("admin_sc"), now, now),
+            )
+            conn.commit()
+            return
+
+        # 仅保留最早的 super_admin；其余降级为 admin
+        keeper = dict(rows[0])
+        conn.execute(
+            "UPDATE accounts SET status='active', updated_at=? WHERE id=?",
+            (now, keeper["id"]),
+        )
+        if len(rows) > 1:
+            demote_ids = [r["id"] for r in rows[1:]]
+            placeholders = ",".join(["?"] * len(demote_ids))
+            conn.execute(
+                f"UPDATE accounts SET role='admin', updated_at=? WHERE id IN ({placeholders})",
+                [now, *demote_ids],
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+
 def init_db():
     """初始化数据库表结构"""
     conn = _get_conn()
@@ -111,6 +158,10 @@ def init_db():
     finally:
         conn.close()
 
+    # 初始化后确保固定超级管理员存在
+    ensure_super_admin_account()
+
+
 
 def verify_account(username: str, password: str) -> dict | None:
     """
@@ -121,8 +172,7 @@ def verify_account(username: str, password: str) -> dict | None:
     """
     conn = _get_conn()
     try:
-        import hashlib
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        pw_hash = _sha256(password)
         row = conn.execute(
             "SELECT id, username, role, status, allowed_brokers, se_address FROM accounts "
             "WHERE username = ? AND password_hash = ? AND status = 'active'",
@@ -135,6 +185,24 @@ def verify_account(username: str, password: str) -> dict | None:
         return None
     finally:
         conn.close()
+
+
+def verify_web_admin(username: str, password: str) -> dict | None:
+    """验证 Web 管理后台账号（仅 super_admin / admin）。"""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, username, role, status
+            FROM accounts
+            WHERE username = ? AND password_hash = ? AND status = 'active' AND role IN ('super_admin', 'admin')
+            """,
+            (username, _sha256(password)),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
 
 
 def get_broker_list() -> list[dict]:
@@ -1127,11 +1195,15 @@ def create_account(username: str, password: str, se_address: str = "",
     Returns:
         创建的账户字典，或 None（失败，如用户名已存在）
     """
-    import hashlib
+    role = (role or "trader").strip().lower()
+    if role not in ("trader", "admin"):
+        log.warning(f"Account create failed: unsupported role '{role}'")
+        return None
+
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        pw_hash = _sha256(password)
         brokers_json = json.dumps([broker_tag] if broker_tag else [])
         conn.execute("""
             INSERT INTO accounts (username, password_hash, role, status,
@@ -1140,8 +1212,9 @@ def create_account(username: str, password: str, se_address: str = "",
         """, (username, pw_hash, role, brokers_json, se_address, description, now, now))
         conn.commit()
         row = conn.execute("SELECT * FROM accounts WHERE id = last_insert_rowid()").fetchone()
-        log.info(f"Account created: {username} (se={se_address}, broker={broker_tag})")
+        log.info(f"Account created: {username} role={role} (se={se_address}, broker={broker_tag})")
         return dict(row) if row else None
+
     except sqlite3.IntegrityError:
         log.warning(f"Account create failed: username '{username}' already exists")
         return None
@@ -1168,10 +1241,10 @@ def get_all_accounts() -> list[dict]:
 
 
 def delete_account(account_id: int) -> bool:
-    """删除账户"""
+    """删除账户（超级管理员账户不可删除）"""
     conn = _get_conn()
     try:
-        cursor = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        cursor = conn.execute("DELETE FROM accounts WHERE id = ? AND role <> 'super_admin'", (account_id,))
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
@@ -1184,14 +1257,15 @@ def delete_account(account_id: int) -> bool:
         conn.close()
 
 
+
 def suspend_account(account_id: int) -> bool:
-    """暂停账户（状态设为 disabled）"""
+    """暂停账户（状态设为 disabled，超级管理员不可暂停）"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
         cursor = conn.execute("""
             UPDATE accounts SET status='disabled', updated_at=?
-            WHERE id = ? AND status != 'disabled'
+            WHERE id = ? AND status != 'disabled' AND role <> 'super_admin'
         """, (now, account_id))
         conn.commit()
         ok = cursor.rowcount > 0
@@ -1203,6 +1277,7 @@ def suspend_account(account_id: int) -> bool:
         return False
     finally:
         conn.close()
+
 
 
 def resume_account(account_id: int) -> bool:
@@ -1238,6 +1313,98 @@ def get_account_by_id(account_id: int) -> dict | None:
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+def get_account_by_username(username: str) -> dict | None:
+    """根据用户名获取账户信息（含密码哈希）。"""
+    conn = _get_conn()
+    try:
+        row = conn.execute("SELECT * FROM accounts WHERE username = ?", (username,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def rename_super_admin_username(account_id: int, new_username: str) -> tuple[bool, str]:
+    """重命名超级管理员用户名（仅允许超级管理员本人）。"""
+    new_username = (new_username or "").strip()
+    if not new_username:
+        return False, "用户名不能为空"
+
+    conn = _get_conn()
+    try:
+        target = conn.execute(
+            "SELECT id, role FROM accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+        if not target:
+            return False, "账户不存在"
+        if target["role"] != "super_admin":
+            return False, "仅超级管理员支持此操作"
+
+        exists = conn.execute(
+            "SELECT id FROM accounts WHERE username = ? AND id <> ?",
+            (new_username, account_id),
+        ).fetchone()
+        if exists:
+            return False, "用户名已存在"
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE accounts SET username=?, updated_at=? WHERE id=?",
+            (new_username, now, account_id),
+        )
+        conn.commit()
+        return True, "ok"
+    except Exception as e:
+        log.error(f"rename_super_admin_username failed: {e}")
+        return False, "更新失败"
+    finally:
+        conn.close()
+
+
+
+def update_super_admin_password(account_id: int, current_password: str, new_password: str) -> tuple[bool, str]:
+    """超级管理员修改自己的密码（需校验旧密码）。"""
+    current_password = (current_password or "").strip()
+    new_password = (new_password or "").strip()
+
+    if not current_password:
+        return False, "当前密码不能为空"
+    if not new_password:
+        return False, "新密码不能为空"
+    if len(new_password) < 6:
+        return False, "新密码长度至少 6 位"
+    if current_password == new_password:
+        return False, "新密码不能与当前密码相同"
+
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT id, role, password_hash FROM accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            return False, "账户不存在"
+        if row["role"] != "super_admin":
+            return False, "仅超级管理员支持此操作"
+
+        if row["password_hash"] != _sha256(current_password):
+            return False, "当前密码错误"
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE accounts SET password_hash=?, updated_at=? WHERE id=?",
+            (_sha256(new_password), now, account_id),
+        )
+        conn.commit()
+        return True, "ok"
+    except Exception as e:
+        log.error(f"update_super_admin_password failed: {e}")
+        return False, "更新失败"
+    finally:
+        conn.close()
+
 
 
 def update_account(account_id: int, se_address: str = "", broker_tag: str = "",

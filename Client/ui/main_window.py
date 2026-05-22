@@ -103,7 +103,9 @@ class TradingTerminal(tk.Tk):
         self._se_status_var: tk.StringVar = None
         self._se_status_lbl: tk.Label | None = None
         self._se_btn: tk.Button | None = None
+        self._logout_btn: tk.Button | None = None
         self._session_id: str = ""
+
         self._node_info: dict = {}
         self._se_target_address: str = ""  # 登录后动态获取的 SE 地址
         self._se_server_id: str = ""       # 当前 SE 对应的 server_id（用于占用/释放）
@@ -898,11 +900,30 @@ class TradingTerminal(tk.Tk):
         )
         self._se_btn.pack(side="left", padx=2)
         self._bind_button_hover(self._se_btn, BUTTON_NEUTRAL_BG)
+
+        self._logout_btn = tk.Button(
+            top,
+            text="退出登录",
+            font=FONT_UI_SM,
+            bg=BUTTON_NEUTRAL_BG,
+            fg=ACCENT_RED,
+            activebackground=BUTTON_ACTIVE_BG,
+            activeforeground=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            padx=10,
+            pady=2,
+            command=self._logout_to_login,
+        )
+        self._logout_btn.pack(side="left", padx=(6, 2))
+        self._bind_button_hover(self._logout_btn, BUTTON_NEUTRAL_BG)
+
         self._set_se_connection_ui(self._se_connected)
 
 
 
         # 时间
+
         self.time_var = tk.StringVar()
         tk.Label(top, textvariable=self.time_var, bg=TOP_BAR_BG,
                  fg=TEXT_DIM, font=FONT_MONO).pack(side="right", padx=(12, 4))
@@ -1937,9 +1958,66 @@ class TradingTerminal(tk.Tk):
         self._set_se_connection_ui(False)
         self.log_area.log("[SE] 用户取消了重连，子服务器连接已释放", "warn")
 
+    def _logout_to_login(self):
+        """退出当前账户并返回登录界面"""
+        if not messagebox.askyesno("退出登录", "确认退出当前账户并返回登录界面？"):
+            return
+
+        # 停止重连状态/弹窗
+        self._reconnecting = False
+        if self._reconnect_dialog:
+            try:
+                self._reconnect_dialog.destroy()
+            except tk.TclError:
+                pass
+            self._reconnect_dialog = None
+
+        # 断开 SE 连接
+        if self._se_client:
+            self._se_client.stop()
+            self._se_client = None
+        self._se_connected = False
+
+        # 释放节点占用
+        self._release_se_occupation()
+
+        # 解绑会话中的 SE client
+        if self.session:
+            self.session.bind_se_client(None)
+
+        # 退出 SM 登录并清空 token
+        if self.session:
+            try:
+                self.session.logout()
+            except Exception:
+                self.http.token = ""
+
+        # 清空当前账号缓存，允许切换账号登录
+        self._login_username = ""
+        self._login_password = ""
+
+        # 隐藏主界面组件，回到初始化+登录流程
+        for child in self.winfo_children():
+            try:
+                child.pack_forget()
+            except Exception:
+                pass
+
+        if self._init_frame:
+            try:
+                self._init_frame.destroy()
+            except Exception:
+                pass
+            self._init_frame = None
+
+        self._init_ready = False
+        self._show_init_screen()
+        self.after(100, self._show_login_first)
+
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
     def on_close(self):
+
         """窗口关闭"""
         self._mock_active = False
         self._stream_active = False

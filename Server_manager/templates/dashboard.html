@@ -289,6 +289,21 @@
     }
     .acct-inuse:hover { box-shadow:0 4px 16px rgba(147,51,234,0.2); }
     .acct-inuse .acct-name { color:#6b21a8; }
+    /* -- role style -- */
+    .acct-super {
+      background: linear-gradient(135deg,#fef3c7 0%,#fbbf24 50%,#f59e0b 100%);
+      border-color: #d97706;
+      box-shadow: 0 2px 12px rgba(251,191,36,0.25), inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    .acct-super:hover { box-shadow: 0 4px 16px rgba(251,191,36,0.35), inset 0 1px 0 rgba(255,255,255,0.4); }
+    .acct-super .acct-name { color:#78350f; }
+    .acct-admin {
+      background: linear-gradient(135deg,#f8fafc 0%,#cbd5e1 50%,#94a3b8 100%);
+      border-color: #64748b;
+      box-shadow: 0 2px 12px rgba(148,163,184,0.25), inset 0 1px 0 rgba(255,255,255,0.5);
+    }
+    .acct-admin:hover { box-shadow: 0 4px 16px rgba(148,163,184,0.35), inset 0 1px 0 rgba(255,255,255,0.5); }
+    .acct-admin .acct-name { color:#1e293b; }
     .acct-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .acct-head-left { display: flex; align-items: center; gap: 8px; }
     .acct-name { font-size: 14px; font-weight: 600; color: #1d2236; }
@@ -503,9 +518,9 @@
       </button>
 
       <div class="nav-section-title" style="margin-top:8px;">系统工具</div>
-      <a href="/docs" target="_blank" class="nav-item" style="text-decoration:none;">
-        <i class="ri-book-open-line"></i><span>API 文档</span>
-      </a>
+      <button data-module="docs" class="nav-item" type="button">
+        <i class="ri-file-text-line"></i><span>产品文档（待补充）</span>
+      </button>
     </nav>
 
     <div class="sidebar-user">
@@ -513,7 +528,7 @@
         <div class="user-avatar">{{ admin_username[0]|upper }}</div>
         <div style="flex:1;min-width:0;">
           <div class="user-name">{{ admin_username }}</div>
-          <div class="user-role">系统管理员</div>
+          <div class="user-role">{% if admin_role == 'super_admin' %}超级管理员{% else %}管理员{% endif %}</div>
         </div>
         <button onclick="location.href='/admin/logout'" class="btn-logout" title="退出登录"><i class="ri-logout-box-r-line"></i></button>
       </div>
@@ -678,6 +693,10 @@
                 <input class="inp inp-pwd req" id="inp-password" type="password" placeholder="密码" autocomplete="new-password" style="flex:1;min-width:0" />
               </div>
               <div class="toolbar-row">
+                <select class="sel" id="inp-role" autocomplete="off" style="flex:1;min-width:0" onchange="onCreateRoleChanged()">
+                  <option value="trader" selected>交易员</option>
+                  {% if is_super_admin %}<option value="admin">管理员</option>{% endif %}
+                </select>
                 <input class="inp req" id="inp-se-addr" placeholder="SE 地址（如 127.0.0.1:8900）" autocomplete="off" style="flex:1;min-width:0" />
                 <select class="sel" id="inp-broker" autocomplete="off" style="flex:1;min-width:0">
                   <option value="" disabled selected>选择券商</option>
@@ -694,7 +713,40 @@
             </div>
           </div>
 
-          <div class="grid-accts" id="accounts-body"></div>
+          {% if is_super_admin %}
+          <div style="padding:0 16px 8px 16px;max-width:33%;">
+            <div class="acct-card acct-super" style="border-style:dashed;">
+              <div class="acct-head">
+                <div class="acct-head-left">
+                  <span class="nc-status-pill" style="background:#b45309;box-shadow:0 2px 6px rgba(180,83,9,0.3)">超级管理员专属</span>
+                  <span class="acct-name">{{ admin_username }}</span>
+                </div>
+              </div>
+              <div class="acct-info">
+                <div class="acct-row"><span class="acct-label">角色</span><span class="acct-value">超级管理员</span></div>
+                <div class="acct-row"><span class="acct-label">说明</span><span class="acct-value">可创建管理员/交易员，可停用或删除管理员与交易员；可修改本账户名称和密码</span></div>
+              </div>
+              <div class="acct-actions">
+                <button class="btn-xs btn-pri" onclick="showSuperAdminRename()"><i class="ri-edit-line"></i> 修改账户名称</button>
+                <button class="btn-xs btn-warn" onclick="showSuperAdminPasswordModal()"><i class="ri-lock-password-line"></i> 修改密码</button>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          <div id="accounts-admin-section" style="display:none;">
+            <div class="subheader" style="padding:0 16px; margin-bottom:0;">
+              <h3><i class="ri-shield-user-line" style="color:#64748b;margin-right:4px;"></i>管理员账户</h3>
+            </div>
+            <div class="grid-accts" id="accounts-admin-body"></div>
+          </div>
+
+          <div id="accounts-trader-section">
+            <div class="subheader" style="padding:0 16px; margin-bottom:0;">
+              <h3><i class="ri-user-3-line" style="color:#3b63f6;margin-right:4px;"></i>交易员账户</h3>
+            </div>
+            <div class="grid-accts" id="accounts-trader-body"></div>
+          </div>
         </div>
       </section>
 
@@ -732,6 +784,22 @@
         </div>
       </section>
 
+      <!-- ════ 产品文档（待补充） ════ -->
+      <section id="mod-docs" class="section">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-header-left">
+              <div class="tile-icon ti-blue"><i class="ri-file-text-line"></i></div>
+              <h2 class="panel-title">产品文档</h2>
+            </div>
+          </div>
+          <div style="padding:60px 24px;text-align:center;color:#b9c0d2;">
+            <i class="ri-file-text-line" style="font-size:64px;opacity:0.3;"></i>
+            <p style="margin-top:16px;font-size:14px;">内容开发中，敬请期待...</p>
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 </div>
@@ -740,6 +808,9 @@
 <div id="toast-root" class="toast-container"></div>
 
 <script>
+const CURRENT_ADMIN_ROLE = "{{ admin_role }}";
+const CURRENT_ADMIN_USERNAME = "{{ admin_username }}";
+
 // ═══════════════════════════════════════════════════
 //  工具函数
 // ═══════════════════════════════════════════════════
@@ -1355,10 +1426,12 @@ async function refreshAccounts(){
 
 function renderAccounts(accounts){
   _acctCache = accounts||[];
-  var c=document.getElementById('accounts-body');
-  if(!accounts||accounts.length===0){
-    c.innerHTML='<div class="empty-state"><i class="ri-user-line"></i>暂无注册账户</div>';return;
-  }
+  var adminSection=document.getElementById('accounts-admin-section');
+  var adminBody=document.getElementById('accounts-admin-body');
+  var traderBody=document.getElementById('accounts-trader-body');
+
+  var roleTextMap={trader:'交易员',admin:'管理员',super_admin:'超级管理员'};
+
   /* 构建节点占用映射: se_address -> occupied_by */
   var seOccupiedMap={};
   (_nodesCache||[]).forEach(function(n){
@@ -1366,81 +1439,238 @@ function renderAccounts(accounts){
     if(n.occupied_by && n.current_ip){ seOccupiedMap[n.current_ip]=n.occupied_by; }
   });
 
-  c.innerHTML=accounts.map(function(a){
-    var st=a.status||'active';
-    var seAddr=(a.se_address||'').trim();
-    var isSuspended = (st!=='active');
-    var occupier = seAddr ? seOccupiedMap[seAddr] : '';
-    var isInUse = (!isSuspended && occupier===a.username);
-
-    var cardClass, statusLabel, statusIcon, pillBg, pillShadow, pillColor;
-
-    if(isSuspended){
-      cardClass='acct-card acct-suspended';
-      statusLabel='暂停使用'; statusIcon='ri-pause-circle-fill';
-      pillBg='#d97706'; pillShadow='rgba(217,119,6,0.3)';
-      pillColor='#92400e';
-    }else if(isInUse){
-      cardClass='acct-card acct-inuse';
-      statusLabel='使用中'; statusIcon='ri-links-fill';
-      pillBg='#9333ea'; pillShadow='rgba(147,51,234,0.35)';
-      pillColor='#6b21a8';
-    }else{
-      cardClass='acct-card acct-active';
-      statusLabel='可使用'; statusIcon='ri-checkbox-circle-fill';
-      pillBg='#16a34a'; pillShadow='rgba(22,163,74,0.3)';
-      pillColor='#166534';
+  function renderCards(list){
+    if(!list||list.length===0){
+      return '<div class="empty-state"><i class="ri-user-line"></i>暂无账户</div>';
     }
+    return list.map(function(a){
+      var role=(a.role||'trader');
+      var st=a.status||'active';
+      var seAddr=(a.se_address||'').trim();
+      var isSuspended = (st!=='active');
+      var occupier = seAddr ? seOccupiedMap[seAddr] : '';
+      var isInUse = (role==='trader' && !isSuspended && occupier===a.username);
 
-    var sb='<span class="nc-status-pill" style="background:'+pillBg+';box-shadow:0 2px 6px '+pillShadow+'"><i class="'+statusIcon+'" style="margin-right:4px;font-size:11px"></i>'+statusLabel+'</span>';
+      var cardClass='acct-card acct-active';
+      if(role==='super_admin') cardClass='acct-card acct-super';
+      else if(role==='admin') cardClass='acct-card acct-admin';
+      else if(isSuspended) cardClass='acct-card acct-suspended';
+      else if(isInUse) cardClass='acct-card acct-inuse';
 
-    var brokers='-',desc=a.description||'-';
-    try{var _b=JSON.parse(a.allowed_brokers);brokers=_b.length?_b.join(', '):'-';}catch(e){}
+      var statusLabel='可使用', statusIcon='ri-checkbox-circle-fill', pillBg='#16a34a', pillShadow='rgba(22,163,74,0.3)';
+      if(role==='super_admin'){ statusLabel='超级管理员'; statusIcon='ri-vip-crown-fill'; pillBg='#b45309'; pillShadow='rgba(180,83,9,0.3)'; }
+      else if(role==='admin'){ statusLabel='管理员'; statusIcon='ri-shield-user-fill'; pillBg='#64748b'; pillShadow='rgba(100,116,139,0.3)'; }
+      else if(isSuspended){ statusLabel='暂停使用'; statusIcon='ri-pause-circle-fill'; pillBg='#d97706'; pillShadow='rgba(217,119,6,0.3)'; }
+      else if(isInUse){ statusLabel='使用中'; statusIcon='ri-links-fill'; pillBg='#9333ea'; pillShadow='rgba(147,51,234,0.35)'; }
 
-    var ab='';
-    if(isSuspended){
-      ab='<button class="btn-xs btn-pri" onclick="showAccountDetail('+a.id+')">详情</button>'
-        +'<button class="btn-xs btn-ok" onclick="resumeAccount('+a.id+')">恢复</button>'
-        +'<button class="btn-xs btn-del" onclick="deleteAccount('+a.id+')">删除</button>';
-    }else{
-      ab='<button class="btn-xs btn-pri" onclick="showAccountDetail('+a.id+')">详情</button>'
-        +'<button class="btn-xs btn-pri" onclick="showAccountEdit('+a.id+',\''+escapeHtml(a.username)+'\',\''+escapeHtml(seAddr.replace(/'/g,"\\'"))+'\',\''+escapeHtml(brokers.replace(/'/g,"\\'"))+'\',\''+escapeHtml(desc.replace(/'/g,"\\"))+'\')">编辑</button>'
-        +(isInUse
-          ? '<span class="occupied-badge"><i class="ri-link"></i> 已连接 SE 服务</span>'
-          : '<button class="btn-xs btn-warn" onclick="suspendAccount('+a.id+')">暂停</button>')
-        +'<button class="btn-xs btn-del" onclick="deleteAccount('+a.id+')">删除</button>';
-    }
+      var sb='<span class="nc-status-pill" style="background:'+pillBg+';box-shadow:0 2px 6px '+pillShadow+'"><i class="'+statusIcon+'" style="margin-right:4px;font-size:11px"></i>'+statusLabel+'</span>';
 
-    return '<div class="'+cardClass+'">'
-      +'<div class="acct-head"><div class="acct-head-left">'+sb
-      +'<span class="acct-name">'+escapeHtml(a.username)+'</span></div></div>'
-      +'<div class="acct-info">'
-      +'  <div class="acct-row"><span class="acct-label">角色</span><span class="acct-value">'+escapeHtml(a.role||'trader')+'</span></div>'
-      +'  <div class="acct-row"><span class="acct-label">SE 地址</span><span class="acct-value-mono">'+escapeHtml(seAddr||'-')+'</span></div>'
-      +'  <div class="acct-row"><span class="acct-label">券商</span><span class="acct-value">'+escapeHtml(brokers)+'</span></div>'
-      +'  <div class="acct-row"><span class="acct-label">描述</span><span class="acct-value">'+escapeHtml(desc)+'</span></div>'
-      +'  <div class="acct-row"><span class="acct-label">创建时间</span><span style="color:#5b6480">'+fmtTime(a.created_at)+'</span></div>'
-      +'</div>'
-      +'<div class="acct-actions">'+ab+'</div></div>';
-  }).join('');
+      var brokers='-',desc=a.description||'-';
+      try{var _b=JSON.parse(a.allowed_brokers);brokers=_b.length?_b.join(', '):'-';}catch(e){}
+
+      var canManageTrader=(CURRENT_ADMIN_ROLE==='super_admin'||CURRENT_ADMIN_ROLE==='admin');
+      var canManageAdmin=(CURRENT_ADMIN_ROLE==='super_admin');
+      var editable=(role==='trader' && canManageTrader);
+      var operable=(role==='trader' ? canManageTrader : (role==='admin' ? canManageAdmin : false));
+
+      var ab='<button class="btn-xs btn-pri" onclick="showAccountDetail('+a.id+')">详情</button>';
+      if(editable){
+        ab += '<button class="btn-xs btn-pri" onclick="showAccountEdit('+a.id+',\''+escapeHtml(a.username)+'\',\''+escapeHtml(seAddr.replace(/'/g,"\\'"))+'\',\''+escapeHtml(brokers.replace(/'/g,"\\'"))+'\',\''+escapeHtml(desc.replace(/'/g,"\\'"))+'\')">编辑</button>';
+      }
+      if(!operable && role==='admin' && CURRENT_ADMIN_ROLE!=='super_admin'){
+        ab += '<span class="occupied-badge"><i class="ri-eye-line"></i> 只读</span>';
+      }
+      if(operable){
+        if(isSuspended){
+          ab += '<button class="btn-xs btn-ok" onclick="resumeAccount('+a.id+')">恢复</button>';
+        }else if(isInUse){
+          ab += '<span class="occupied-badge"><i class="ri-link"></i> 已连接 SE 服务</span>';
+        }else{
+          ab += '<button class="btn-xs btn-warn" onclick="suspendAccount('+a.id+')">暂停</button>';
+        }
+        ab += '<button class="btn-xs btn-del" onclick="deleteAccount('+a.id+')">删除</button>';
+      }
+
+      var seAddrRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">SE 地址</span><span class="acct-value-mono">'+escapeHtml(seAddr||'-')+'</span></div>' : '';
+      var brokerRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">券商</span><span class="acct-value">'+escapeHtml(brokers)+'</span></div>' : '';
+
+      return '<div class="'+cardClass+'">'
+        +'<div class="acct-head"><div class="acct-head-left">'+sb
+        +'<span class="acct-name">'+escapeHtml(a.username)+'</span></div></div>'
+        +'<div class="acct-info">'
+        +'  <div class="acct-row"><span class="acct-label">角色</span><span class="acct-value">'+escapeHtml(roleTextMap[role]||role)+'</span></div>'
+        +seAddrRow
+        +brokerRow
+        +'  <div class="acct-row"><span class="acct-label">描述</span><span class="acct-value">'+escapeHtml(desc)+'</span></div>'
+        +'  <div class="acct-row"><span class="acct-label">创建时间</span><span style="color:#5b6480">'+fmtTime(a.created_at)+'</span></div>'
+        +'</div>'
+        +'<div class="acct-actions">'+ab+'</div></div>';
+    }).join('');
+  }
+
+  var adminAccounts=(accounts||[]).filter(function(a){return (a.role||'trader')==='admin';});
+  var traderAccounts=(accounts||[]).filter(function(a){return (a.role||'trader')==='trader';});
+
+  adminSection.style.display=adminAccounts.length>0?'':'none';
+  adminBody.innerHTML=renderCards(adminAccounts);
+  traderBody.innerHTML=renderCards(traderAccounts);
+
   if(_overviewInited) renderOverview();
+}
+
+function onCreateRoleChanged(){
+  var roleEl=document.getElementById('inp-role');
+  var seEl=document.getElementById('inp-se-addr');
+  var brokerEl=document.getElementById('inp-broker');
+  if(!roleEl||!seEl||!brokerEl) return;
+  var isTrader=(roleEl.value==='trader');
+  seEl.disabled=!isTrader;
+  brokerEl.disabled=!isTrader;
+  seEl.placeholder=isTrader?'SE 地址（如 127.0.0.1:8900）':'管理员账户无需 SE 地址';
+  if(!isTrader){
+    seEl.value='';
+    brokerEl.value='';
+  }
+}
+
+function showSuperAdminRename(){
+  if(CURRENT_ADMIN_ROLE!=='super_admin'){
+    toast('仅超级管理员可操作','warn');
+    return;
+  }
+  var old=document.getElementById('super-admin-rename-modal');
+  if(old) old.remove();
+  var html=''
+    +'<div class="modal-mask" id="super-admin-rename-modal">'
+    +'  <div class="modal-panel" style="max-width:500px" onclick="event.stopPropagation()">'
+    +'    <div class="modal-head"><h3>修改超级管理员账户名称</h3>'
+    +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'super-admin-rename-modal\').remove()"><i class="ri-close-line"></i></button></div>'
+    +'    <div class="modal-body">'
+    +'      <div class="field-group"><label class="field-label">当前账户</label><div class="field-readonly">'+escapeHtml(CURRENT_ADMIN_USERNAME)+'</div></div>'
+    +'      <div class="field-group"><label class="field-label">新账户名称 <span style="color:#ef4444">*</span></label><input class="inp" id="super-admin-new-name" value="'+escapeHtml(CURRENT_ADMIN_USERNAME)+'" /></div>'
+    +'    </div>'
+    +'    <div class="modal-foot">'
+    +'      <button class="btn-xs" onclick="document.getElementById(\'super-admin-rename-modal\').remove()">取消</button>'
+    +'      <button class="btn-xs btn-pri" onclick="submitSuperAdminRename(this)">保存</button>'
+    +'    </div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+async function submitSuperAdminRename(btn){
+  var nameEl=document.getElementById('super-admin-new-name');
+  if(!nameEl){return;}
+  var newName=(nameEl.value||'').trim();
+  if(!newName){toast('请输入新的账户名称','warn');return;}
+  if(newName===CURRENT_ADMIN_USERNAME){toast('账户名称未变化','warn');return;}
+
+  btn.disabled=true;
+  btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 保存中...';
+  try{
+    var r=await fetch('/api/admin/profile/update-name',{
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:newName})
+    });
+    var d=await r.json();
+    if(d.ok){
+      toast('账户名称已更新，请重新确认当前登录信息','ok');
+      setTimeout(function(){ location.reload(); },500);
+    }else{
+      toast('更新失败:'+(d.error||''),'err');
+      btn.disabled=false;
+      btn.innerHTML='保存';
+    }
+  }catch(e){
+    toast('网络错误:'+e.message,'err');
+    btn.disabled=false;
+    btn.innerHTML='保存';
+  }
+}
+
+function showSuperAdminPasswordModal(){
+  if(CURRENT_ADMIN_ROLE!=='super_admin'){
+    toast('仅超级管理员可操作','warn');
+    return;
+  }
+  var old=document.getElementById('super-admin-password-modal');
+  if(old) old.remove();
+  var html=''
+    +'<div class="modal-mask" id="super-admin-password-modal">'
+    +'  <div class="modal-panel" style="max-width:520px" onclick="event.stopPropagation()">'
+    +'    <div class="modal-head"><h3>修改超级管理员密码</h3>'
+    +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'super-admin-password-modal\').remove()"><i class="ri-close-line"></i></button></div>'
+    +'    <div class="modal-body">'
+    +'      <div class="field-group"><label class="field-label">当前密码 <span style="color:#ef4444">*</span></label><input class="inp" type="password" id="super-admin-old-pwd" placeholder="请输入当前密码" /></div>'
+    +'      <div class="field-group"><label class="field-label">新密码 <span style="color:#ef4444">*</span></label><input class="inp" type="password" id="super-admin-new-pwd" placeholder="至少 6 位" /></div>'
+    +'      <div class="field-group"><label class="field-label">确认新密码 <span style="color:#ef4444">*</span></label><input class="inp" type="password" id="super-admin-confirm-pwd" placeholder="再次输入新密码" /></div>'
+    +'      <p style="margin:4px 0 0;color:#b45309;font-size:12px"><i class="ri-information-line"></i> 修改成功后将自动退出，请重新登录管理后台。</p>'
+    +'    </div>'
+    +'    <div class="modal-foot">'
+    +'      <button class="btn-xs" onclick="document.getElementById(\'super-admin-password-modal\').remove()">取消</button>'
+    +'      <button class="btn-xs btn-warn" onclick="submitSuperAdminPassword(this)">确认修改</button>'
+    +'    </div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+async function submitSuperAdminPassword(btn){
+  var oldPwdEl=document.getElementById('super-admin-old-pwd');
+  var newPwdEl=document.getElementById('super-admin-new-pwd');
+  var confirmPwdEl=document.getElementById('super-admin-confirm-pwd');
+  if(!oldPwdEl||!newPwdEl||!confirmPwdEl){return;}
+
+  var oldPwd=(oldPwdEl.value||'').trim();
+  var newPwd=(newPwdEl.value||'').trim();
+  var confirmPwd=(confirmPwdEl.value||'').trim();
+
+  if(!oldPwd){toast('请输入当前密码','warn');return;}
+  if(!newPwd){toast('请输入新密码','warn');return;}
+  if(newPwd.length<6){toast('新密码长度至少 6 位','warn');return;}
+  if(newPwd!==confirmPwd){toast('两次输入的新密码不一致','warn');return;}
+  if(oldPwd===newPwd){toast('新密码不能与当前密码相同','warn');return;}
+
+  btn.disabled=true;
+  btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 提交中...';
+  try{
+    var r=await fetch('/api/admin/profile/update-password',{
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({current_password:oldPwd,new_password:newPwd})
+    });
+    var d=await r.json();
+    if(d.ok){
+      toast('密码修改成功，正在退出登录...','ok');
+      setTimeout(function(){ window.location.href='/admin/logout'; },500);
+    }else{
+      toast('修改失败:'+(d.error||''),'err');
+      btn.disabled=false;
+      btn.innerHTML='确认修改';
+    }
+  }catch(e){
+    toast('网络错误:'+e.message,'err');
+    btn.disabled=false;
+    btn.innerHTML='确认修改';
+  }
 }
 
 async function createAccount(){
   try {
     var u=document.getElementById('inp-username').value.trim();
     var p=document.getElementById('inp-password').value.trim();
+    var role=(document.getElementById('inp-role').value||'trader').trim();
     var s=document.getElementById('inp-se-addr').value.trim();
     var b=document.getElementById('inp-broker').value.trim();
     var d=document.getElementById('inp-desc').value.trim();
     if(!u){toast('请输入用户名','warn');return;}
     if(!p){toast('请输入密码','warn');return;}
-    if(!s){toast('请输入 SE 地址','warn');return;}
-    if(!b){toast('请选择券商','warn');return;}
+    if(role==='admin' && CURRENT_ADMIN_ROLE!=='super_admin'){toast('仅超级管理员可创建管理员账户','warn');return;}
+    if(role==='trader'){
+      if(!s){toast('请输入 SE 地址','warn');return;}
+      if(!b){toast('请选择券商','warn');return;}
+    }
     var r=await fetch('/api/accounts/create',{
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username:u,password:p,se_address:s,broker_tag:b,description:d})
+      body:JSON.stringify({username:u,password:p,role:role,se_address:s,broker_tag:b,description:d})
     });
     var res=await r.json();
     if(res.ok){
@@ -1663,6 +1893,9 @@ var _overviewInited=false;
 function tryRenderOverview(){
   _overviewInited=true; renderOverview();
 }
+
+/* 初始化创建表单角色联动 */
+onCreateRoleChanged();
 
 /* 初始加载：先加载 nodes（accounts 的状态判断依赖 _nodesCache），再加载 accounts */
 refreshNodes().then(function(){

@@ -103,7 +103,8 @@ _TEMPLATES_DIR = os.path.join(_SCRIPT_DIR, "templates")
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
 # 管理员会话存储（内存，重启失效；后续可迁移到 Redis）
-_admin_sessions: dict[str, dict] = {}  # {session_id: {username, created_at}}
+_admin_sessions: dict[str, dict] = {}  # {session_id: {id, username, role, created_at}}
+
 
 # 管理会话有效期：2 小时（与 Cookie max_age 保持一致）
 _ADMIN_SESSION_MAX_AGE = 7200
@@ -147,6 +148,19 @@ def _is_admin_logged_in(request: Request) -> bool:
     return True
 
 
+def _get_admin_session(request: Request) -> dict | None:
+    if not _is_admin_logged_in(request):
+        return None
+    sid = _get_session_id(request)
+    return _admin_sessions.get(sid)
+
+
+def _is_super_admin(request: Request) -> bool:
+    s = _get_admin_session(request) or {}
+    return (s.get("role") or "") == "super_admin"
+
+
+
 @app.get("/", response_class=RedirectResponse)
 async def root_redirect():
     """根路径重定向到管理登录页"""
@@ -181,18 +195,21 @@ async def admin_login_submit(request: Request):
             "last_user": username,
         })
 
-    # 验证 admin.json 中的账号
-    admins = _load_admins()
-    for a in admins:
-        if a.get("username") == username and a.get("password") == password:
-            import secrets
-            sid = secrets.token_urlsafe(32)
-            _admin_sessions[sid] = {"username": username, "created_at": __import__("time").time()}
-            log.info(f"Admin logged in: {username}")
-            resp = RedirectResponse(url="/admin/dashboard", status_code=302)
-            resp.set_cookie(key="admin_sid", value=sid, max_age=_ADMIN_SESSION_MAX_AGE, httponly=True)
-            resp.set_cookie(key="admin_last_user", value=username, max_age=86400 * 30)
-            return resp
+    admin = database.verify_web_admin(username, password)
+    if admin:
+        import secrets
+        sid = secrets.token_urlsafe(32)
+        _admin_sessions[sid] = {
+            "id": admin.get("id"),
+            "username": admin.get("username"),
+            "role": admin.get("role"),
+            "created_at": __import__("time").time(),
+        }
+        log.info(f"Admin logged in: {username} role={admin.get('role')}")
+        resp = RedirectResponse(url="/admin/dashboard", status_code=302)
+        resp.set_cookie(key="admin_sid", value=sid, max_age=_ADMIN_SESSION_MAX_AGE, httponly=True)
+        resp.set_cookie(key="admin_last_user", value=username, max_age=86400 * 30)
+        return resp
 
     # 登录失败：直接返回登录页并显示错误（不跳转）
     return templates.TemplateResponse("login.html", {
@@ -200,6 +217,7 @@ async def admin_login_submit(request: Request):
         "error": "用户名或密码错误",
         "last_user": username,
     })
+
 
 
 @app.get("/admin/logout")
@@ -220,7 +238,10 @@ async def admin_dashboard(request: Request):
         return RedirectResponse(url="/admin/login", status_code=302)
 
     sid = _get_session_id(request)
-    admin_username = _admin_sessions.get(sid, {}).get("username", "Unknown")
+    sess = _admin_sessions.get(sid, {})
+    admin_username = sess.get("username", "Unknown")
+    admin_role = sess.get("role", "admin")
+
 
     # 服务状态信息（控制面不直接承载交易 SDK）
     server_mode = "CONTROL_PLANE"
@@ -241,12 +262,15 @@ async def admin_dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "admin_username": admin_username,
+        "admin_role": admin_role,
+        "is_super_admin": admin_role == "super_admin",
         "server_mode": server_mode,
         "sdk_status": sdk_status,
         "ib_status": ib_status,
         "ib_color": ib_color,
         "active_clients": str(active_count),
     })
+
 
 
 # ── 自定义 /docs（内嵌中英文切换）──────────────────────────────────────
@@ -1197,109 +1221,265 @@ async def reload_node_config(request: Request, server_id: str):
     return {"ok": False, "error": "\u8282\u70b9\u4e0d\u5b58\u5728"}
 
 
+
+
+@app.post("/api/admin/profile/update-name")
+async def update_super_admin_name(request: Request):
+    """超级管理员修改自己的账户名称（当前不包含密码修改）。"""
+    sess = _get_admin_session(request)
+    if not sess:
+        return {"ok": False, "error": "Unauthorized"}
+    if (sess.get("role") or "") != "super_admin":
+        return {"ok": False, "error": "仅超级管理员可操作"}
+
+    body = await request.json() if await request.body() else {}
+    new_username = (body.get("username") or "").strip()
+    if not new_username:
+        return {"ok": False, "error": "用户名不能为空"}
+
+    ok, msg = database.rename_super_admin_username(sess.get("id", 0), new_username)
+    if not ok:
+        return {"ok": False, "error": msg}
+
+    sid = _get_session_id(request)
+    if sid in _admin_sessions:
+        _admin_sessions[sid]["username"] = new_username
+
+    return {"ok": True, "message": "超级管理员账户名称已更新", "username": new_username}
+
+
+@app.post("/api/admin/profile/update-password")
+async def update_super_admin_password(request: Request):
+    """超级管理员修改自己的登录密码，成功后强制退出当前 Web 管理会话。"""
+    sess = _get_admin_session(request)
+    if not sess:
+        return {"ok": False, "error": "Unauthorized"}
+    if (sess.get("role") or "") != "super_admin":
+        return {"ok": False, "error": "仅超级管理员可操作"}
+
+    body = await request.json() if await request.body() else {}
+    current_password = (body.get("current_password") or "").strip()
+    new_password = (body.get("new_password") or "").strip()
+
+    ok, msg = database.update_super_admin_password(
+        account_id=sess.get("id", 0),
+        current_password=current_password,
+        new_password=new_password,
+    )
+    if not ok:
+        return {"ok": False, "error": msg}
+
+    sid = _get_session_id(request)
+    if sid in _admin_sessions:
+        del _admin_sessions[sid]
+
+    return {
+        "ok": True,
+        "message": "密码已更新，请重新登录",
+        "logout_required": True,
+        "redirect": "/admin/login",
+    }
+
+
 # ── 账户管理 API（管理员用）────────────────────────────────────────────
+
 
 @app.get("/api/accounts/list")
 async def list_accounts(request: Request):
-    """获取所有账户列表（需管理员登录）"""
-    if not _is_admin_logged_in(request):
+    """获取账户列表（按管理角色裁剪）"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
+
+    viewer_role = sess.get("role", "admin")
+    viewer_name = sess.get("username", "")
     accounts = database.get_all_accounts()
-    return {"ok": True, "data": accounts}
+
+    # 一般管理员：可见交易员 + 其他管理员（不含超级管理员）
+    if viewer_role != "super_admin":
+        accounts = [
+            a for a in accounts
+            if (a.get("role") in ("trader", "admin")) and not (a.get("role") == "admin" and a.get("username") == viewer_name)
+        ]
+
+    return {"ok": True, "data": accounts, "viewer": {"username": viewer_name, "role": viewer_role}}
+
 
 
 @app.post("/api/accounts/create")
 async def create_account(request: Request):
-    """创建新账户（需管理员登录）"""
-    if not _is_admin_logged_in(request):
+    """创建新账户（超级管理员可建 admin/trader，一般管理员仅可建 trader）"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
+
     body = await request.json()
     username = (body.get("username") or "").strip()
     password = (body.get("password") or "").strip()
+    role = (body.get("role") or "trader").strip().lower()
     se_address = (body.get("se_address") or "").strip()
     broker_tag = (body.get("broker_tag") or "").strip()
     description = (body.get("description") or "").strip()
 
-    # 四项必填校验
     if not username:
         return {"ok": False, "error": "用户名不能为空"}
     if not password:
         return {"ok": False, "error": "密码不能为空"}
-    if not se_address:
-        return {"ok": False, "error": "SE 地址不能为空"}
-    if not broker_tag:
-        return {"ok": False, "error": "券商不能为空"}
+    if role not in ("trader", "admin"):
+        return {"ok": False, "error": "角色不合法"}
+
+    viewer_role = sess.get("role", "admin")
+    if viewer_role != "super_admin" and role != "trader":
+        return {"ok": False, "error": "仅超级管理员可创建管理员账户"}
+
+    # 交易员保持现有注册约束；管理员无需 SE/券商
+    if role == "trader":
+        if not se_address:
+            return {"ok": False, "error": "SE 地址不能为空"}
+        if not broker_tag:
+            return {"ok": False, "error": "券商不能为空"}
+    else:
+        se_address = ""
+        broker_tag = ""
 
     result = database.create_account(
         username=username,
         password=password,
+        role=role,
         se_address=se_address,
         broker_tag=broker_tag,
         description=description,
     )
     if not result:
         return {"ok": False, "error": f"创建失败（用户名 '{username}' 可能已存在）"}
-    # 隐藏密码哈希
+
     result.pop("password_hash", None)
-    return {"ok": True, "data": result, "message": f"账户 {username} 创建成功"}
+    role_text = "管理员" if role == "admin" else "交易员"
+    return {"ok": True, "data": result, "message": f"{role_text}账户 {username} 创建成功"}
+
 
 
 @app.post("/api/accounts/{account_id}/delete")
 async def delete_account(request: Request, account_id: int):
-    """删除账户（需管理员登录）"""
-    if not _is_admin_logged_in(request):
+    """删除账户"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
+
+    target = database.get_account_by_id(account_id)
+    if not target:
+        return {"ok": False, "error": "账户不存在"}
+
+    viewer_role = sess.get("role", "admin")
+    target_role = target.get("role", "trader")
+
+    if target_role == "super_admin":
+        return {"ok": False, "error": "超级管理员账户不支持删除"}
+    if viewer_role != "super_admin" and target_role != "trader":
+        return {"ok": False, "error": "无权限删除管理员账户"}
+
     ok = database.delete_account(account_id)
     if not ok:
         return {"ok": False, "error": "删除失败（可能不存在或受保护账号）"}
     return {"ok": True, "message": f"账户已删除 (id={account_id})"}
 
 
+
 @app.post("/api/accounts/{account_id}/suspend")
 async def suspend_account(request: Request, account_id: int):
-    """暂停账户（需管理员登录）"""
-    if not _is_admin_logged_in(request):
+    """暂停账户"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
+
+    target = database.get_account_by_id(account_id)
+    if not target:
+        return {"ok": False, "error": "账户不存在"}
+
+    viewer_role = sess.get("role", "admin")
+    target_role = target.get("role", "trader")
+
+    if target_role == "super_admin":
+        return {"ok": False, "error": "超级管理员账户不支持暂停"}
+    if viewer_role != "super_admin" and target_role != "trader":
+        return {"ok": False, "error": "无权限暂停管理员账户"}
+
     ok = database.suspend_account(account_id)
     if not ok:
         return {"ok": False, "error": "暂停失败（可能已被暂停或不存在）"}
     return {"ok": True, "message": f"账户已暂停 (id={account_id})"}
 
 
+
 @app.post("/api/accounts/{account_id}/resume")
 async def resume_account(request: Request, account_id: int):
-    """恢复被暂停的账户（需管理员登录）"""
-    if not _is_admin_logged_in(request):
+    """恢复被暂停的账户"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
+
+    target = database.get_account_by_id(account_id)
+    if not target:
+        return {"ok": False, "error": "账户不存在"}
+
+    viewer_role = sess.get("role", "admin")
+    target_role = target.get("role", "trader")
+
+    if target_role == "super_admin":
+        return {"ok": False, "error": "超级管理员账户不支持此操作"}
+    if viewer_role != "super_admin" and target_role != "trader":
+        return {"ok": False, "error": "无权限恢复管理员账户"}
+
     ok = database.resume_account(account_id)
     if not ok:
         return {"ok": False, "error": "恢复失败（可能未被暂停或不存在）"}
     return {"ok": True, "message": f"账户已恢复 (id={account_id})"}
 
 
+
 @app.get("/api/accounts/{account_id}/detail")
 async def get_account_detail(request: Request, account_id: int):
-    """获取单个账户的详细信息（需管理员登录）"""
-    if not _is_admin_logged_in(request):
+    """获取单个账户的详细信息"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
     acct = database.get_account_by_id(account_id)
     if not acct:
         return {"ok": False, "error": "账户不存在"}
+
+    viewer_role = sess.get("role", "admin")
+    if viewer_role != "super_admin" and acct.get("role") == "super_admin":
+        return {"ok": False, "error": "无权限查看该账户"}
+
     return {"ok": True, "data": acct}
+
 
 
 @app.post("/api/accounts/{account_id}/update")
 async def update_account(request: Request, account_id: int):
-    """修改账户信息（需管理员登录，可修改所有注册信息）"""
-    if not _is_admin_logged_in(request):
+    """修改账户信息（当前仅支持交易员账户）"""
+    sess = _get_admin_session(request)
+    if not sess:
         return {"ok": False, "error": "Unauthorized"}
+
+    target = database.get_account_by_id(account_id)
+    if not target:
+        return {"ok": False, "error": "账户不存在"}
+
+    viewer_role = sess.get("role", "admin")
+    target_role = target.get("role", "trader")
+
+    if target_role != "trader":
+        return {"ok": False, "error": "当前仅支持编辑交易员账户"}
+    if viewer_role not in ("super_admin", "admin"):
+        return {"ok": False, "error": "无权限编辑该账户"}
+
     body = await request.json()
     se_address = (body.get("se_address") or "").strip()
     broker_tag = (body.get("broker_tag") or "").strip()
     description = (body.get("description") or "").strip()
     password = (body.get("password") or "").strip()
 
-    # 修改时四项信息也必填
     if not se_address:
         return {"ok": False, "error": "SE 地址不能为空"}
     if not broker_tag:
@@ -1315,6 +1495,7 @@ async def update_account(request: Request, account_id: int):
     if not ok:
         return {"ok": False, "error": "更新失败（可能账户不存在）"}
     return {"ok": True, "message": f"账户信息已更新 (id={account_id})"}
+
 
 
 @app.get("/api/accounts/se-status")
