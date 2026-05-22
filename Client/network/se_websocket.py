@@ -249,8 +249,25 @@ class SEWebSocketClient:
                 if not self._reconnect_enabled or not self._active:
                     break
 
+            except websockets.exceptions.ConnectionClosed as e:
+                # 管理端强制断开：不进行自动重连
+                if getattr(e, "code", None) == 4008:
+                    last_error = "Force disconnected by admin"
+                    self._reconnect_enabled = False
+                    self._active = False
+                    if self.on_status:
+                        self.on_status(last_error)
+                    break
+
+                last_error = str(e)
+                if not self._reconnect_enabled or not self._active:
+                    break
+                reconnect_attempts += 1
+                if self.on_status:
+                    self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
+
             except (ConnectionRefusedError, ConnectionResetError, OSError,
-                    asyncio.TimeoutError, websockets.exceptions.ConnectionClosed,
+                    asyncio.TimeoutError,
                     websockets.exceptions.InvalidHandshake, websockets.exceptions.WebSocketException) as e:
                 # 网络层异常 → 可重连
                 last_error = str(e)
@@ -259,6 +276,7 @@ class SEWebSocketClient:
                 reconnect_attempts += 1
                 if self.on_status:
                     self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
+
 
             except Exception as e:
                 # 其他异常 → 根据配置决定是否重连
@@ -291,8 +309,9 @@ class SEWebSocketClient:
         # 完全退出循环后的最终清理
         self._active = False
         self._connected = False
-        if self.on_status and last_error and not self._connected:
+        if self.on_status and last_error and not self._connected and last_error != "Force disconnected by admin":
             self.on_status(f"Disconnected: {last_error}")
+
         try:
             if not self._loop.is_closed():
                 self._loop.close()

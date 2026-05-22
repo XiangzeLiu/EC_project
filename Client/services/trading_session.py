@@ -82,7 +82,7 @@ class TradingSession:
     # ── Auth ────────────────────────────────────────────────────────────────────
 
 
-    def login(self, username: str, password: str) -> tuple[bool, str]:
+    def login(self, username: str, password: str, force: bool = False) -> tuple[bool, str]:
         """
         用户登录认证 — 通过 Server_manager REST 接口验证
 
@@ -92,6 +92,7 @@ class TradingSession:
         status, resp = self.http.post("/auth/login", {
             "username": username,
             "password": password,
+            "force": bool(force),
         })
         if status == 200:
             self.http.token = resp.get("token", "")
@@ -103,8 +104,14 @@ class TradingSession:
             return True, "Connected"
         if status == 0:
             return False, "Server not available, please check server is running"
-        msg = resp.get("detail", f"Login failed (HTTP {status})")
+
+        detail = resp.get("detail", f"Login failed (HTTP {status})")
+        if isinstance(detail, dict):
+            msg = detail.get("message") or detail.get("detail") or f"Login failed (HTTP {status})"
+        else:
+            msg = detail
         return False, sanitize(msg)
+
 
     def logout(self):
         """登出"""

@@ -105,6 +105,10 @@ class TradingTerminal(tk.Tk):
         self._se_btn: tk.Button | None = None
         self._logout_btn: tk.Button | None = None
         self._session_id: str = ""
+        self._se_status_connected: bool = False
+        self._se_dot_phase: int = 0
+        self._se_dot_job = None
+
 
         self._node_info: dict = {}
         self._se_target_address: str = ""  # 登录后动态获取的 SE 地址
@@ -209,14 +213,46 @@ class TradingTerminal(tk.Tk):
         btn.bind("<Enter>", lambda e: btn.config(bg=BUTTON_HOVER_BG))
         btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
 
+    def _start_se_status_dot_animation(self):
+        """启动 SE 状态小点动画（仅启动一次定时器）"""
+        if self._se_dot_job is None:
+            self._tick_se_status_dot()
+
+    def _tick_se_status_dot(self):
+        """SE 状态小点动画帧更新"""
+        self._se_dot_job = None
+
+        if not self.winfo_exists():
+            return
+
+        if self._se_status_var and self._se_status_lbl and self._se_status_lbl.winfo_exists():
+            phase = self._se_dot_phase % 4
+            if self._se_status_connected:
+                dot = "●"
+                colors = ["#2fcf7b", "#66e6a1", ACCENT_GREEN, "#66e6a1"]
+                self._se_status_var.set(f"{dot} Connect")
+                self._se_status_lbl.config(fg=colors[phase])
+            else:
+                dots = ["●", "◉", "◎", "◉"]
+                colors = ["#ff5c5c", "#ff7b7b", ACCENT_RED, "#ff7b7b"]
+                self._se_status_var.set(f"{dots[phase]} Disconnect")
+                self._se_status_lbl.config(fg=colors[phase])
+
+            self._se_dot_phase = (self._se_dot_phase + 1) % 4
+
+        self._se_dot_job = self.after(430, self._tick_se_status_dot)
+
     def _set_se_connection_ui(self, connected: bool):
         """统一更新 SE 状态文案/颜色与按钮文案"""
-        if self._se_status_var:
-            self._se_status_var.set("SE Connect" if connected else "SE Disconnect")
-        if self._se_status_lbl:
-            self._se_status_lbl.config(fg=ACCENT_GREEN if connected else ACCENT_RED)
+        self._se_status_connected = bool(connected)
+        self._se_dot_phase = 0
+
+        if self._se_status_var and self._se_status_lbl:
+            self._start_se_status_dot_animation()
+
         if self._se_btn:
             self._se_btn.config(text="Disconnect" if connected else "Connect", state="normal")
+
 
     def _show_login_first(self):
         """启动时首先弹出登录对话框（用户输入账户密码后才启动连接流程）"""
@@ -453,8 +489,8 @@ class TradingTerminal(tk.Tk):
         # 防止 init 界面已销毁后的延迟回调导致 TclError
         if self._init_ready or not self._init_frame or not self.tk.call('winfo', 'exists', str(self._retry_btn)):
             return
-        # 释放节点占用
-        self._release_se_occupation()
+        # 释放节点占用（同步，确保释放请求先于后续流程）
+        self._release_se_occupation(sync=True)
         self._update_init_step(step_key, "Failed", ACCENT_RED)
         display_msg = reason
         if hint:
@@ -616,8 +652,8 @@ class TradingTerminal(tk.Tk):
 
     def _on_init_cancel(self):
         """用户点击取消：返回登录界面，可修改账户密码重新登录"""
-        # 释放节点占用
-        self._release_se_occupation()
+        # 释放节点占用（同步，确保释放请求先于后续流程）
+        self._release_se_occupation(sync=True)
         # 清理当前连接状态
         if self._se_client:
             self._se_client.stop()
@@ -727,13 +763,13 @@ class TradingTerminal(tk.Tk):
             threading.Thread(target=_do_with_retry, daemon=True).start()
             return False
 
-    def _release_se_occupation(self):
-        """断开/取消时，释放节点占用"""
+    def _release_se_occupation(self, sync: bool = False) -> bool:
+        """断开/取消时，释放节点占用。sync=True 时阻塞等待结果。"""
         sid = getattr(self, '_se_server_id', '')
         if not sid:
-            return
+            return True
 
-        def _do():
+        def _do() -> bool:
             try:
                 code, resp = self.http.post(f"/api/nodes/{sid}/release", {})
                 log_area = getattr(self, 'log_area', None)
@@ -742,9 +778,18 @@ class TradingTerminal(tk.Tk):
                         log_area.log(f"[SE] 节点占用已释放: {sid}", "ok")
                     else:
                         log_area.log(f"[SE] 节点占用释放失败(HTTP {code}): {sid}", "warn")
-            except Exception as e:
-                pass  # 释放失败不阻塞主流程
+                if code == 200:
+                    self._se_server_id = ""
+                    return True
+                return False
+            except Exception:
+                return False
+
+        if sync:
+            return _do()
+
         threading.Thread(target=_do, daemon=True).start()
+        return False
 
     def _enter_main_interface(self):
         """所有连接成功 → 销毁初始化界面，构建完整主界面"""
@@ -1663,6 +1708,10 @@ class TradingTerminal(tk.Tk):
                             self._set_se_connection_ui(False),
                         ))
                         return
+                    # ★ 关键修复：从 se-status 响应中提取 server_id（Disconnect 后重连时必须重新获取）
+                    node_name = resp_data.get("node_name", "")
+                    self._se_target_address = target_addr
+                    self._se_server_id = resp_data.get("server_id", "")
                     # 在线且未被占用 → 同步注册占用 + 连接
                     occ_ok = self._occupy_se_node(sync=True)
                     if not occ_ok:
@@ -1703,8 +1752,8 @@ class TradingTerminal(tk.Tk):
             self.session.bind_se_client(None)
         self._se_connected = False
 
-        # 释放节点占用
-        self._release_se_occupation()
+        # 释放节点占用（同步，确保释放请求先于后续流程）
+        self._release_se_occupation(sync=True)
         self._set_se_connection_ui(False)
         self.log_area.log("[SE] Disconnected", "inf")
 
@@ -1801,9 +1850,33 @@ class TradingTerminal(tk.Tk):
                     f"clients={info.get('connections', 0)}",
                     "inf"
                 )
+            elif msg_type == "FORCE_DISCONNECT":
+                payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
+                reason = payload.get("reason", "admin_force_release")
+                self.log_area.log(f"[SE] 连接被管理端强制断开 ({reason})", "warn")
+
+                # 停止自动重连并断开当前连接，保持为可手动重连状态
+                self._reconnecting = False
+                if self._reconnect_dialog:
+                    try:
+                        self._reconnect_dialog.destroy()
+                    except tk.TclError:
+                        pass
+                    self._reconnect_dialog = None
+
+                if self._se_client:
+                    self._se_client._reconnect_enabled = False
+                    self._se_client.stop()
+                    self._se_client = None
+                if self.session:
+                    self.session.bind_se_client(None)
+                self._se_connected = False
+                self._set_se_connection_ui(False)
+                messagebox.showwarning("连接已被管理端断开", "当前 SE 连接已被管理员强制断开。\n如需继续使用，请点击 Connect 重新连接。")
             elif msg_type == "ERROR":
                 err = msg.get("payload", {})
                 self.log_area.log(f"[SE] Error [{err.get('code', '')}]: {err.get('message', '')}", "err")
+
             elif msg_type == "PONG":
                 pass  # 心跳响应，静默
             else:
@@ -1951,8 +2024,8 @@ class TradingTerminal(tk.Tk):
                 pass
             self._reconnect_dialog = None
 
-        # 释放节点占用
-        self._release_se_occupation()
+        # 释放节点占用（同步，确保释放请求先于后续流程）
+        self._release_se_occupation(sync=True)
 
         # 恢复 UI 状态
         self._set_se_connection_ui(False)
@@ -1978,8 +2051,8 @@ class TradingTerminal(tk.Tk):
             self._se_client = None
         self._se_connected = False
 
-        # 释放节点占用
-        self._release_se_occupation()
+        # 释放节点占用（同步，确保释放请求先于后续流程）
+        self._release_se_occupation(sync=True)
 
         # 解绑会话中的 SE client
         if self.session:
@@ -2022,6 +2095,13 @@ class TradingTerminal(tk.Tk):
         self._mock_active = False
         self._stream_active = False
         self._reconnecting = False  # 取消重连状态
+        if self._se_dot_job is not None:
+            try:
+                self.after_cancel(self._se_dot_job)
+            except Exception:
+                pass
+            self._se_dot_job = None
+
         # 隐藏重连弹窗
         if self._reconnect_dialog:
             try:
@@ -2036,8 +2116,8 @@ class TradingTerminal(tk.Tk):
             self.session.bind_se_client(None)
         if self._ws_stream:
             self._ws_stream.stop()
-        # 释放节点占用（防止关闭窗口后节点被永久锁定）
-        self._release_se_occupation()
+        # 释放节点占用（同步，防止关闭窗口后节点被永久锁定）
+        self._release_se_occupation(sync=True)
         # 登出并清理token（防止服务端token残留）
         if self.http and self.http.token:
             try:

@@ -578,8 +578,38 @@ def _probe_se_request_alive(req: dict, request_id: str, timeout_s: int = 10) -> 
         return "unknown", f"SE网络异常（{e}）"
 
 
+def _force_disconnect_se_clients(se_host: str, node_token: str, reason: str, timeout_s: int = 8) -> tuple[bool, dict]:
+    """调用 SE 内部接口，强制断开当前节点上的 Client WS 连接。"""
+    host = (se_host or "").strip()
+    if not host:
+        return False, {"error": "se_host_empty"}
+    if not node_token:
+        return False, {"error": "node_token_empty"}
+
+    base = host if host.startswith("http://") or host.startswith("https://") else f"http://{host}"
+    url = f"{base.rstrip('/')}/api/admin/force-disconnect"
+    body = _json.dumps({"reason": reason}).encode("utf-8")
+
+    req_obj = urllib.request.Request(url, data=body, method="POST")
+    req_obj.add_header("Content-Type", "application/json")
+    req_obj.add_header("Authorization", f"Bearer {node_token}")
+
+    try:
+        with urllib.request.urlopen(req_obj, timeout=timeout_s) as resp:
+            payload = _json.loads(resp.read().decode("utf-8", errors="replace"))
+            return bool(payload.get("ok")), payload
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            detail = str(e)
+        return False, {"error": f"http_{e.code}", "detail": detail}
+    except Exception as e:
+        return False, {"error": "network_error", "detail": str(e)}
+
 
 @app.get("/ping")
+
 async def ping():
 
     """连通性测试 — 子服务端填写注册页面前调用"""
@@ -1128,8 +1158,57 @@ async def release_node(request: Request, server_id: str):
     return {"ok": True, "message": "\u5df2\u91ca\u653e\u8282\u70b9"}
 
 
+@app.post("/api/nodes/{server_id}/force-release")
+async def force_release_node(request: Request, server_id: str):
+    """管理员强制解除占用：先踢掉 SE 上客户端连接，再释放节点占用。"""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+
+    occ = node_state.manager.get_occupation_info(server_id)
+    occupied_by = (occ or {}).get("occupied_by", "") if isinstance(occ, dict) else ""
+    if not occupied_by:
+        return {"ok": False, "error": "not_occupied", "message": "节点当前未被占用"}
+
+    st = node_state.manager.get(server_id)
+    if not st:
+        return {"ok": False, "error": "node_not_found"}
+
+    se_host = (st._host or st.current_ip or "").strip()
+
+    node_token = (st._token or "").strip()
+    if not se_host or not node_token:
+        return {"ok": False, "error": "se_endpoint_missing", "message": "缺少 SE 地址或节点令牌"}
+
+    admin = _get_admin_session(request) or {}
+    operator = (admin.get("username") or "admin").strip()
+    reason = f"force_release_by_admin:{operator}"
+
+    loop = asyncio.get_event_loop()
+    ok, payload = await loop.run_in_executor(
+        None,
+        lambda: _force_disconnect_se_clients(se_host, node_token, reason, 8),
+    )
+    if not ok:
+        return {
+            "ok": False,
+            "error": "se_force_disconnect_failed",
+            "message": "强制断开客户端失败，节点占用未释放",
+            "detail": payload,
+        }
+
+    node_state.manager.release(server_id, check_offline=False)
+    log.warning(f"[force-release] node={server_id}, occupied_by={occupied_by}, operator={operator}, se={se_host}")
+    return {
+        "ok": True,
+        "message": f"已强制解除占用：{server_id}",
+        "server_id": server_id,
+        "occupied_by": occupied_by,
+        "kicked": int((payload or {}).get("kicked", 0) or 0),
+    }
+
 
 # ── 券商类型列表 ───────────────────────────────────────────────────────
+
 
 @app.get("/api/broker-types")
 async def list_broker_types(request: Request):

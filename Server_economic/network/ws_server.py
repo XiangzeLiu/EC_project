@@ -34,6 +34,9 @@ _connections: dict[WebSocket, dict] = {}
 
 # 心跳超时阈值（秒）
 _WS_HEARTBEAT_TIMEOUT = 90
+# 管理端强制断开使用的 WS close code
+_FORCE_DISCONNECT_CODE = 4008
+
 
 
 async def handle_client_connection(ws: WebSocket):
@@ -507,3 +510,38 @@ async def broadcast_message(message: dict | str):
 def get_connection_count() -> int:
     """获取当前活跃连接数"""
     return len(_connections)
+
+
+async def force_disconnect_all_clients(reason: str = "admin_force_release") -> dict:
+    """强制断开所有客户端连接（用于管理员解除占用）"""
+    targets = list(_connections.keys())
+    total = len(targets)
+    if total == 0:
+        return {"ok": True, "kicked": 0, "message": "no_active_clients"}
+
+    notice = {
+        "type": "FORCE_DISCONNECT",
+        "id": f"fd_{int(time.time() * 1000)}",
+        "timestamp": int(time.time() * 1000),
+        "payload": {
+            "code": "ADMIN_FORCE_RELEASE",
+            "reason": reason,
+            "message": "连接已被管理端强制断开，请重新连接",
+        },
+    }
+
+    kicked = 0
+    for ws in targets:
+        try:
+            await ws.send_json(notice)
+        except Exception:
+            pass
+        try:
+            await ws.close(code=_FORCE_DISCONNECT_CODE, reason=reason[:120])
+        except Exception:
+            pass
+        kicked += 1
+
+    log.warning(f"[WS] Force disconnected {kicked}/{total} client(s), reason={reason}")
+    return {"ok": True, "kicked": kicked, "message": "force_disconnected"}
+

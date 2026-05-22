@@ -69,3 +69,22 @@ def invalidate_client_token(token: str) -> bool:
         log.info(f"Invalidated client token for user: {user_info['username']}")
         return True
     return False
+
+
+def invalidate_client_tokens_by_username(username: str) -> int:
+    """按用户名批量使客户端 Token 失效，返回失效数量"""
+    uname = (username or "").strip()
+    if not uname:
+        return 0
+
+    targets = [
+        t for t, info in list(active_client_tokens.items())
+        if str(info.get("username") or "") == uname
+    ]
+    for t in targets:
+        active_client_tokens.pop(t, None)
+
+    if targets:
+        log.warning(f"Force invalidated {len(targets)} token(s) for user: {uname}")
+    return len(targets)
+

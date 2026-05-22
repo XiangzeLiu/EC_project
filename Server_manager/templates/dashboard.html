@@ -996,6 +996,7 @@ function renderNodes(nodes){
     var configBtn='<button class="btn-xs btn-pl" onclick="showNodeConfig(\''+escapeHtml(n.server_id||'')+'\')">配置</button>';
     if(isOcc){
       ab=detailBtn+configBtn
+        +'<button class="btn-xs btn-del" onclick="forceReleaseNode(\''+escapeHtml(n.server_id)+'\',\''+escapeHtml(n.occupied_by||'')+'\',this)"><i class="ri-scissors-cut-line"></i> 解除占用</button>'
         +'<span class="occupied-badge"><i class="ri-lock-line"></i> 被 '+escapeHtml(n.occupied_by)+' 占用</span>';
     }else if(st==='online'){
       ab=detailBtn+configBtn
@@ -1208,6 +1209,33 @@ async function resumeNode(sid,b){
     if(d.ok){toast('节点已恢复','ok');refreshNodes();}
     else{toast('恢复失败:'+(d.error||d.detail),'err');b.disabled=false;b.innerHTML='恢复';}
   }catch(e){toast('网络错误:'+e.message,'err');b.disabled=false;b.innerHTML='恢复';}
+}
+
+async function forceReleaseNode(sid, occupiedBy, b){
+  var msg='确认强制解除占用？\n\n该操作会：\n1) 强制断开 Client 与该节点的连接\n2) 释放节点占用状态\n\n占用账户：'+(occupiedBy||'-');
+  var ok=await confirmDlg('强制解除占用', msg);
+  if(!ok) return;
+
+  var oldText=b.innerHTML;
+  b.disabled=true;
+  b.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 处理中...';
+  try{
+    var r=await fetch('/api/nodes/'+encodeURIComponent(sid)+'/force-release',{method:'POST',credentials:'same-origin'});
+    var d=await r.json();
+    if(d.ok){
+      toast('占用已解除，连接已强制断开','ok');
+      refreshNodes();
+      refreshAccounts();
+    }else{
+      toast('解除失败:'+(d.message||d.error||d.detail||'未知错误'),'err');
+      b.disabled=false;
+      b.innerHTML=oldText;
+    }
+  }catch(e){
+    toast('网络错误:'+e.message,'err');
+    b.disabled=false;
+    b.innerHTML=oldText;
+  }
 }
 
 function showNodeDetail(sid){

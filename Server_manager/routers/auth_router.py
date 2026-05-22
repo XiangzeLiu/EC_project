@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 from models import LoginRequest, LoginResponse, LogoutResponse
 from config import SERVER_TOKEN, session_store, log, load_users_from_json, active_client_tokens
-from auth import generate_client_token, get_client_username, invalidate_client_token
+from auth import (
+    generate_client_token,
+    get_client_username,
+    invalidate_client_token,
+    invalidate_client_tokens_by_username,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["认证管理"])
@@ -24,8 +29,34 @@ def _verify_user_from_json(username: str, password: str) -> dict | None:
     return None
 
 
+def _handle_duplicate_login(username: str, force: bool) -> None:
+    """处理同账号重复登录：可选强制接管旧会话。"""
+    existing_tokens = [
+        t for t, info in active_client_tokens.items()
+        if info.get("username") == username
+    ]
+    if not existing_tokens:
+        return
+
+    if force:
+        kicked = invalidate_client_tokens_by_username(username)
+        log.warning(f"Force takeover login: user={username}, kicked_tokens={kicked}")
+        return
+
+    log.warning(f"Duplicate login attempt for already logged-in user: {username}")
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "message": "该账号已在其他地方登录",
+            "code": "already_logged_in",
+            "can_force": True,
+        },
+    )
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(req: LoginRequest):
+
     """
     用户登录认证
     验证优先级: JSON文件 > 配置文件凭据 > 数据库
@@ -36,14 +67,10 @@ async def login(req: LoginRequest):
     # 1. 优先从 JSON 文件验证（Demo 模式主要入口）
     account = _verify_user_from_json(req.username, req.password)
     if account:
-        # 检查该用户是否已登录
-        existing_tokens = [t for t, info in active_client_tokens.items()
-                          if info.get("username") == req.username]
-        if existing_tokens:
-            log.warning(f"Duplicate login attempt for already logged-in user: {req.username}")
-            raise HTTPException(status_code=409, detail="该账号已在其他地方登录")
+        _handle_duplicate_login(req.username, req.force)
 
         log.info(f"Client logged in via JSON credentials: {req.username}")
+
         token = generate_client_token(req.username)
         return LoginResponse(
             success=True,
@@ -55,14 +82,10 @@ async def login(req: LoginRequest):
     # 2. 回退到配置文件中的 SERVER_USERNAME/SERVER_PASSWORD
     from config import SERVER_USERNAME, SERVER_PASSWORD
     if req.username == SERVER_USERNAME and req.password == SERVER_PASSWORD:
-        # 检查该用户是否已登录
-        existing_tokens = [t for t, info in active_client_tokens.items()
-                          if info.get("username") == req.username]
-        if existing_tokens:
-            log.warning(f"Duplicate login attempt for already logged-in user: {req.username}")
-            raise HTTPException(status_code=409, detail="该账号已在其他地方登录")
+        _handle_duplicate_login(req.username, req.force)
 
         log.info(f"Client logged in via config credentials: {req.username}")
+
         token = generate_client_token(req.username)
         return LoginResponse(
             success=True,
@@ -76,14 +99,10 @@ async def login(req: LoginRequest):
         from database import verify_account, get_broker_list
         db_account = verify_account(req.username, req.password)
         if db_account:
-            # 检查该用户是否已登录
-            existing_tokens = [t for t, info in active_client_tokens.items()
-                              if info.get("username") == req.username]
-            if existing_tokens:
-                log.warning(f"Duplicate login attempt for already logged-in user: {req.username}")
-                raise HTTPException(status_code=409, detail="该账号已在其他地方登录")
+            _handle_duplicate_login(req.username, req.force)
 
             log.info(f"Client logged in (DB): {req.username} role={db_account.get('role')}")
+
             token = generate_client_token(req.username)
             brokers = [b["name"] for b in get_broker_list()]
             # 解析账户绑定的 se_address 和 allowed_brokers

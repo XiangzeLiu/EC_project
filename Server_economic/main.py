@@ -40,7 +40,8 @@ if _PROJECT_ROOT not in sys.path:
 if __name__ == "__main__" and __package__ is None:
     __package__ = "Server_economic"
 
-from fastapi import FastAPI, WebSocket, Query
+from fastapi import FastAPI, WebSocket, Query, Request
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -65,7 +66,8 @@ from .services.registration import (
 
 from .services.heartbeat import HeartbeatSender
 from .services.economic_data import get_all_indicators, generate_summary_report
-from .network.ws_server import handle_client_connection, broadcast_message
+from .network.ws_server import handle_client_connection, broadcast_message, force_disconnect_all_clients
+
 
 
 # ── FastAPI App ───────────────────────────────────────────────────────────
@@ -472,10 +474,25 @@ async def api_logs_clear():
     return {"ok": True}
 
 
+@app.post("/api/admin/force-disconnect")
+async def api_admin_force_disconnect(request: Request):
+    """仅供 SM 调用：强制断开当前节点上的 Client WS 连接"""
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not token or token != (state.token or ""):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Unauthorized"})
+
+    body = await request.json() if await request.body() else {}
+    reason = str(body.get("reason") or "admin_force_release")
+    result = await force_disconnect_all_clients(reason=reason)
+    return {"ok": True, **result}
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     """Client WebSocket 连接入口"""
     await handle_client_connection(ws)
+
 
 
 # ── 启动事件 ─────────────────────────────────────────────────────────────

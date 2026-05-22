@@ -13,6 +13,8 @@ class LoginRequest(BaseModel):
     """登录请求"""
     username: str = Field(..., description="用户名")
     password: str = Field(..., description="密码")
+    force: bool = Field(default=False, description="是否强制接管同账号旧会话")
+
 
 
 class LoginResponse(BaseModel):

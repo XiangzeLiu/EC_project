@@ -4,9 +4,11 @@ Login Dialog
 """
 
 import tkinter as tk
+from tkinter import messagebox
 
 
 from ..constants import (
+
     DARK_BG, PANEL_BG, PANEL_ALT_BG, BORDER, INPUT_BG,
     TEXT_PRIMARY, TEXT_DIM, TEXT_MUTED,
     ACCENT_BLUE, ACCENT_RED, FOCUS_RING,
@@ -207,6 +209,25 @@ class LoginDialog(tk.Toplevel):
         if self._auth_fn is not None:
             ok, msg = self._auth_fn(username, password)
             if not ok:
+                msg_text = str(msg or "")
+                if "该账号已在其他地方登录" in msg_text:
+                    takeover = messagebox.askyesno(
+                        "账号已登录",
+                        "该账号已在其他地方登录。\n是否强制接管旧会话并继续登录？",
+                        parent=self,
+                    )
+                    if takeover:
+                        try:
+                            ok2, msg2 = self._auth_fn(username, password, True)
+                        except TypeError:
+                            ok2, msg2 = False, "当前服务端不支持强制接管登录"
+                        if not ok2:
+                            self._show_error(f"\u767b\u5f55\u5931\u8d25\uff1a{msg2}")
+                            return
+                        self._hide_error()
+                        self._result = (username, password)
+                        self.destroy()
+                        return
                 self._show_error(f"\u767b\u5f55\u5931\u8d25\uff1a{msg}")
                 return
 
@@ -214,6 +235,7 @@ class LoginDialog(tk.Toplevel):
         self._hide_error()
         self._result = (username, password)
         self.destroy()
+
 
     def _on_cancel(self):
         self._result = None
