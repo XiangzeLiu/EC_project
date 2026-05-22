@@ -1957,10 +1957,20 @@ class TradingTerminal(tk.Tk):
         if self.session:
             self.session.bind_se_client(None)
         if self._ws_stream:
-
             self._ws_stream.stop()
         # 释放节点占用（防止关闭窗口后节点被永久锁定）
         self._release_se_occupation()
+        # 登出并清理token（防止服务端token残留）
+        if self.http and self.http.token:
+            try:
+                self.http.post("/auth/logout", {})
+                if hasattr(self, 'log_area') and self.log_area:
+                    self.log_area.log("[System] Logged out successfully", "ok")
+            except Exception as e:
+                # 网络错误不影响窗口关闭
+                pass
+            finally:
+                self.http.token = ""
         self.destroy()
 
 

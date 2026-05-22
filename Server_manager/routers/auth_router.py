@@ -104,6 +104,8 @@ async def login(req: LoginRequest):
                 se_address=_se_addr,
                 allowed_brokers=_allowed,
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.warning(f"DB authentication failed: {e}")
 
