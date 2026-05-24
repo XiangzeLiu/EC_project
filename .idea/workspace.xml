@@ -4,21 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="优化web管理界面功能。">
+    <list default="true" id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="优化登录与注册逻辑，增加servermanager的管理分级。">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/.tt_config.json" beforeDir="false" afterPath="$PROJECT_DIR$/Client/.tt_config.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/network/se_websocket.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/network/se_websocket.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/services/trading_session.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/services/trading_session.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/ui/login_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/login_dialog.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/ui/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/main_window.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_economic/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/network/ws_server.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_economic/network/ws_server.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/auth.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/data/server_manager.db" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/data/server_manager.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/routers/auth_router.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/routers/auth_router.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/templates/dashboard.html" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/templates/dashboard.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -69,7 +56,7 @@
     ]
   }
 }</component>
-  <component name="RunManager" selected="Python.main">
+  <component name="RunManager" selected="Python.main (1)">
     <configuration name="main (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="EC_project" />
       <option name="ENV_FILES" value="" />
@@ -138,9 +125,9 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.main (1)" />
         <item itemvalue="Python.main" />
         <item itemvalue="Python.main (2)" />
-        <item itemvalue="Python.main (1)" />
       </list>
     </recent_temporary>
   </component>
@@ -248,7 +235,15 @@
       <option name="project" value="LOCAL" />
       <updated>1779468338099</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="优化登录与注册逻辑，增加servermanager的管理分级。">
+      <option name="closed" value="true" />
+      <created>1779476736823</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1779476736823</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -271,6 +266,7 @@
     <MESSAGE value="修改client的api功能" />
     <MESSAGE value="修复client的登录功能。" />
     <MESSAGE value="优化web管理界面功能。" />
-    <option name="LAST_COMMIT_MESSAGE" value="优化web管理界面功能。" />
+    <MESSAGE value="优化登录与注册逻辑，增加servermanager的管理分级。" />
+    <option name="LAST_COMMIT_MESSAGE" value="优化登录与注册逻辑，增加servermanager的管理分级。" />
   </component>
 </project>
