@@ -6,42 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="优化登录与注册逻辑，增加servermanager的管理分级。">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/network/se_websocket.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/network/se_websocket.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/api/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/api/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/api/factory.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/factory.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/api/interactive_brokers.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/interactive_brokers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/api/tastytrade.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/tastytrade.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/data/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/config.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/data/logs/se_20260508.log" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/logs/se_20260508.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/data/logs/se_20260509.log" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/logs/se_20260509.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/data/logs/se_20260510.log" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/logs/se_20260510.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/data/logs/se_20260511.log" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/logs/se_20260511.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/gui/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/gui/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/gui/api_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/gui/api_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/gui/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/gui/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/network/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/network/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/network/ws_server.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/network/ws_server.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/config_sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/config_sync.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/economic_data.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/economic_data.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/heartbeat.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/heartbeat.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/message_log.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/message_log.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/quote_provider.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/quote_provider.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/registration.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/registration.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_economic/services/trading_svc.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/trading_svc.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/data/server_manager.db" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/data/server_manager.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/database.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/node_state.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/node_state.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Server_manager/templates/dashboard.html" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/templates/dashboard.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/architecture.html" beforeDir="false" afterPath="$PROJECT_DIR$/architecture.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/证券股票交易系统产品文档_合并版.md" beforeDir="false" afterPath="$PROJECT_DIR$/证券股票交易系统产品文档_合并版.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/Client/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -93,7 +58,7 @@
     ]
   }
 }]]></component>
-  <component name="RunManager" selected="Python.main (1)">
+  <component name="RunManager" selected="Python.main">
     <configuration name="main (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="EC_project" />
       <option name="ENV_FILES" value="" />
@@ -184,9 +149,9 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.main (1)" />
-        <item itemvalue="Python.main (3)" />
         <item itemvalue="Python.main" />
+        <item itemvalue="Python.main (3)" />
+        <item itemvalue="Python.main (1)" />
         <item itemvalue="Python.main (2)" />
       </list>
     </recent_temporary>
@@ -311,7 +276,15 @@
       <option name="project" value="LOCAL" />
       <updated>1779642925231</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="优化登录与注册逻辑，增加servermanager的管理分级。">
+      <option name="closed" value="true" />
+      <created>1779820649151</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1779820649151</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
