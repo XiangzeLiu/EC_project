@@ -701,7 +701,8 @@
                 <select class="sel" id="inp-broker" autocomplete="off" style="flex:1;min-width:0">
                   <option value="" disabled selected>选择券商</option>
                   <option value="IB">IB</option>
-                  <option value="TEST">TEST</option>
+                  <option value="TT">TT</option>
+                  <option value="Test">Test</option>
                 </select>
               </div>
               <div class="toolbar-row">
@@ -1057,9 +1058,9 @@ async function approveNode(rid,b){
   var nodeData=_pendingCache.find(function(x){return x.request_id===rid;})||{};
   var autoBroker=nodeData.region||'';
   var brokerOptions='';
-  ['tastytrade','interactive_brokers'].forEach(function(bt){
-    var sel=(bt===autoBroker||(autoBroker===''&&bt==='tastytrade'))?'selected':'';
-    var label=bt==='tastytrade'?'Tastytrade':'Interactive Brokers (IB)';
+  ['IB','TT','Test'].forEach(function(bt){
+    var sel=(bt===autoBroker||(autoBroker===''&&bt==='TT'))?'selected':'';
+    var label=bt==='TT'?'Tastytrade':(bt==='IB'?'Interactive Brokers':'Test 测试模式');
     brokerOptions+='<option value="'+bt+'" '+sel+'>'+label+'</option>';
   });
 
@@ -1084,14 +1085,18 @@ async function approveNode(rid,b){
 
     // 字段4: 券商凭证（根据类型切换）
     +'<div id="fields-tastytrade">'
-    +'  <div class="field-group"><label class="field-label">Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" placeholder="Tastytrade Session Secret" /></div>'
-    +'  <div class="field-group"><label class="field-label">Token <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-token" placeholder="Tastytrade Session Token" /></div>'
+    +'  <div class="field-group"><label class="field-label">Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" placeholder="Tastytrade Session Secret" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div class="field-group"><label class="field-label">Token <span style="color:#ef4444">*</span></label><textarea class="inp" id="app-tt-token" rows="4" placeholder="Tastytrade Session Token" style="font-family:monospace;font-size:12px;line-height:1.45;resize:vertical;min-height:112px;white-space:pre-wrap;word-break:break-all"></textarea></div>'
     +'</div>'
 
     +'<div id="fields-ib" style="display:none">'
     +'  <div class="field-group"><label class="field-label">Host <span style="color:#ef4444">*</span></label><input class="inp" id="app-ib-host" placeholder="IB TWS IP 地址" value="8.210.169.202" /></div>'
     +'  <div class="field-group"><label class="field-label">Port <span style="color:#ef4444">*</span></label><input class="inp" id="app-ib-port" placeholder="7496" value="7496" /></div>'
     +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="app-ib-clientid" placeholder="19" value="19" /></div>'
+    +'</div>'
+
+    +'<div id="fields-test" style="display:none">'
+    +'  <div class="field-group"><label class="field-label">提示</label><p style="color:#6b7280;font-size:13px;margin:0">测试模式无需配置券商凭证，仅用于功能测试。</p></div>'
     +'</div>'
 
     +'  </div>'
@@ -1110,8 +1115,9 @@ async function approveNode(rid,b){
 
 function toggleBrokerFields(){
   var t=document.getElementById('app-broker-type').value;
-  document.getElementById('fields-tastytrade').style.display=(t==='tastytrade')?'block':'none';
-  document.getElementById('fields-ib').style.display=(t==='interactive_brokers')?'block':'none';
+  document.getElementById('fields-tastytrade').style.display=(t==='TT')?'block':'none';
+  document.getElementById('fields-ib').style.display=(t==='IB')?'block':'none';
+  document.getElementById('fields-test').style.display=(t==='Test')?'block':'none';
 }
 
 async function doApproveWithConfig(rid,btn){
@@ -1125,12 +1131,12 @@ async function doApproveWithConfig(rid,btn){
   if(!acctPwd){toast('\u8bf7\u586b\u5199\u8d26\u6237\u5bc6\u7801','warn');return;}
 
   var creds={};
-  if(bt==='tastytrade'){
+  if(bt==='TT'){
     var s=document.getElementById('app-tt-secret').value.trim();
     var t=document.getElementById('app-tt-token').value.trim();
     if(!s||!t){toast('\u8bf7\u586b\u5199 Secret \u548c Token','warn');return;}
     creds={"secret":s,"token":t};
-  }else{
+  }else if(bt==='IB'){
     var h=document.getElementById('app-ib-host').value.trim();
     var p=document.getElementById('app-ib-port').value.trim();
     if(!h||!p){toast('\u8bf7\u586b\u5199 Host \u548c Port','warn');return;}
@@ -1249,14 +1255,17 @@ function showNodeDetail(sid){
   }
   var ts=n.token||'-';
 
-  // 解析 broker_config
+  // 解析 broker_config（兼容字符串/对象两种返回）
   var cfg={};
-  try{cfg=JSON.parse(n.broker_config||'{}');}catch(e){}
-  var acctUser=cfg.account_username||'-';
-  var brokerType=cfg.broker_type||n.region||'-';
+  try{
+    cfg=(typeof n.broker_config==='string')?JSON.parse(n.broker_config||'{}'):(n.broker_config||{});
+  }catch(e){}
   var creds=cfg.credentials||{};
+  var acctUser=cfg.account_username||creds.account_username||'-';
+  var acctPwdExists=!!(cfg.account_password||creds.account_password);
+  var brokerType=cfg.broker_type||n.region||'-';
   var credsDisplay='';
-  if(brokerType==='tastytrade'){
+  if(brokerType==='TT' || brokerType==='tastytrade'){
     var ttSecret=creds.secret||'';
     var ttToken=creds.token||'';
     credsDisplay='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5b6480">'
@@ -1264,12 +1273,14 @@ function showNodeDetail(sid){
       +'<div>Token: <span class="detail-val-mono">'+(ttToken?ttToken.substring(0,8)+'***':'-')+'</span></div>'
       +(creds.account_number?'<div>Account: <span class="detail-val-mono">'+escapeHtml(creds.account_number)+'</span></div>':'')
       +'</div>';
-  }else if(brokerType==='interactive_brokers'){
+  }else if(brokerType==='IB' || brokerType==='interactive_brokers'){
     credsDisplay='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5b6480">'
       +'<div>Host: <span class="detail-val-mono">'+escapeHtml(creds.host||'-')+'</span></div>'
       +'<div>Port: <span>'+escapeHtml(creds.port||'-')+'</span></div>'
-      +(creds.client_id?'<div>Client ID: <span>'+escapeHtml(creds.client_id)+'</span></div>':'')
+      +'<div>Client ID: <span>'+escapeHtml((creds.client_id!=null&&creds.client_id!=='')?creds.client_id:'-')+'</span></div>'
       +'</div>';
+  }else if(brokerType==='Test'){
+    credsDisplay='<span style="color:#6b7280">测试模式无需凭证</span>';
   }else{
     credsDisplay='<span style="color:#94a3b8">-</span>';
   }
@@ -1306,7 +1317,7 @@ function showNodeDetail(sid){
     +'  <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:10px"><i class="ri-settings-3-line" style="margin-right:4px"></i>账户与券商配置</div>'
     +'<div class="detail-row"><span class="detail-label">券商类型</span><span>'+btBadge+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">账户用户名</span><span class="detail-val">'+escapeHtml(acctUser)+'</span></div>'
-    +'<div class="detail-row"><span class="detail-label">账户密码</span><span class="detail-val-mono">'+(cfg.account_password?'\u2022\u2022\u2022\u2022\u2022\u2022': '-')+'</span></div>'
+    +'<div class="detail-row"><span class="detail-label">账户密码</span><span class="detail-val-mono">'+(acctPwdExists?'\u2022\u2022\u2022\u2022\u2022\u2022': '-')+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">凭证信息</span><span>'+credsDisplay+'</span></div>'
     +'</div>'
 
@@ -1358,22 +1369,27 @@ function showNodeConfig(sid){
     +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
     +'<select class="sel" id="cfg-broker-type" onchange="toggleCfgFields()" style="width:100%">'
     +'  <option value="" disabled>\u8bf7\u9009\u62e9...</option>'
-    +'  <option value="tastytrade" '+(curBroker==='tastytrade'?'selected':'')+'>Tastytrade</option>'
-    +'  <option value="interactive_brokers" '+(curBroker==='interactive_brokers'?'selected':'')+'>Interactive Brokers (IB)</option>'
+    +'  <option value="TT" '+((curBroker==='TT'||curBroker==='tastytrade')?'selected':'')+'>Tastytrade (TT)</option>'
+    +'  <option value="IB" '+((curBroker==='IB'||curBroker==='interactive_brokers')?'selected':'')+'>Interactive Brokers (IB)</option>'
+    +'  <option value="Test" '+(curBroker==='Test'?'selected':'')+'>Test 测试模式</option>'
     +'</select></div>'
     // 账户信息
     +'    <div class="field-group"><label class="field-label">账户用户名 <span style="color:#ef4444">*</span></label><input class="inp" id="cfg-acct-user" value="'+escapeHtml(curAcctUser)+'" placeholder="\u5238\u5546\u8d26\u6237\u7528\u6237\u540d" /></div>'
     +'    <div class="field-group"><label class="field-label">账户密码 <span style="color:#94a3b8">\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539</span></label><input class="inp" type="password" id="cfg-acct-pwd" placeholder="\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539\u5bc6\u7801" /></div>'
     // TT 凭证
-    +'<div id="cfg-fields-tastytrade"' + (curBroker==='tastytrade'||curBroker===''? '' : ' style="display:none"') + '>'
-    +'  <div class="field-group"><label class="field-label">Secret</label><input class="inp" id="cfg-tt-secret" value="'+escapeHtml(ttSecret)+'" placeholder="Tastytrade Session Secret" /></div>'
-    +'  <div class="field-group"><label class="field-label">Token</label><input class="inp" id="cfg-tt-token" value="'+escapeHtml(ttToken)+'" placeholder="Tastytrade Session Token" /></div>'
+    +'<div id="cfg-fields-tastytrade"' + ((curBroker==='TT'||curBroker==='tastytrade'||curBroker==='') ? '' : ' style="display:none"') + '>'
+    +'  <div class="field-group"><label class="field-label">Secret</label><input class="inp" id="cfg-tt-secret" value="'+escapeHtml(ttSecret)+'" placeholder="Tastytrade Session Secret" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div class="field-group"><label class="field-label">Token</label><input class="inp" id="cfg-tt-token" value="'+escapeHtml(ttToken)+'" placeholder="Tastytrade Session Token" style="font-family:monospace;font-size:12px" /></div>'
     +'</div>'
     // IB 凭证
-    +'<div id="cfg-fields-ib"' + (curBroker==='interactive_brokers'? '' : ' style="display:none"') + '>'
+    +'<div id="cfg-fields-ib"' + ((curBroker==='IB'||curBroker==='interactive_brokers') ? '' : ' style="display:none"') + '>'
     +'  <div class="field-group"><label class="field-label">Host</label><input class="inp" id="cfg-ib-host" value="'+escapeHtml(ibHost)+'" placeholder="IB TWS IP Address" /></div>'
     +'  <div class="field-group"><label class="field-label">Port</label><input class="inp" id="cfg-ib-port" value="'+escapeHtml(ibPort+'')+'" placeholder="7496" /></div>'
     +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="cfg-ib-clientid" value="'+escapeHtml(ibCid+'')+'" placeholder="19" /></div>'
+    +'</div>'
+    // Test 说明
+    +'<div id="cfg-fields-test"' + (curBroker==='Test' ? '' : ' style="display:none"') + '>'
+    +'  <div class="field-group"><label class="field-label">提示</label><p style="color:#6b7280;font-size:13px;margin:0">测试模式无需配置券商凭证，仅用于功能测试。</p></div>'
     +'</div>'
 
     +'  </div>'
@@ -1387,8 +1403,9 @@ function showNodeConfig(sid){
 
 function toggleCfgFields(){
   var t=document.getElementById('cfg-broker-type').value;
-  document.getElementById('cfg-fields-tastytrade').style.display=(t==='tastytrade')?'block':'none';
-  document.getElementById('cfg-fields-ib').style.display=(t==='interactive_brokers')?'block':'none';
+  document.getElementById('cfg-fields-tastytrade').style.display=(t==='TT')?'block':'none';
+  document.getElementById('cfg-fields-ib').style.display=(t==='IB')?'block':'none';
+  document.getElementById('cfg-fields-test').style.display=(t==='Test')?'block':'none';
 }
 
 async function doSaveNodeConfig(sid,btn){
@@ -1399,11 +1416,11 @@ async function doSaveNodeConfig(sid,btn){
   var acctPwd=document.getElementById('cfg-acct-pwd').value.trim(); // 留空表示不修改
 
   var creds={};
-  if(bt==='tastytrade'){
+  if(bt==='TT'){
     var s=document.getElementById('cfg-tt-secret').value.trim();
     var t=document.getElementById('cfg-tt-token').value.trim();
     creds={"secret":s,"token":t};
-  }else{
+  }else if(bt==='IB'){
     var h=document.getElementById('cfg-ib-host').value.trim();
     var p=document.getElementById('cfg-ib-port').value.trim();
     creds={"host":h,"port":parseInt(p)||0,"client_id":parseInt(document.getElementById('cfg-ib-clientid').value)||19};

@@ -1,5 +1,5 @@
 """
-API Client — 与 Server_economic 后端通信的 HTTP 客户端
+API Client — 与 Trader_Server 后端通信的 HTTP 客户端
 封装对 /api/* 端点的所有调用
 """
 
@@ -9,7 +9,7 @@ import urllib.error
 
 
 class SEApiClient:
-    """Server_economic Desktop GUI 专用 API 客户端"""
+    """Trader_Server Desktop GUI 专用 API 客户端"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8900):
         self.base_url = f"http://{host}:{port}"

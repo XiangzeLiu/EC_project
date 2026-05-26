@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from .base import BaseBrokerAPI
 
-log = logging.getLogger("server_economic.api.ib")
+log = logging.getLogger("trader_server.api.ib")
 
 # SDK 导入标记
 _IB_AVAILABLE = False

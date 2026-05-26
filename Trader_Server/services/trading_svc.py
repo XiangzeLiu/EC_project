@@ -16,7 +16,7 @@ import uuid
 from ..config import state
 from .config_sync import get_current_broker, ensure_broker_connected
 
-log = logging.getLogger("server_economic.trading_svc")
+log = logging.getLogger("trader_server.trading_svc")
 
 
 async def place_order(params: dict, session_id: str, trace_id: str = "") -> dict:

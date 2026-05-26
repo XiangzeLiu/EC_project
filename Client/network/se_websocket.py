@@ -1,6 +1,6 @@
 """
 SE WebSocket Client
-连接 Server_economic (SE) 的 WebSocket 端点
+连接 Trader_Server (TS) 的 WebSocket 端点
 
 协议:
   1. 连接后发送 CONNECT + Bearer Token 认证
@@ -38,7 +38,7 @@ except ImportError:
 
 
 class SEWebSocketClient:
-    """Server_economic WebSocket 客户端（支持自动重连）"""
+    """Trader_Server WebSocket 客户端（支持自动重连）"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8900,
                  token: str = "", server_id: str = "",

@@ -433,18 +433,19 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
             "contact": req['contact'],
             "description": req['description'],
         }
+        approved_broker_type = (req['region'] or 'TT').strip() or 'TT'
         conn.execute("""
             INSERT INTO brokers (name, broker_type, host, port, config, status,
                                 registered_at, created_at)
-            VALUES (?, 'economic', '', 0, ?, 'online', ?, ?)
+            VALUES (?, ?, '', 0, ?, 'online', ?, ?)
             ON CONFLICT(name) DO UPDATE SET
-                broker_type='economic',
+                broker_type=excluded.broker_type,
                 host=excluded.host,
                 port=excluded.port,
                 config=excluded.config,
                 status='online',
                 registered_at=excluded.registered_at
-        """, (server_id, json.dumps(config_data), now, now))
+        """, (server_id, approved_broker_type, json.dumps(config_data), now, now))
 
         # 同时在 brokers 行中保存 token 用于心跳验证
         # 复用 config 字段存 token（或可扩展字段）
@@ -634,8 +635,8 @@ def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
 
 # ── 支持的券商类型列表 ───────────────────────────────────────────────────
 
-BROKER_TYPES = ["tastytrade", "interactive_brokers"]
-"""支持的券商类型枚举，SE注册和SM审批时共用此列表"""
+BROKER_TYPES = ["IB", "TT", "Test"]
+"""支持的券商类型枚举，TS注册和SM审批时共用此列表"""
 
 
 # ── 券商配置管理（节点审批时录入凭证）───────────────────────────────
@@ -678,7 +679,7 @@ def get_node_broker_config(server_id: str) -> dict | None:
             credentials["account_password"] = cfg.get("account_password", "")
 
         return {
-            "broker_type": row["broker_type"] or cfg.get("broker_type", "tastytrade"),
+            "broker_type": row["broker_type"] or cfg.get("broker_type", "TT"),
             "credentials": credentials,
             "enabled": cfg.get("enabled", True),
             "config_version": row["config_version"] or 0,
@@ -732,9 +733,9 @@ def set_node_broker_config(
 
         now = datetime.now(timezone.utc).isoformat()
         conn.execute("""
-            UPDATE brokers SET config = ?, config_version = ?, last_heartbeat = ?
+            UPDATE brokers SET broker_type = ?, config = ?, config_version = ?, last_heartbeat = ?
             WHERE name = ?
-        """, (json.dumps(cfg), new_version, now, server_id))
+        """, (broker_type, json.dumps(cfg), new_version, now, server_id))
         conn.commit()
 
         log.info(
@@ -1187,7 +1188,7 @@ def create_account(username: str, password: str, se_address: str = "",
     Args:
         username: 用户名（唯一）
         password: 明文密码（将 SHA256 哈希存储）
-        se_address: Server_economic 地址 (如 127.0.0.1:8900)
+        se_address: Trader_Server 地址 (如 127.0.0.1:8900)
         broker_tag: 券商标签
         description: 账户描述信息（非必填）
         role: 角色 (trader/admin)
@@ -1414,7 +1415,7 @@ def update_account(account_id: int, se_address: str = "", broker_tag: str = "",
 
     Args:
         account_id: 账户 ID
-        se_address: 新的 SE 地址
+        se_address: 新的 TS 地址
         broker_tag: 新的券商标签
         description: 新的描述信息
         password: 新密码（为空则不修改）

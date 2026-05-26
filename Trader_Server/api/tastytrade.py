@@ -14,7 +14,7 @@ from typing import Any
 
 from .base import BaseBrokerAPI
 
-log = logging.getLogger("server_economic.api.tastytrade")
+log = logging.getLogger("trader_server.api.tastytrade")
 
 # SDK 导入标记
 _SDK_AVAILABLE = False

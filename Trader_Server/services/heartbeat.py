@@ -21,7 +21,7 @@ import urllib.request
 
 from ..config import state
 
-log = logging.getLogger("server_economic.heartbeat")
+log = logging.getLogger("trader_server.heartbeat")
 
 
 class HeartbeatSender:

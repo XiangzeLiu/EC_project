@@ -1,5 +1,5 @@
 """
-Server_economic Configuration
+Trader_Server Configuration
 配置管理、本地状态持久化、运行时全局变量
 
 配置文件:
@@ -16,7 +16,7 @@ from pathlib import Path
 
 # ── 路径常量 ────────────────────────────────────────────────────────────
 
-# Server_economic 包所在目录
+# Trader_Server 包所在目录
 _PKG_DIR = Path(__file__).resolve().parent
 _DATA_DIR = _PKG_DIR / "data"
 
@@ -24,13 +24,13 @@ CONFIG_FILE = _DATA_DIR / "config.json"
 REGISTER_STATE_FILE = _DATA_DIR / ".register_state.json"
 LOG_DIR = _DATA_DIR / "logs"
 
-log = logging.getLogger("server_economic")
+log = logging.getLogger("trader_server")
 
 # ── 默认值 ────────────────────────────────────────────────────────────────
 
 DEFAULT_MANAGER_URL = "http://127.0.0.1:8800"
-DEFAULT_NODE_NAME = "economic-node-01"
-DEFAULT_REGION = "tastytrade"  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
+DEFAULT_NODE_NAME = "trader-node-01"
+DEFAULT_REGION = "TT"  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
 DEFAULT_HOST = ""
 DEFAULT_CAPABILITIES = ["cpi", "gdp", "interest_rate", "employment", "trade_balance"]
 DEFAULT_CONTACT = ""

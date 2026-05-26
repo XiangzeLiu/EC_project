@@ -23,7 +23,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any
 
-log = logging.getLogger("server_economic.msg_log")
+log = logging.getLogger("trader_server.msg_log")
 
 # 全局单例
 _MAX_ENTRIES = 500  # 最多保留 500 条

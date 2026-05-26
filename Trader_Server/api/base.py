@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Any
 import logging
 
-log = logging.getLogger("server_economic.api.base")
+log = logging.getLogger("trader_server.api.base")
 
 
 class BaseBrokerAPI(ABC):

@@ -1,5 +1,5 @@
 """
-Server_economic - 多券商 API 适配层
+Trader_Server - 多券商 API 适配层
 
 提供统一的券商接口抽象，支持 Tastytrade / Interactive Brokers 等多种券商。
 通过 BrokerFactory 工厂函数根据 broker_type 创建对应实例。

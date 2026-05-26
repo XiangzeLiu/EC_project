@@ -20,7 +20,7 @@ from typing import Optional
 
 from ..config import state
 
-log = logging.getLogger("server_economic.economic_data")
+log = logging.getLogger("trader_server.economic_data")
 
 # ── 数据缓存 ──────────────────────────────────────────────────────────────
 

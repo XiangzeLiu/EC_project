@@ -25,7 +25,7 @@ from ..api.base import BaseBrokerAPI
 from ..config import state
 from ..network import ws_server
 
-log = logging.getLogger("server_economic.config_sync")
+log = logging.getLogger("trader_server.config_sync")
 
 # 全局单例: 当前活跃的 Broker 实例
 _current_broker: BaseBrokerAPI | None = None

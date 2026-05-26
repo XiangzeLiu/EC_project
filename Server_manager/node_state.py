@@ -325,8 +325,8 @@ class NodeStateManager:
 
     # ── 主动探活操作 ─────────────────────────────────────────────────────
 
-    # SE 默认监听端口（用于 TCP 探活）
-    _SE_DEFAULT_PORT = 8900
+    # TS 默认监听端口（用于 TCP 探活）
+    _TS_DEFAULT_PORT = 8900
     # 探活超时（秒）
     _PROBE_SOCKET_TIMEOUT = 2
 
@@ -358,14 +358,14 @@ class NodeStateManager:
 
             # 从地址中提取 host 和 port
             host = target
-            port = self._SE_DEFAULT_PORT
+            port = self._TS_DEFAULT_PORT
             if ":" in target:
                 parts = target.rsplit(":", 1)
                 host = parts[0]
                 try:
                     port = int(parts[1])
                 except (ValueError, IndexError):
-                    port = self._SE_DEFAULT_PORT
+                    port = self._TS_DEFAULT_PORT
 
             # 跳过明显无效的地址
             if not host or host in ("", "0.0.0.0"):

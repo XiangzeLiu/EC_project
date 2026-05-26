@@ -1,5 +1,5 @@
 """
-Server_economic Desktop GUI — 子服务端控制面板（桌面版）
+Trader_Server Desktop GUI — 子服务端控制面板（桌面版）
 
 功能:
   - 节点注册流程（Ping → Submit → SSE Wait）
@@ -9,8 +9,8 @@ Server_economic Desktop GUI — 子服务端控制面板（桌面版）
   - 表单锁定机制
 
 启动方式:
-    python -m Server_economic.gui.app
-    python Server_economic/gui/app.py
+    python -m Trader_Server.gui.app
+    python Trader_Server/gui/app.py
 """
 
 import ctypes
@@ -70,7 +70,7 @@ STATUS_LABELS = {
 
 
 class SEControlPanel(tk.Tk):
-    """Server_economic 控制面板 — 桌面版主窗口"""
+    """Trader_Server 控制面板 — 桌面版主窗口"""
 
     def __init__(self):
         super().__init__()
@@ -78,7 +78,7 @@ class SEControlPanel(tk.Tk):
         self._ui_scale = self._setup_dpi_scaling()
         self._apply_scaled_fonts()
 
-        self.title("Server_economic — 控制面板")
+        self.title("Trader_Server — 控制面板")
         self.configure(bg=BG_DARK)
 
         # ── 窗口尺寸与居中（4K 友好）──────────────────────
@@ -196,7 +196,7 @@ class SEControlPanel(tk.Tk):
 
         # 左侧：图标 + 标题
         tk.Label(
-            bar, text="⚙  Server_economic", font=FONT_TITLE,
+            bar, text="⚙  Trader_Server", font=FONT_TITLE,
             fg=TEXT_PRIMARY, bg=BG_SECONDARY, anchor="w",
         ).pack(side="left", padx=(self._s(20), 0))
 
@@ -269,17 +269,17 @@ class SEControlPanel(tk.Tk):
         tk.Label(form, text="节点名称 *", anchor="w",
                  font=FONT_NORMAL, fg=TEXT_SECONDARY, bg=BG_SECONDARY
                  ).pack(fill="x", pady=(8, 4))
-        self.fm_node_name = self._make_entry(form, "economic-node-01")
+        self.fm_node_name = self._make_entry(form, "trader-node-01")
 
         # 券商类型
         tk.Label(form, text="券商类型 *", anchor="w",
                  font=FONT_NORMAL, fg=TEXT_SECONDARY, bg=BG_SECONDARY
                  ).pack(fill="x", pady=(8, 4))
         self.fm_region = ttk.Combobox(
-            form, values=["tastytrade", "interactive_brokers"],
+            form, values=["IB", "TT", "Test"],
             state="readonly", font=FONT_NORMAL, width=38,
         )
-        self.fm_region.set("tastytrade")
+        self.fm_region.set("TT")
         self.fm_region.pack(fill="x", pady=(0, 4))
 
         # 主机地址（自动检测）

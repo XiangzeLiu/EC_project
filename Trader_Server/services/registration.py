@@ -24,7 +24,7 @@ from ..config import (
     DEFAULT_HOST, DEFAULT_CAPABILITIES, DEFAULT_CONTACT, DEFAULT_DESCRIPTION,
 )
 
-log = logging.getLogger("server_economic.registration")
+log = logging.getLogger("trader_server.registration")
 
 
 def _get_url(path: str) -> str:

@@ -1,15 +1,15 @@
 """
-Server_economic — 经济数据子服务端 主入口
+Trader_Server — 交易服务子服务端 主入口
 
 启动方式:
-    python Server_economic/main.py        # 自动启动 FastAPI + 桌面 GUI
-    python -m Server_economic.main         # 同上
-    uvicorn Server_economic.main:app      # 仅启动 API 服务（无 GUI）
+    python Trader_Server/main.py        # 自动启动 FastAPI + 桌面 GUI
+    python -m Trader_Server.main         # 同上
+    uvicorn Trader_Server.main:app      # 仅启动 API 服务（无 GUI）
 
 命令行参数:
     --manager-url   Server_manager 地址 (默认 http://127.0.0.1:8800)
-    --node-name     节点名称 (默认 economic-node-01)
-    --broker-type   券商类型 (默认 tastytrade)
+    --node-name     节点名称 (默认 trader-node-01)
+    --broker-type   券商类型 (默认 TT)
     --ws-port       WebSocket 监听端口 (默认 8900)
 
 启动流程:
@@ -38,7 +38,7 @@ if _PROJECT_ROOT not in sys.path:
 # 直接执行 main.py 时，Python 不设 __package__，导致子模块的相对导入（from ..config）越界
 # 这里手动补齐，使 from .xxx / from .services.xxx 均可正常解析
 if __name__ == "__main__" and __package__ is None:
-    __package__ = "Server_economic"
+    __package__ = "Trader_Server"
 
 from fastapi import FastAPI, WebSocket, Query, Request
 
@@ -73,8 +73,8 @@ from .network.ws_server import handle_client_connection, broadcast_message, forc
 # ── FastAPI App ───────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="Server_economic",
-    description="经济数据子服务端 — 业务执行侧组件",
+    title="Trader_Server",
+    description="交易服务子服务端 — 业务执行侧组件",
     version="1.0.0",
 )
 
@@ -133,7 +133,7 @@ async def api_register_submit(body: dict):
     Step B: 提交注册请求
     接收前端表单数据并转发给 SM
     """
-    log = logging.getLogger("server_economic.main")
+    log = logging.getLogger("trader_server.main")
 
     # 打印收到的完整 payload，方便调试
     log.info(f"[Register Submit] Received body: {body}")
@@ -187,7 +187,7 @@ async def api_register_cancel(body: dict):
     if manager_url:
         state.manager_url = manager_url
 
-    log = logging.getLogger("server_economic.main")
+    log = logging.getLogger("trader_server.main")
     result = cancel_registration_request(
         request_id=request_id,
         reason=reason,
@@ -251,7 +251,7 @@ async def api_await_approval(request_id: str = Query(...)):
     params = urllib.parse.urlencode({"request_id": request_id})
     url = f"{state.manager_url.rstrip('/')}/nodes/await-approval?{params}"
 
-    log = logging.getLogger("server_economic.main")
+    log = logging.getLogger("trader_server.main")
     log.info(f"[Await Approval] Connecting to SM: {url}")
 
     async def _sse_generator():
@@ -370,7 +370,7 @@ async def api_register_clear():
     state.status = "uninitialized"
     state.heartbeat_ok = False
 
-    logging.getLogger("server_economic.main").info(f"Credentials cleared: {cleared}")
+    logging.getLogger("trader_server.main").info(f"Credentials cleared: {cleared}")
     return {"ok": True, "cleared": cleared, "message": "凭证已清除"}
 
 
@@ -391,7 +391,7 @@ async def health_check():
     """健康检查端点"""
     return {
         "status": "ok",
-        "service": "server_economic",
+        "service": "trader_server",
         "node_name": state.node_name,
         "server_id": state.server_id,
         "registration_status": state.status,
@@ -418,8 +418,8 @@ async def api_status():
     }
 
     return {
-        "service": "server_economic",
-        "version": __import__("Server_economic").__dict__.get("__version__", "1.0.0"),
+        "service": "trader_server",
+        "version": __import__("Trader_Server").__dict__.get("__version__", "1.0.0"),
         "registration": {
             "status": state.status,
             "server_id": state.server_id,
@@ -503,10 +503,10 @@ async def on_startup():
     global _heartbeat
 
     init_logging("INFO")
-    log = logging.getLogger("server_economic.main")
+    log = logging.getLogger("trader_server.main")
 
-    _se_pkg = __import__("Server_economic")
-    _ver = getattr(_se_pkg, "__version__", "1.0.0")
+    _ts_pkg = __import__("Trader_Server")
+    _ver = getattr(_ts_pkg, "__version__", "1.0.0")
 
     # 解析启动参数
     args = parse_args_from_env_or_default()
@@ -516,7 +516,7 @@ async def on_startup():
 
     print()
     print("=" * 60)
-    print("   Server_economic v%s — Economic Data Sub-server" % _ver)
+    print("   Trader_Server v%s — Trading Service Sub-server" % _ver)
     print("=" * 60)
 
     # 1) 尝试恢复已有凭证（不自动注册）
@@ -580,7 +580,7 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     """应用关闭时清理资源"""
-    log = logging.getLogger("server_economic.main")
+    log = logging.getLogger("trader_server.main")
     log.info("Shutting down...")
 
     global _heartbeat
@@ -603,7 +603,7 @@ async def on_shutdown():
 
 def _build_arg_parser():
     """构建命令行参数解析器"""
-    p = argparse.ArgumentParser(description="Server_economic 子服务端")
+    p = argparse.ArgumentParser(description="Trader_Server 子服务端")
     p.add_argument("--manager-url", default=DEFAULT_MANAGER_URL,
                    help=f"SM 地址 (默认: {DEFAULT_MANAGER_URL})")
     p.add_argument("--node-name", default=DEFAULT_NODE_NAME,
@@ -654,7 +654,7 @@ if __name__ == "__main__":
     # 后台线程启动 FastAPI 服务（不阻塞 GUI）
     _server_thread = threading.Thread(
         target=uvicorn.run,
-        args=("Server_economic.main:app",),
+        args=("Trader_Server.main:app",),
         kwargs=dict(
             host="0.0.0.0",
             port=args.ws_port,

@@ -570,7 +570,7 @@
   <div class="nav-title">Architecture Map</div>
   <a class="nav-item active" href="#part1">Part 1 · 三端总览与认证</a>
   <a class="nav-item" href="#part2">Part 2 · Client 架构</a>
-  <a class="nav-item" href="#part3">Part 3 · Server Economic 架构</a>
+  <a class="nav-item" href="#part3">Part 3 · Trader Server 架构</a>
   <a class="nav-item" href="#part4">Part 4 · Server Manager 架构</a>
   <a class="nav-item" href="#part5">Part 5 · 时序图</a>
 </nav>
@@ -585,7 +585,7 @@
   <div class="section-header">
     <span class="section-num" style="background:var(--sm-light);color:var(--sm-primary);">01</span>
     <h2 class="section-title">三端拓扑关系 &amp; 认证流转</h2>
-    <p class="section-desc">Client / Server_manager / Server_economic 三者间的通信协议、端口、数据方向与 Token 委托认证模型全景</p>
+    <p class="section-desc">Client / Server_manager / Trader_Server 三者间的通信协议、端口、数据方向与 Token 委托认证模型全景</p>
   </div>
 
   <!-- 主拓扑图 -->
@@ -653,7 +653,7 @@
     <!-- SE 节点 -->
     <div class="topo-node se node-box">
       <div class="node-label">Execution Side</div>
-      <div class="node-name" style="color:var(--se-primary);">Server Economic</div>
+      <div class="node-name" style="color:var(--se-primary);">Trader Server</div>
       <div class="node-subtitle">券商子服务端 (业务执行)</div>
       <div class="topo-port">WS Port :8900</div>
       <div style="margin-top:12px;display:flex;flex-direction:column;gap:4px;">
@@ -683,7 +683,7 @@
         <div style="font-size:10px;color:var(--text-muted);">业务指令长连接 (带 Token)</div>
       </div>
       <div class="topo-node se node-box" style="width:200px;padding:16px;">
-        <div class="node-name" style="color:var(--se-primary);font-size:16px;">Server Economic</div>
+        <div class="node-name" style="color:var(--se-primary);font-size:16px;">Trader Server</div>
       </div>
     </div>
 
@@ -710,7 +710,7 @@
     <div class="legend-item"><span class="legend-dot" style="background:var(--arrow-tcp);"></span> TCP / HTTPS</div>
     <div class="legend-item"><span class="legend-dot" style="background:var(--client-primary);"></span> Client</div>
     <div class="legend-item"><span class="legend-dot" style="background:var(--sm-primary);"></span> Server Manager</div>
-    <div class="legend-item"><span class="legend-dot" style="background:var(--se-primary);"></span> Server Economic</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--se-primary);"></span> Trader Server</div>
   </div>
 
   <!-- 认证流转说明 -->
@@ -894,7 +894,7 @@
 
       <div class="comp-card" style="border-left:3px solid var(--se-primary);">
         <div class="comp-name" style="color:var(--se-primary);">SEWebSocket</div>
-        <div class="comp-desc">WebSocket 长连接 → Server_economic。asyncio + websockets 库，Token 认证参数携带，自动重连(指数退避)。</div>
+        <div class="comp-desc">WebSocket 长连接 → Trader_Server。asyncio + websockets 库，Token 认证参数携带，自动重连(指数退避)。</div>
         <div class="comp-desc" style="margin-top:4px;"><strong>目标:</strong> <code>SE :8900/ws?token=&amp;user=</code></div>
         <div class="comp-desc" style="margin-top:2px;"><strong>消息类型:</strong> ECONOMIC_DATA_QUERY | STATUS_QUERY | SUMMARY_REPORT</div>
         <div class="comp-file">network/se_websocket.py</div>
@@ -981,13 +981,13 @@
 
 
 <!-- ================================================================
-     PART 3: Server Economic 内部架构
+     PART 3: Trader Server 内部架构
      ================================================================ -->
 <section id="part3" class="section">
 
   <div class="section-header">
     <span class="section-num" style="background:var(--se-light);color:var(--se-primary);">03</span>
-    <h2 class="section-title">Server Economic 内部架构</h2>
+    <h2 class="section-title">Trader Server 内部架构</h2>
     <p class="section-desc">券商子服务端 — 双通道设计（管理通道 HTTP+SSE / 业务通道 WebSocket），无状态信任代理</p>
   </div>
 

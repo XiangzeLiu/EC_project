@@ -71,10 +71,10 @@ app = FastAPI(
         "### 交易系统 Server Manager（控制面）\n\n"
         "- **认证管理**：用户登录/登出，支持 JSON 文件 / 配置文件 / 数据库多级认证\n"
         "- **节点管理**：注册、审核、占用、状态与心跳管理\n"
-        "- **配置管理**：SE 券商配置下发与版本控制\n"
+        "- **配置管理**：TS 券商配置下发与版本控制\n"
         "- **健康检查**：服务状态监控\n\n"
         "---\n\n"
-        "**职责边界**：SM 不直接执行券商交易，交易请求统一由 SE 执行"
+        "**职责边界**：SM 不直接执行券商交易，交易请求统一由 TS 执行"
     ),
 
     version="1.0.0",
@@ -500,7 +500,7 @@ async def quote_websocket(ws: WebSocket):
             quote_clients.remove(ws)
 
 
-# ── 节点注册与连接管理（Server_economic → Server_manager）────────────────
+# ── 节点注册与连接管理（Trader_Server → Server_manager）────────────────
 
 import secrets
 import json as _json
@@ -883,11 +883,21 @@ async def refresh_nodes_status(request: Request):
 
     nodes = node_state.manager.get_all_for_display()
 
+    # 补齐节点券商配置（详情弹窗展示账户/凭证信息用）
+    for n in nodes:
+        sid = (n.get("server_id") or "").strip()
+        if not sid:
+            continue
+        cfg = database.get_node_broker_config(sid)
+        if cfg:
+            n["broker_config"] = cfg.get("_raw_config", {})
+
     # 统计各状态数量
     online = sum(1 for n in nodes if n["real_status"] == "online")
     offline = sum(1 for n in nodes if n["real_status"] == "offline")
     occupied = sum(1 for n in nodes if n["real_status"] == "occupied")
     suspended = sum(1 for n in nodes if n["real_status"] == "suspended")
+
 
     return {
         "ok": True,
@@ -911,7 +921,7 @@ async def approve_node(request: Request, request_id: str):
         body = await request.json() if await request.body() else {}
     except Exception:
         body = {}
-    broker_type = body.get("broker_type", "tastytrade")
+    broker_type = body.get("broker_type", "TT")
     broker_credentials = body.get("credentials", {})
     # 新增：账户信息（审批时录入）
     account_username = body.get("account_username", "").strip()

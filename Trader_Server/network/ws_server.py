@@ -27,7 +27,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import state
 
-log = logging.getLogger("server_economic.ws_server")
+log = logging.getLogger("trader_server.ws_server")
 
 # 活跃连接: {websocket: {"session_id": ..., "connected_at": ..., "auth": ...}}
 _connections: dict[WebSocket, dict] = {}

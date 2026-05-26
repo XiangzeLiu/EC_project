@@ -26,7 +26,7 @@ from typing import Set
 from ..config import state
 from .config_sync import get_current_broker
 
-log = logging.getLogger("server_economic.quote_provider")
+log = logging.getLogger("trader_server.quote_provider")
 
 # 全局订阅状态: session_id → set of subscribed symbols
 _session_subscriptions: dict[str, Set[str]] = defaultdict(set)
