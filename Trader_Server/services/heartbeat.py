@@ -182,12 +182,18 @@ class HeartbeatSender:
                         try:
                             from .config_sync import check_and_reload
                             import asyncio
-                            # 非阻塞调用
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.ensure_future(check_and_reload(remote_ver, source="heartbeat"))
+                            # 获取或创建事件循环（兼容子线程）
+                            try:
+                                loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                # 当前线程没有事件循环，跳过
+                                log.debug(f"[#{seq}] No event loop in thread, skipping config reload")
+                                pass
                             else:
-                                log.debug(f"[#{seq}] No event loop, skipping config reload check")
+                                if loop.is_running():
+                                    asyncio.ensure_future(check_and_reload(remote_ver, source="heartbeat"))
+                                else:
+                                    log.debug(f"[#{seq}] Event loop not running, skipping config reload check")
                         except Exception as cre:
                             log.warning(f"[#{seq}] Config version check error: {cre}")
 

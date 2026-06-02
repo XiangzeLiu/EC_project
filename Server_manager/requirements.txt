@@ -24,4 +24,4 @@ certifi>=2023.0.0
 tastytrade>=4.0.0
 
 # IB TWS 行情源（可选）
-ibapi>=10.19.2
+# ibapi>=10.19.2

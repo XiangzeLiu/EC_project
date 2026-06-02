@@ -2,6 +2,7 @@
 # 证券交易系统客户端依赖
 
 # WebSocket 实时行情（唯一必需的第三方库）
+# 注意：代码已适配 websockets >=10.0 的 API 变化（ws.open -> ws.state）
 websockets>=10.0
 
 # IANA 时区数据库（Windows/打包环境必需，解决 America/New_York 缺失）

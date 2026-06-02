@@ -3,3 +3,7 @@ uvicorn[standard]>=0.27.0
 websockets>=12.0
 pydantic>=2.5.0
 httpx>=0.25.0
+
+# 券商 SDK（根据实际需要安装）
+# tastytrade>=8.0  # Tastytrade 券商支持
+# ibapi>=9.81  # Interactive Brokers 支持

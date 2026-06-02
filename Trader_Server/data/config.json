@@ -1,8 +1,8 @@
 {
-  "server_id": "node_trader-node-01_68d054ee",
-  "token": "hp2AnkX3jsTLLHSeeRF0gLmjq6O5xXqjzU1HqWdH9Jw",
+  "server_id": "node_trader-node-01_4e6941ff",
+  "token": "GQe9ruyvKQx_i6-RlG2iMNvOgEhzjcFhad4CwJ70V4w",
   "manager_url": "http://127.0.0.1:8800",
   "node_name": "trader-node-01",
   "region": "TT",
-  "saved_at": "2026-05-26T18:27:58.034940+00:00"
+  "saved_at": "2026-06-02T18:41:54.208166+00:00"
 }

@@ -87,6 +87,24 @@ class SEWebSocketClient:
     def node_info(self) -> dict:
         return self._node_info.copy()
 
+    @staticmethod
+    def _is_ws_open(ws) -> bool:
+        """
+        兼容新旧版本 websockets 的连接状态检查
+        
+        - websockets < 10.0: 使用 ws.open
+        - websockets >= 10.0: 使用 ws.state == State.OPEN
+        """
+        if hasattr(ws, 'open'):
+            return ws.open
+        # websockets >= 10.0
+        try:
+            from websockets.protocol import State
+            return ws.state == State.OPEN
+        except Exception:
+            # 兜底：假设连接正常
+            return True
+
     def start(self):
         """启动 WebSocket 连接线程"""
         if self._active:
@@ -132,7 +150,7 @@ class SEWebSocketClient:
         Returns:
             请求 ID
         """
-        req_id = f"req_{int(time.time() * 1000)}"
+        req_id = f"req_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         p = dict(payload or {})
         p.setdefault("trace_id", f"trc_{uuid.uuid4().hex[:16]}")
         msg = {
@@ -156,7 +174,7 @@ class SEWebSocketClient:
         if not self._connected:
             return None
 
-        req_id = f"req_{int(time.time() * 1000)}"
+        req_id = f"req_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         p = dict(payload or {})
         p.setdefault("trace_id", f"trc_{uuid.uuid4().hex[:16]}")
         msg = {
@@ -460,7 +478,7 @@ class SEWebSocketClient:
             # 连接已丢失 → 立即退出（不尝试发送 PING）
             if self._conn_lost.is_set() or not self._active:
                 break
-            if not ws.open:
+            if not self._is_ws_open(ws):
                 self._conn_lost.set()
                 break
 
@@ -499,8 +517,9 @@ class SEWebSocketClient:
             except (asyncio.CancelledError, RuntimeError):
                 break
 
-            if self._conn_lost.is_set() or not self._active or not ws.open:
-                if self._conn_lost.is_set() and ws.open:
+            is_open = self._is_ws_open(ws)
+            if self._conn_lost.is_set() or not self._active or not is_open:
+                if self._conn_lost.is_set() and is_open:
                     try:
                         await ws.close()
                     except Exception:
