@@ -79,7 +79,34 @@ class TradingSession:
         except Exception:
             return None
 
+    def subscribe_quotes(self, symbols: list[str], timeout: float = 6.0) -> tuple[bool, str]:
+        """通过 SE 订阅行情"""
+        if not self._can_use_se():
+            return False, "SE not connected"
+        resp = self._request_se("QUOTE_SUBSCRIBE", {
+            "action": "subscribe",
+            "symbols": symbols,
+        }, timeout=timeout)
+        payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+        if payload.get("success"):
+            return True, payload.get("message", "Subscribed")
+        return False, sanitize(payload.get("message", "Subscribe failed"))
+
+    def unsubscribe_quotes(self, symbols: list[str], timeout: float = 6.0) -> tuple[bool, str]:
+        """通过 SE 取消行情订阅"""
+        if not self._can_use_se():
+            return False, "SE not connected"
+        resp = self._request_se("QUOTE_SUBSCRIBE", {
+            "action": "unsubscribe",
+            "symbols": symbols,
+        }, timeout=timeout)
+        payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+        if payload.get("success"):
+            return True, payload.get("message", "Unsubscribed")
+        return False, sanitize(payload.get("message", "Unsubscribe failed"))
+
     # ── Auth ────────────────────────────────────────────────────────────────────
+
 
 
     def login(self, username: str, password: str, force: bool = False) -> tuple[bool, str]:

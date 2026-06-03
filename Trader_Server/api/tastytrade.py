@@ -8,6 +8,8 @@ Tastytrade 券商适配器
   - Order 序列化
 """
 
+import asyncio
+import datetime
 import logging
 from decimal import Decimal
 from typing import Any
@@ -18,34 +20,46 @@ log = logging.getLogger("trader_server.api.tastytrade")
 
 # SDK 导入标记
 _SDK_AVAILABLE = False
+_DX_AVAILABLE = False
 try:
-    from tastytrade import Session
+    from tastytrade import Session, DXLinkStreamer
     from tastytrade.account import Account
     from tastytrade.instruments import Equity
     from tastytrade.order import (
         NewOrder, OrderAction, OrderTimeInForce, OrderType,
     )
+    try:
+        from tastytrade.dxfeed import Quote as DXQuote
+        _DX_AVAILABLE = True
+    except ImportError:
+        DXQuote = None
     _SDK_AVAILABLE = True
 except ImportError:
+    DXQuote = None
     log.warning("Tastytrade SDK not available, TastytradeBroker will be non-functional")
 
 
 # ── 映射表（与 origin_demo 一致）─────────────────────────────────────
 
-ACTION_MAP = {
-    "Buy to Open":   OrderAction.BUY_TO_OPEN,
-    "Sell to Close": OrderAction.SELL_TO_CLOSE,
-    "Sell to Open":  OrderAction.SELL_TO_OPEN,
-    "Buy to Close":   OrderAction.BUY_TO_CLOSE,
-}
+if _SDK_AVAILABLE:
+    ACTION_MAP = {
+        "Buy to Open":   OrderAction.BUY_TO_OPEN,
+        "Sell to Close": OrderAction.SELL_TO_CLOSE,
+        "Sell to Open":  OrderAction.SELL_TO_OPEN,
+        "Buy to Close":  OrderAction.BUY_TO_CLOSE,
+    }
 
-TIF_MAP = {
-    "Day":     OrderTimeInForce.DAY,
-    "GTC":     OrderTimeInForce.GTC,
-    "IOC":     OrderTimeInForce.IOC,
-    "EXT":     OrderTimeInForce.EXT,
-    "GTC_EXT": OrderTimeInForce.GTC_EXT,
-}
+    TIF_MAP = {
+        "Day":     OrderTimeInForce.DAY,
+        "GTC":     OrderTimeInForce.GTC,
+        "IOC":     OrderTimeInForce.IOC,
+        "EXT":     OrderTimeInForce.EXT,
+        "GTC_EXT": OrderTimeInForce.GTC_EXT,
+    }
+else:
+    ACTION_MAP = {}
+    TIF_MAP = {}
+
 
 
 class TastytradeBroker(BaseBrokerAPI):
@@ -75,6 +89,15 @@ class TastytradeBroker(BaseBrokerAPI):
         # Session 缓存（复用 origin_demo 的 session_store 模式）
         self._session: Any | None = None
         self._account: Any | None = None
+
+        # TT DX 行情流状态
+        self._quote_streamer: Any | None = None
+        self._quote_streamer_cm: Any | None = None
+        self._quote_task: asyncio.Task | None = None
+        self._subscribed_symbols: set[str] = set()
+        self._quote_lock = asyncio.Lock()
+
+
 
     async def connect(self, credentials: dict) -> bool:
         """使用 secret+token 创建 TT Session 并获取 Account"""
@@ -122,10 +145,12 @@ class TastytradeBroker(BaseBrokerAPI):
 
     async def disconnect(self) -> None:
         """断开连接，清除缓存"""
+        await self._stop_quote_stream()
         self._session = None
         self._account = None
         self._connected = False
         log.info("TastytradeBroker disconnected")
+
 
     async def is_connected(self) -> bool:
         """检查 Session 是否有效"""
@@ -225,18 +250,222 @@ class TastytradeBroker(BaseBrokerAPI):
         return [self.serialize_order(o) for o in raw]
 
     async def subscribe_quotes(self, symbols: list[str]) -> None:
-        """
-        Tastytrade 行情订阅
-        
-        注意：Tastytrade 使用 DXLinkStreamer，此处仅做占位记录。
-        实际行情建议通过 IB TWS 获取。
-        """
-        log.info(f"TT quote subscribe requested (not implemented via TT DX): symbols={symbols}")
+        """订阅 TT 行情（DXLink）"""
+        if not _SDK_AVAILABLE or not _DX_AVAILABLE or not DXQuote:
+            raise RuntimeError("Tastytrade DX quote stream is unavailable")
+
+        valid = {str(s).strip().upper() for s in (symbols or []) if str(s).strip()}
+        if not valid:
+            return
+
+        async with self._quote_lock:
+            _, _ = await self._get_fresh()
+            await self._ensure_quote_streamer_locked()
+
+            new_syms = sorted(valid - self._subscribed_symbols)
+            if not new_syms:
+                return
+
+            await self._streamer_subscribe(new_syms)
+            self._subscribed_symbols.update(new_syms)
+            log.info(f"TT quote subscribed: {new_syms}")
+
+
 
     async def unsubscribe_quotes(self, symbols: list[str]) -> None:
-        log.info(f"TT quote unsubscribe: symbols={symbols}")
+        valid = {str(s).strip().upper() for s in (symbols or []) if str(s).strip()}
+        if not valid:
+            return
+
+        async with self._quote_lock:
+            remove_syms = sorted(valid & self._subscribed_symbols)
+            if not remove_syms:
+                return
+
+            if self._quote_streamer and hasattr(self._quote_streamer, "unsubscribe"):
+                await self._streamer_unsubscribe(remove_syms)
+
+
+
+            self._subscribed_symbols.difference_update(remove_syms)
+            log.info(f"TT quote unsubscribed: {remove_syms}")
+
+    async def _ensure_quote_streamer_locked(self) -> None:
+        if self._quote_streamer is None:
+            self._quote_streamer = await self._create_quote_streamer()
+
+        if self._quote_task is None or self._quote_task.done():
+            self._quote_task = asyncio.create_task(self._quote_consume_loop())
+
+    async def _create_quote_streamer(self):
+        if hasattr(DXLinkStreamer, "create"):
+            streamer = await self._maybe_await(DXLinkStreamer.create(self._session))
+        else:
+            streamer = await self._maybe_await(DXLinkStreamer(self._session))
+
+        if hasattr(streamer, "__aenter__") and hasattr(streamer, "__aexit__"):
+            self._quote_streamer_cm = streamer
+            entered = await self._maybe_await(streamer.__aenter__())
+            return entered if entered is not None else streamer
+
+        self._quote_streamer_cm = None
+        return streamer
+
+    async def _stop_quote_stream(self) -> None:
+        async with self._quote_lock:
+            self._subscribed_symbols.clear()
+
+            if self._quote_task and not self._quote_task.done():
+                self._quote_task.cancel()
+                try:
+                    await self._quote_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+
+            self._quote_task = None
+
+            if self._quote_streamer_cm is not None:
+                try:
+                    await self._maybe_await(self._quote_streamer_cm.__aexit__(None, None, None))
+                except Exception as e:
+                    log.warning(f"TT quote streamer context close failed: {e}")
+                self._quote_streamer_cm = None
+            elif self._quote_streamer is not None:
+                try:
+                    close_fn = getattr(self._quote_streamer, "close", None)
+                    if close_fn:
+                        await self._maybe_await(close_fn())
+                except Exception as e:
+                    log.warning(f"TT quote streamer close failed: {e}")
+
+            self._quote_streamer = None
+
+    async def _quote_consume_loop(self) -> None:
+        while self._connected and self._quote_streamer is not None:
+            try:
+                if hasattr(self._quote_streamer, "get_event"):
+                    event = await self._streamer_get_event()
+                    quote = self._normalize_quote_event(event)
+                    if quote and self._quote_callback:
+                        self._quote_callback(quote)
+                    continue
+
+                if hasattr(self._quote_streamer, "listen"):
+                    stream = await self._streamer_listen()
+                    async for event in stream:
+                        if not self._connected:
+                            return
+                        quote = self._normalize_quote_event(event)
+                        if quote and self._quote_callback:
+                            self._quote_callback(quote)
+                    continue
+
+                log.error("TT quote streamer has no supported consume API")
+                return
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning(f"TT quote consume loop error: {e}")
+                await asyncio.sleep(0.5)
+
+    async def _streamer_subscribe(self, symbols: list[str]) -> None:
+        fn = getattr(self._quote_streamer, "subscribe", None)
+        if not fn:
+            raise RuntimeError("TT quote streamer missing subscribe()")
+
+        last_err: Exception | None = None
+        for args in ((DXQuote, symbols), (symbols,)):
+            try:
+                await self._maybe_await(fn(*args))
+                return
+            except TypeError as e:
+                last_err = e
+        raise last_err or RuntimeError("TT quote subscribe failed")
+
+    async def _streamer_unsubscribe(self, symbols: list[str]) -> None:
+        fn = getattr(self._quote_streamer, "unsubscribe", None)
+        if not fn:
+            return
+
+        last_err: Exception | None = None
+        for args in ((DXQuote, symbols), (symbols,)):
+            try:
+                await self._maybe_await(fn(*args))
+                return
+            except TypeError as e:
+                last_err = e
+        if last_err:
+            raise last_err
+
+    async def _streamer_get_event(self):
+        fn = self._quote_streamer.get_event
+        last_err: Exception | None = None
+        for args in ((DXQuote,), tuple()):
+            try:
+                return await self._maybe_await(fn(*args))
+            except TypeError as e:
+                last_err = e
+        raise last_err or RuntimeError("TT quote get_event failed")
+
+    async def _streamer_listen(self):
+        fn = self._quote_streamer.listen
+        last_err: Exception | None = None
+        for args in ((DXQuote,), tuple()):
+            try:
+                stream = fn(*args)
+                return await self._maybe_await(stream)
+            except TypeError as e:
+                last_err = e
+        raise last_err or RuntimeError("TT quote listen failed")
+
+
+
+    @staticmethod
+    async def _maybe_await(value):
+        if asyncio.iscoroutine(value):
+            return await value
+        return value
+
+    @staticmethod
+    def _normalize_quote_event(event: Any) -> dict | None:
+
+        try:
+            symbol = str(getattr(event, "event_symbol", "") or getattr(event, "symbol", "")).strip().upper()
+            if not symbol:
+                return None
+
+            bid = float(getattr(event, "bid_price", None) or getattr(event, "bid", 0) or 0)
+            ask = float(getattr(event, "ask_price", None) or getattr(event, "ask", 0) or 0)
+            last = float(getattr(event, "last_price", None) or getattr(event, "price", 0) or 0)
+            if last <= 0 and bid > 0 and ask > 0:
+                last = round((bid + ask) / 2, 4)
+
+            volume = int(
+                float(
+                    getattr(event, "day_volume", None)
+                    or getattr(event, "volume", None)
+                    or 0
+                )
+            )
+
+            if bid <= 0 and ask <= 0 and last <= 0:
+                return None
+
+            return {
+                "symbol": symbol,
+                "bid": bid,
+                "ask": ask,
+                "last": last,
+                "volume": volume,
+                "ts": datetime.datetime.now().strftime("%H:%M:%S"),
+            }
+        except Exception:
+            return None
 
     # ── 内部辅助 ───────────────────────────────────────────────
+
 
     async def _get_fresh(self) -> tuple[Any, Any]:
         """

@@ -74,7 +74,10 @@ class TradingTerminal(tk.Tk):
         self._stream_active: bool = False
         self._mock_active: bool = False
         self._ws_stream: QuoteStream | None = None
+        self._quote_subscribed_symbols: set[str] = set()
+        self._quote_sub_lock = threading.Lock()
         self._last_pos_time: float = 0
+
         self._last_orders_time: float = 0
         self._last_heartbeat: float = 0
         self.positions_panel: PositionsPanel | None = None
@@ -829,9 +832,11 @@ class TradingTerminal(tk.Tk):
         if self._se_connected:
             self.log_area.log("[SE] Direct connection established", "ok")
 
-        self._start_mock_stream()
+        self._mock_active = False
+        self._stream_active = True
         self._poll()
         self._tick_clock()
+
         self.after(600, self._refresh_positions)
         self.after(900, self._refresh_orders)
 
@@ -1165,14 +1170,47 @@ class TradingTerminal(tk.Tk):
             return
         p.set_symbol(sym)
 
-        if self._stream_active:
-            self.sub_queue.put(sym)
-        if sym not in self.mock_base:
-            self.mock_base[sym] = random.uniform(20, 500)
         if sym in self.current_quote:
             self._refresh_strip(self.current_quote[sym], None, pid)
 
+        # 实时同步订阅集合（目标：symbol 回车后立即显示行情）
+        self._sync_quote_subscriptions_async()
+
+    def _sync_quote_subscriptions_async(self):
+        """在后台线程同步当前 UI 需要的订阅集合到 SE"""
+        def _bg():
+            if not self.session:
+                return
+
+            desired = {
+                p.current_sym.strip().upper()
+                for p in self.panels.values()
+                if p.current_sym and p.current_sym.strip()
+            }
+
+            with self._quote_sub_lock:
+                current = set(self._quote_subscribed_symbols)
+                to_sub = sorted(desired - current)
+                to_unsub = sorted(current - desired)
+
+                if to_unsub:
+                    ok, msg = self.session.unsubscribe_quotes(to_unsub, timeout=6.0)
+                    if ok:
+                        self._quote_subscribed_symbols.difference_update(to_unsub)
+                    else:
+                        self.after(0, lambda m=msg: self.log_area.log(f"[SE] Unsubscribe failed: {m}", "warn"))
+
+                if to_sub:
+                    ok, msg = self.session.subscribe_quotes(to_sub, timeout=6.0)
+                    if ok:
+                        self._quote_subscribed_symbols.update(to_sub)
+                    else:
+                        self.after(0, lambda m=msg: self.log_area.log(f"[SE] Subscribe failed: {m}", "warn"))
+
+        threading.Thread(target=_bg, daemon=True).start()
+
     def _sym_key_filter(self, event, pid: int = 0):
+
         """
         sym_entry 键盘过滤器：
         只允许字母、导航键；小键盘数字设置数量；F键触发下单
@@ -1750,9 +1788,12 @@ class TradingTerminal(tk.Tk):
             self._se_client = None
         if self.session:
             self.session.bind_se_client(None)
+        with self._quote_sub_lock:
+            self._quote_subscribed_symbols.clear()
         self._se_connected = False
 
         # 释放节点占用（同步，确保释放请求先于后续流程）
+
         self._release_se_occupation(sync=True)
         self._set_se_connection_ui(False)
         self.log_area.log("[SE] Disconnected", "inf")
@@ -1766,8 +1807,10 @@ class TradingTerminal(tk.Tk):
                 if self.session:
                     self.session.bind_se_client(self._se_client)
                 self.log_area.log(f"[SE] {msg}", "ok")
-                
+                self._sync_quote_subscriptions_async()
+
                 # ★ 重连成功后自动恢复节点占用（防止占用丢失）
+
 
                 # 场景：SE 掉线→SM 标记离线并释放占用→SE 恢复→Client 重连成功
                 # 注意：此处运行在 UI 线程中，使用 async 模式避免冻结界面
@@ -1801,25 +1844,36 @@ class TradingTerminal(tk.Tk):
                     self._cancel_reconnect()
                 self._release_se_occupation()
                 self._set_se_connection_ui(False)
+                with self._quote_sub_lock:
+                    self._quote_subscribed_symbols.clear()
                 self.log_area.log(f"[SE] {msg}", "err")
+
 
             elif "Connection error" in msg or (msg.startswith("Disconnected:") and not self._se_active_se()):
                 if self._init_ready and self._se_connected and not self._reconnecting:
                     # 运行中断线且尚未进入重连 → 触发自动重连流程
                     self._se_connected = False
                     self._set_se_connection_ui(False)
+                    with self._quote_sub_lock:
+                        self._quote_subscribed_symbols.clear()
                     self.log_area.log("[SE] 子服务器连接断开，正在尝试重新连接...", "warn")
+
                     self._start_se_reconnect()
                 elif self._reconnecting:
                     # 重连彻底失败（达到最大次数或 stop 后的 Disconnected 通知）
                     self._cancel_reconnect()
                     self._release_se_occupation()
                     self._set_se_connection_ui(False)
+                    with self._quote_sub_lock:
+                        self._quote_subscribed_symbols.clear()
                 else:
                     # 初始化阶段失败或手动断开
                     self._release_se_occupation()
                     self._set_se_connection_ui(False)
+                    with self._quote_sub_lock:
+                        self._quote_subscribed_symbols.clear()
                     self.log_area.log(f"[SE] {msg}", "err")
+
 
             else:
                 # 其他状态消息（Connecting、Connected 等）
@@ -1850,7 +1904,33 @@ class TradingTerminal(tk.Tk):
                     f"clients={info.get('connections', 0)}",
                     "inf"
                 )
+            elif msg_type == "QUOTE_DATA":
+                payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
+                sym = str(payload.get("symbol", "")).strip().upper()
+                if not sym:
+                    return
+                try:
+                    bid = float(payload.get("bid", 0) or 0)
+                    ask = float(payload.get("ask", 0) or 0)
+                    last = float(payload.get("last", 0) or 0)
+                    if last <= 0 and bid > 0 and ask > 0:
+                        last = round((bid + ask) / 2, 2)
+                    quote = {
+                        "symbol": sym,
+                        "bid": bid,
+                        "ask": ask,
+                        "last": last,
+                        "volume": int(float(payload.get("volume", 0) or 0)),
+                        "timestamp": str(payload.get("ts") or payload.get("timestamp") or ""),
+                    }
+                    self._handle_ws_quote(quote)
+                except Exception:
+                    return
+
+            elif msg_type == "QUOTE_ACK":
+                pass
             elif msg_type == "FORCE_DISCONNECT":
+
                 payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
                 reason = payload.get("reason", "admin_force_release")
                 self.log_area.log(f"[SE] 连接被管理端强制断开 ({reason})", "warn")
@@ -1872,7 +1952,10 @@ class TradingTerminal(tk.Tk):
                     self.session.bind_se_client(None)
                 self._se_connected = False
                 self._set_se_connection_ui(False)
+                with self._quote_sub_lock:
+                    self._quote_subscribed_symbols.clear()
                 messagebox.showwarning("连接已被管理端断开", "当前 SE 连接已被管理员强制断开。\n如需继续使用，请点击 Connect 重新连接。")
+
             elif msg_type == "ERROR":
                 err = msg.get("payload", {})
                 self.log_area.log(f"[SE] Error [{err.get('code', '')}]: {err.get('message', '')}", "err")
@@ -2014,9 +2097,11 @@ class TradingTerminal(tk.Tk):
         if self.session:
             self.session.bind_se_client(None)
         self._se_connected = False
-
+        with self._quote_sub_lock:
+            self._quote_subscribed_symbols.clear()
 
         # 隐藏弹窗
+
         if self._reconnect_dialog:
             try:
                 self._reconnect_dialog.destroy()
@@ -2050,8 +2135,11 @@ class TradingTerminal(tk.Tk):
             self._se_client.stop()
             self._se_client = None
         self._se_connected = False
+        with self._quote_sub_lock:
+            self._quote_subscribed_symbols.clear()
 
         # 释放节点占用（同步，确保释放请求先于后续流程）
+
         self._release_se_occupation(sync=True)
 
         # 解绑会话中的 SE client
@@ -2114,7 +2202,10 @@ class TradingTerminal(tk.Tk):
             self._se_client.stop()
         if self.session:
             self.session.bind_se_client(None)
+        with self._quote_sub_lock:
+            self._quote_subscribed_symbols.clear()
         if self._ws_stream:
+
             self._ws_stream.stop()
         # 释放节点占用（同步，防止关闭窗口后节点被永久锁定）
         self._release_se_occupation(sync=True)
