@@ -43,7 +43,7 @@ def ensure_super_admin_account() -> None:
         if not rows:
             conn.execute(
                 """
-                INSERT INTO accounts (username, password_hash, role, status, allowed_brokers, se_address, description, created_at, updated_at)
+                INSERT INTO accounts (username, password_hash, role, status, allowed_brokers, ts_address, description, created_at, updated_at)
                 VALUES (?, ?, 'super_admin', 'active', '[]', '', '系统内置超级管理员', ?, ?)
                 """,
                 ("admin", _sha256("admin_sc"), now, now),
@@ -83,7 +83,7 @@ def init_db():
                 role TEXT DEFAULT 'trader',
                 status TEXT DEFAULT 'active',
                 allowed_brokers TEXT DEFAULT '[]',
-                se_address TEXT DEFAULT '',
+                ts_address TEXT DEFAULT '',
                 created_at TEXT DEFAULT '',
                 updated_at TEXT DEFAULT ''
             );
@@ -131,12 +131,12 @@ def init_db():
                 created_at TEXT DEFAULT ''
             );
         """)
-        # 兼容已有数据库：添加 se_address 列（如果不存在）
+        # 兼容已有数据库：添加 ts_address 列（如果不存在）
         try:
-            conn.execute("SELECT se_address FROM accounts LIMIT 1")
+            conn.execute("SELECT ts_address FROM accounts LIMIT 1")
         except sqlite3.OperationalError:
-            conn.execute("ALTER TABLE accounts ADD COLUMN se_address TEXT DEFAULT ''")
-            log.info("Added se_address column to accounts table (migration)")
+            conn.execute("ALTER TABLE accounts ADD COLUMN ts_address TEXT DEFAULT ''")
+            log.info("Added ts_address column to accounts table (migration)")
 
         # 兼容已有数据库：添加 description 列（如果不存在）
         try:
@@ -174,7 +174,7 @@ def verify_account(username: str, password: str) -> dict | None:
     try:
         pw_hash = _sha256(password)
         row = conn.execute(
-            "SELECT id, username, role, status, allowed_brokers, se_address FROM accounts "
+            "SELECT id, username, role, status, allowed_brokers, ts_address FROM accounts "
             "WHERE username = ? AND password_hash = ? AND status = 'active'",
             (username, pw_hash),
         ).fetchone()
@@ -217,12 +217,12 @@ def get_broker_list() -> list[dict]:
         conn.close()
 
 
-def check_se_online(se_address: str) -> dict:
+def check_ts_online(ts_address: str) -> dict:
     """
-    检查指定 SE 地址是否存在对应的在线节点
+    检查指定 TS 地址是否存在对应的在线节点
 
     Args:
-        se_address: SE 地址，如 "127.0.0.1:8900" 或 "127.0.0.1"
+        ts_address: TS 地址，如 "127.0.0.1:8900" 或 "127.0.0.1"
 
     Returns:
         dict: {"online": bool, "node_name": str, "server_id": str, "match_field": str,
@@ -233,11 +233,11 @@ def check_se_online(se_address: str) -> dict:
     """
     conn = _get_conn()
     try:
-        if not se_address:
-            return {"online": False, "reason": "未配置 SE 地址"}
+        if not ts_address:
+            return {"online": False, "reason": "未配置 TS 地址"}
 
         # 解析地址（支持 "ip:port" 或纯 "ip" 格式）
-        addr_part = se_address.split(":")[0] if ":" in se_address else se_address
+        addr_part = ts_address.split(":")[0] if ":" in ts_address else ts_address
         addr_part = addr_part.strip()
 
         # 1. 精确匹配 current_ip 字段（心跳上报的实际 IP）
@@ -255,7 +255,7 @@ def check_se_online(se_address: str) -> dict:
         if row and dict(row).get("req_status") == "online":
             r = dict(row)
             return {"online": True, "node_name": r["node_name"], "server_id": r["server_id"],
-                    "match_field": "current_ip", "address": se_address,
+                    "match_field": "current_ip", "address": ts_address,
                     "occupied_by": r.get("occupied_by", "") or "",
                     "occupied_at": r.get("occupied_at", "") or ""}
 
@@ -274,15 +274,15 @@ def check_se_online(se_address: str) -> dict:
         if row2 and dict(row2).get("req_status") == "online":
             r = dict(row2)
             return {"online": True, "node_name": r["node_name"], "server_id": r["server_id"],
-                    "match_field": "host", "address": se_address,
+                    "match_field": "host", "address": ts_address,
                     "occupied_by": r.get("occupied_by", "") or "",
                     "occupied_at": r.get("occupied_at", "") or ""}
 
-        return {"online": False, "reason": f"未找到与地址 '{se_address}' 匹配的在线子服务器",
-                "address": se_address, "occupied_by": "", "occupied_at": ""}
+        return {"online": False, "reason": f"未找到与地址 '{ts_address}' 匹配的在线子服务器",
+                "address": ts_address, "occupied_by": "", "occupied_at": ""}
     except Exception as e:
-        log.error(f"check_se_online failed: {e}")
-        return {"online": False, "reason": f"查询异常: {e}", "address": se_address,
+        log.error(f"check_ts_online failed: {e}")
+        return {"online": False, "reason": f"查询异常: {e}", "address": ts_address,
                 "occupied_by": "", "occupied_at": ""}
     finally:
         conn.close()
@@ -1179,7 +1179,7 @@ def get_occupation_info(server_id: str) -> dict | None:
 
 # ── 账户管理（accounts 表）───────────────────────────────────────────
 
-def create_account(username: str, password: str, se_address: str = "",
+def create_account(username: str, password: str, ts_address: str = "",
                    broker_tag: str = "", description: str = "",
                    role: str = "trader") -> dict | None:
     """
@@ -1188,7 +1188,7 @@ def create_account(username: str, password: str, se_address: str = "",
     Args:
         username: 用户名（唯一）
         password: 明文密码（将 SHA256 哈希存储）
-        se_address: Trader_Server 地址 (如 127.0.0.1:8900)
+        ts_address: Trader_Server 地址 (如 127.0.0.1:8900)
         broker_tag: 券商标签
         description: 账户描述信息（非必填）
         role: 角色 (trader/admin)
@@ -1208,12 +1208,12 @@ def create_account(username: str, password: str, se_address: str = "",
         brokers_json = json.dumps([broker_tag] if broker_tag else [])
         conn.execute("""
             INSERT INTO accounts (username, password_hash, role, status,
-                                  allowed_brokers, se_address, description, created_at, updated_at)
+                                  allowed_brokers, ts_address, description, created_at, updated_at)
             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)
-        """, (username, pw_hash, role, brokers_json, se_address, description, now, now))
+        """, (username, pw_hash, role, brokers_json, ts_address, description, now, now))
         conn.commit()
         row = conn.execute("SELECT * FROM accounts WHERE id = last_insert_rowid()").fetchone()
-        log.info(f"Account created: {username} role={role} (se={se_address}, broker={broker_tag})")
+        log.info(f"Account created: {username} role={role} (ts={ts_address}, broker={broker_tag})")
         return dict(row) if row else None
 
     except sqlite3.IntegrityError:
@@ -1231,7 +1231,7 @@ def get_all_accounts() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute("""
-            SELECT id, username, role, status, allowed_brokers, se_address,
+            SELECT id, username, role, status, allowed_brokers, ts_address,
                    description, created_at, updated_at
             FROM accounts
             ORDER BY id DESC
@@ -1307,7 +1307,7 @@ def get_account_by_id(account_id: int) -> dict | None:
     conn = _get_conn()
     try:
         row = conn.execute("""
-            SELECT id, username, role, status, allowed_brokers, se_address,
+            SELECT id, username, role, status, allowed_brokers, ts_address,
                    description, created_at, updated_at
             FROM accounts WHERE id = ?
         """, (account_id,)).fetchone()
@@ -1408,14 +1408,14 @@ def update_super_admin_password(account_id: int, current_password: str, new_pass
 
 
 
-def update_account(account_id: int, se_address: str = "", broker_tag: str = "",
+def update_account(account_id: int, ts_address: str = "", broker_tag: str = "",
                    description: str = "", password: str = "") -> bool:
     """
     更新账户信息
 
     Args:
         account_id: 账户 ID
-        se_address: 新的 TS 地址
+        ts_address: 新的 TS 地址
         broker_tag: 新的券商标签
         description: 新的描述信息
         password: 新密码（为空则不修改）
@@ -1433,21 +1433,21 @@ def update_account(account_id: int, se_address: str = "", broker_tag: str = "",
             # 包含密码修改
             pw_hash = hashlib.sha256(password.encode()).hexdigest()
             cursor = conn.execute("""
-                UPDATE accounts SET se_address=?, allowed_brokers=?,
+                UPDATE accounts SET ts_address=?, allowed_brokers=?,
                     description=?, password_hash=?, updated_at=?
                 WHERE id = ?
-            """, (se_address, brokers_json, description, pw_hash, now, account_id))
+            """, (ts_address, brokers_json, description, pw_hash, now, account_id))
         else:
             # 不改密码
             cursor = conn.execute("""
-                UPDATE accounts SET se_address=?,
+                UPDATE accounts SET ts_address=?,
                     allowed_brokers=?, description=?, updated_at=?
                 WHERE id = ?
-            """, (se_address, brokers_json, description, now, account_id))
+            """, (ts_address, brokers_json, description, now, account_id))
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
-            log.info(f"Account updated: id={account_id} (se={se_address}, broker={broker_tag})")
+            log.info(f"Account updated: id={account_id} (ts={ts_address}, broker={broker_tag})")
         return ok
     except Exception as e:
         log.error(f"update_account failed: {e}")

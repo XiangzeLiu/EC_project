@@ -1,5 +1,5 @@
 """
-SE WebSocket Client
+TS WebSocket Client
 连接 Trader_Server (TS) 的 WebSocket 端点
 
 协议:
@@ -24,20 +24,20 @@ from typing import Callable
 
 import websockets
 
-log = logging.getLogger("client.se_websocket")
+log = logging.getLogger("client.ts_websocket")
 
 # 导入重连配置常量（从 constants 模块）
 try:
-    from ..constants import (SE_RECONNECT_BASE_INTERVAL, SE_RECONNECT_MAX_INTERVAL,
-                            SE_RECONNECT_MAX_ATTEMPTS)
+    from ..constants import (TS_RECONNECT_BASE_INTERVAL, TS_RECONNECT_MAX_INTERVAL,
+                            TS_RECONNECT_MAX_ATTEMPTS)
 except ImportError:
     # 兼容单独运行时的 fallback
-    SE_RECONNECT_BASE_INTERVAL = 3
-    SE_RECONNECT_MAX_INTERVAL = 30
-    SE_RECONNECT_MAX_ATTEMPTS = 0
+    TS_RECONNECT_BASE_INTERVAL = 3
+    TS_RECONNECT_MAX_INTERVAL = 30
+    TS_RECONNECT_MAX_ATTEMPTS = 0
 
 
-class SEWebSocketClient:
+class TSWebSocketClient:
     """Trader_Server WebSocket 客户端（支持自动重连）"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8900,
@@ -313,10 +313,10 @@ class SEWebSocketClient:
 
             # 指数退避等待
             delay = min(
-                SE_RECONNECT_BASE_INTERVAL * (2 ** min(reconnect_attempts - 1, 3)),
-                SE_RECONNECT_MAX_INTERVAL
+                TS_RECONNECT_BASE_INTERVAL * (2 ** min(reconnect_attempts - 1, 3)),
+                TS_RECONNECT_MAX_INTERVAL
             )
-            if SE_RECONNECT_MAX_ATTEMPTS > 0 and reconnect_attempts >= SE_RECONNECT_MAX_ATTEMPTS:
+            if TS_RECONNECT_MAX_ATTEMPTS > 0 and reconnect_attempts >= TS_RECONNECT_MAX_ATTEMPTS:
                 if self.on_status:
                     self.on_status(f"Reconnect failed after {reconnect_attempts} attempts: {last_error}")
                 break
@@ -401,7 +401,7 @@ class SEWebSocketClient:
             for i, r in enumerate(results):
                 if isinstance(r, Exception):
                     names = ["receive", "heartbeat", "send_pending"]
-                    log.debug(f"[SE] {names[i]} exited with: {r}")
+                    log.debug(f"[TS] {names[i]} exited with: {r}")
 
     async def _receive_loop(self, ws):
         """接收服务端消息并回调（任何异常仅退出本协程，同时通知其他协程）"""
@@ -413,7 +413,7 @@ class SEWebSocketClient:
             except (websockets.exceptions.ConnectionClosed,
                     websockets.exceptions.WebSocketException) as e:
                 # ★ WS 断开 → 广播连接丢失事件，让 heartbeat/send 协程立即退出
-                log.debug(f"[SE] receive_loop: WS closed: {e}")
+                log.debug(f"[TS] receive_loop: WS closed: {e}")
                 self._conn_lost.set()
                 try:
                     await ws.close()
@@ -544,4 +544,4 @@ class SEWebSocketClient:
 
 
 # 向后兼容别名
-EconomicDataClient = SEWebSocketClient
+EconomicDataClient = TSWebSocketClient

@@ -8,7 +8,7 @@ import urllib.request
 import urllib.error
 
 
-class SEApiClient:
+class TSApiClient:
     """Trader_Server Desktop GUI 专用 API 客户端"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8900):
@@ -35,8 +35,8 @@ class SEApiClient:
             if isinstance(reason, ConnectionRefusedError) or "WinError 10061" in msg:
                 return {
                     "ok": False,
-                    "error": f"本地 SE 服务不可达: {self.base_url}（请确认子节点服务已启动）",
-                    "error_type": "SE_LOCAL_UNREACHABLE",
+                    "error": f"本地 TS 服务不可达: {self.base_url}（请确认子节点服务已启动）",
+                    "error_type": "TS_LOCAL_UNREACHABLE",
                     "raw_error": str(e),
                 }
             return {"ok": False, "error": str(e), "error_type": "URL_ERROR"}
@@ -69,7 +69,7 @@ class SEApiClient:
             return {"ok": True}
         if r and isinstance(r, dict) and r.get("error"):
             return r
-        return {"ok": False, "error": "本地服务响应异常", "error_type": "SE_LOCAL_BAD_RESPONSE"}
+        return {"ok": False, "error": "本地服务响应异常", "error_type": "TS_LOCAL_BAD_RESPONSE"}
 
 
     def ping_sm(self, manager_url: str) -> dict | None:

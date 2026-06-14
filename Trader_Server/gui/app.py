@@ -22,7 +22,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 
-from .api_client import SEApiClient
+from .api_client import TSApiClient
 
 
 # ── Theme ────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ STATUS_LABELS = {
 }
 
 
-class SEControlPanel(tk.Tk):
+class TSControlPanel(tk.Tk):
     """Trader_Server 控制面板 — 桌面版主窗口"""
 
     def __init__(self):
@@ -100,7 +100,7 @@ class SEControlPanel(tk.Tk):
 
 
         # ── API 客户端 ─────────────────────────────────
-        self.api = SEApiClient()
+        self.api = TSApiClient()
 
         # ── 全局状态 ───────────────────────────────────
         self._registered: bool = False
@@ -1435,7 +1435,7 @@ INPUT_BG = "#1c2030"
 
 
 def main():
-    app = SEControlPanel()
+    app = TSControlPanel()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()
 

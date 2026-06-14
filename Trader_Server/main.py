@@ -626,11 +626,11 @@ def parse_args_from_env_or_default():
     """
     import os
     return argparse.Namespace(
-        manager_url=os.environ.get("SE_MANAGER_URL", DEFAULT_MANAGER_URL),
-        node_name=os.environ.get("SE_NODE_NAME", DEFAULT_NODE_NAME),
-        broker_type=os.environ.get("SE_BROKER_TYPE", DEFAULT_REGION),
-        ws_port=int(os.environ.get("SE_WS_PORT", str(DEFAULT_WS_PORT))),
-        skip_register=os.environ.get("SE_SKIP_REGISTER", "").lower() in ("1", "true"),
+        manager_url=os.environ.get("TS_MANAGER_URL", DEFAULT_MANAGER_URL),
+        node_name=os.environ.get("TS_NODE_NAME", DEFAULT_NODE_NAME),
+        broker_type=os.environ.get("TS_BROKER_TYPE", DEFAULT_REGION),
+        ws_port=int(os.environ.get("TS_WS_PORT", str(DEFAULT_WS_PORT))),
+        skip_register=os.environ.get("TS_SKIP_REGISTER", "").lower() in ("1", "true"),
         auto_approve=False,
     )
 
@@ -642,12 +642,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 将命令行参数写入环境变量供 FastAPI startup 使用
-    os.environ["SE_MANAGER_URL"] = args.manager_url
-    os.environ["SE_NODE_NAME"] = args.node_name
-    os.environ["SE_BROKER_TYPE"] = args.broker_type
-    os.environ["SE_WS_PORT"] = str(args.ws_port)
+    os.environ["TS_MANAGER_URL"] = args.manager_url
+    os.environ["TS_NODE_NAME"] = args.node_name
+    os.environ["TS_BROKER_TYPE"] = args.broker_type
+    os.environ["TS_WS_PORT"] = str(args.ws_port)
     if args.skip_register:
-        os.environ["SE_SKIP_REGISTER"] = "1"
+        os.environ["TS_SKIP_REGISTER"] = "1"
 
     import uvicorn
 
@@ -670,6 +670,6 @@ if __name__ == "__main__":
     time.sleep(1.5)
 
     # 导入并启动桌面 GUI
-    from .gui.app import SEControlPanel
-    _gui = SEControlPanel()
+    from .gui.app import TSControlPanel
+    _gui = TSControlPanel()
     _gui.mainloop()

@@ -31,7 +31,7 @@ except ImportError:
             def __repr__(self): return f"ZoneInfo('{self._key}')"
 
 from ..network.http_client import HttpClient
-from ..network.se_websocket import SEWebSocketClient
+from ..network.ts_websocket import TSWebSocketClient
 from ..constants import STATUS_MAP, LIVE_STATUSES, TZ_ET_NAME, SESSION_START_H, SESSION_END_H
 
 
@@ -61,10 +61,10 @@ class TradingSession:
         self.se_address: str = ""
         self.allowed_brokers: list[str] = []
 
-        # SE 直连客户端（由 UI 在连上/断开时绑定）
-        self._se_client: SEWebSocketClient | None = None
+        # TS 直连客户端（由 UI 在连上/断开时绑定）
+        self._se_client: TSWebSocketClient | None = None
 
-    def bind_se_client(self, se_client: SEWebSocketClient | None):
+    def bind_se_client(self, se_client: TSWebSocketClient | None):
         """绑定/解绑 SE 直连客户端"""
         self._se_client = se_client
 

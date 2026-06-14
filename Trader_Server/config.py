@@ -206,7 +206,7 @@ def init_logging(level: str = "INFO"):
     """初始化日志系统"""
     ensure_dirs()
 
-    log_file = LOG_DIR / f"se_{datetime.now().strftime('%Y%m%d')}.log"
+    log_file = LOG_DIR / f"ts_{datetime.now().strftime('%Y%m%d')}.log"
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",

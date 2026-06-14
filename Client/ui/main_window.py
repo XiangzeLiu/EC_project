@@ -34,7 +34,7 @@ from ..constants import *
 from ..config import load_credentials, save_credentials
 from ..network.http_client import HttpClient
 from ..network.ws_client import QuoteStream
-from ..network.se_websocket import SEWebSocketClient
+from ..network.ts_websocket import TSWebSocketClient
 from ..services.trading_session import TradingSession, sanitize
 from .trading_panel import TradingPanel
 from .positions_panel import PositionsPanel
@@ -320,7 +320,7 @@ class TradingTerminal(tk.Tk):
                 _validate_se(se_addr)
             else:
                 # 即使是默认地址，也必须先通过 SM 验证节点在线
-                _validate_se(DEFAULT_SE_HOST)
+                _validate_se(DEFAULT_TS_HOST)
 
         def _validate_se(se_address: str):
             """验证 SE 地址对应的子服务器是否在线（含占用检查）"""
@@ -387,54 +387,54 @@ class TradingTerminal(tk.Tk):
             """
             self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
             token = self.http.token
-            target = target_addr or getattr(self, '_se_target_address', '') or DEFAULT_SE_HOST
+            target = target_addr or getattr(self, '_se_target_address', '') or DEFAULT_TS_HOST
             if ':' in target:
                 hp = target.rsplit(':', 1)
-                host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
+                host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_TS_PORT
             else:
-                host, port = target, DEFAULT_SE_PORT
+                host, port = target, DEFAULT_TS_PORT
             self._last_connected_se = f"{host}:{port}"
 
             max_retries = 5
             for attempt in range(1, max_retries + 1):
                 self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
 
-                se_client = SEWebSocketClient(
+                ts_client = TSWebSocketClient(
                     host=host, port=port, token=token, server_id=self._se_server_id,
                     on_message_callback=self._on_init_se_msg,
                     on_status_callback=self._on_init_se_status,
                     reconnect_enabled=False,
                 )
 
-                self._se_client = se_client
-                se_client.start()
+                self._se_client = ts_client
+                ts_client.start()
 
                 # 等待连接结果（最多 10 秒）
                 connected = False
                 for _ in range(100):
                     import time as _time
                     _time.sleep(0.1)
-                    if se_client.is_connected:
+                    if ts_client.is_connected:
                         connected = True
                         break
-                    if not se_client.is_active:
+                    if not ts_client.is_active:
                         break
 
                 if connected:
                     # 连接成功！停止旧客户端,创建启用重连的新客户端
-                    se_client.stop()
-                    se_client = SEWebSocketClient(
+                    ts_client.stop()
+                    ts_client = TSWebSocketClient(
                         host=host, port=port, token=token, server_id=self._se_server_id,
                         on_message_callback=self._on_init_se_msg,
                         on_status_callback=self._on_init_se_status,
-                        reconnect_enabled=SE_RECONNECT_ENABLED,
+                        reconnect_enabled=TS_RECONNECT_ENABLED,
                     )
-                    self._se_client = se_client
-                    se_client.start()
+                    self._se_client = ts_client
+                    ts_client.start()
                     # 等待新客户端连接就绪
                     for _ in range(50):
                         _time.sleep(0.1)
-                        if se_client.is_connected:
+                        if ts_client.is_connected:
                             break
                     return
 
