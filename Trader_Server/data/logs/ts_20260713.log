@@ -1,0 +1,11 @@
+2026-07-13 02:50:05 [trader_server] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Trader_Server\data\logs\ts_20260713.log)
+2026-07-13 02:50:05 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-13 02:50:05 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-13 02:50:05 [trader_server.registration] INFO: Restored session: server_id=node_trader-node-01_7ae7b2c7
+2026-07-13 02:50:05 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-13 02:50:08 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-13 02:50:08 [trader_server.heartbeat] INFO: Heartbeat started (interval=20s)
+2026-07-13 02:50:10 [trader_server.heartbeat] WARNING: [#1] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-13 02:50:11 [trader_server.heartbeat] WARNING: [#2] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-13 02:50:14 [trader_server.api.ib] WARNING: ibapi not installed, IBBroker will be non-functional
+2026-07-13 02:50:14 [trader_server.config_sync] INFO: Config event listener started

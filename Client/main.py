@@ -1,36 +1,40 @@
+"""Client official entry point.
+
+This entry launches the PySide6 client UI.
 """
-Client Entry Point
-证券股票交易系统客户端启动入口
-"""
+
+from __future__ import annotations
 
 import ctypes
-import sys
 import os
+import sys
 
 
-def main():
-    """启动交易终端"""
-    # ── Windows DPI 感知（4K清晰渲染）──
+def _enable_windows_dpi_awareness() -> None:
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-Monitor DPI Aware v2
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         try:
             ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             pass
 
-    # 将 Client 的父目录加入 sys.path，使 "Client" 被识别为顶层包
-    _client_dir = os.path.dirname(os.path.abspath(__file__))
-    _project_root = os.path.dirname(_client_dir)
-    if _project_root not in sys.path:
-        sys.path.insert(0, _project_root)
 
-    from Client.ui.main_window import TradingTerminal
+def _ensure_project_root_on_path() -> None:
+    client_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(client_dir)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
-    app = TradingTerminal()
-    app.protocol("WM_DELETE_WINDOW", app.on_close)
-    app.mainloop()
+
+def main() -> int:
+    _enable_windows_dpi_awareness()
+    _ensure_project_root_on_path()
+
+    from Client.ui_qt.main_window import run
+
+    return run()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

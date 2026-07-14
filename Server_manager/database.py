@@ -11,7 +11,16 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("server_manager")
 
-_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "server_manager.db")
+_DEFAULT_DB_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "data",
+    "server_manager.db",
+)
+_DB_PATH = os.environ.get("SERVER_MANAGER_DB_PATH", _DEFAULT_DB_PATH)
+
+DB_SCHEMA_VERSION_V1 = 1
+DB_SCHEMA_VERSION_V2 = 2
+DB_SCHEMA_VERSION_V3 = 3
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -29,6 +38,746 @@ def _sha256(text: str) -> str:
     return hashlib.sha256((text or "").encode()).hexdigest()
 
 
+LEGACY_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'trader',
+    status TEXT DEFAULT 'active',
+    allowed_brokers TEXT DEFAULT '[]',
+    ts_address TEXT DEFAULT '',
+    created_at TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS brokers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    broker_type TEXT DEFAULT 'tastytrade',
+    host TEXT DEFAULT '',
+    port INTEGER DEFAULT 0,
+    config TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'offline',
+    last_heartbeat TEXT DEFAULT '',
+    registered_at TEXT DEFAULT '',
+    created_at TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT DEFAULT '',
+    action TEXT DEFAULT '',
+    resource TEXT DEFAULT '',
+    detail TEXT DEFAULT '',
+    ip_address TEXT DEFAULT '',
+    created_at TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS node_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT UNIQUE NOT NULL,
+    node_name TEXT NOT NULL,
+    region TEXT DEFAULT '',
+    host TEXT DEFAULT '',
+    capabilities TEXT DEFAULT '[]',
+    contact TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    server_id TEXT DEFAULT '',
+    token TEXT DEFAULT '',
+    current_ip TEXT DEFAULT '',
+    expire_at TEXT DEFAULT '',
+    reviewed_by TEXT DEFAULT '',
+    reviewed_at TEXT DEFAULT '',
+    reject_reason TEXT DEFAULT '',
+    created_at TEXT DEFAULT ''
+);
+"""
+
+V2_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL UNIQUE,
+    node_name TEXT NOT NULL,
+    broker_type TEXT NOT NULL DEFAULT '',
+    host TEXT NOT NULL DEFAULT '',
+    token TEXT NOT NULL DEFAULT '' UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    capabilities_json TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS node_runtime (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'offline',
+    current_ip TEXT NOT NULL DEFAULT '',
+    last_heartbeat TEXT NOT NULL DEFAULT '',
+    occupied_by TEXT NOT NULL DEFAULT '',
+    occupied_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(server_id) REFERENCES nodes(server_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS node_broker_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL UNIQUE,
+    broker_type TEXT NOT NULL DEFAULT '',
+    credentials_json TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    config_version INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(server_id) REFERENCES nodes(server_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS node_registration_requests_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT NOT NULL UNIQUE,
+    node_name TEXT NOT NULL,
+    broker_type TEXT NOT NULL DEFAULT '',
+    host TEXT NOT NULL DEFAULT '',
+    capabilities_json TEXT NOT NULL DEFAULT '[]',
+    contact TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    server_id TEXT NOT NULL DEFAULT '',
+    token TEXT NOT NULL DEFAULT '',
+    reviewed_by TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT NOT NULL DEFAULT '',
+    reject_reason TEXT NOT NULL DEFAULT '',
+    expire_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+"""
+
+V2_INDEXES_SQL = """
+CREATE INDEX IF NOT EXISTS idx_accounts_role_status
+ON accounts(role, status);
+
+CREATE INDEX IF NOT EXISTS idx_node_runtime_status
+ON node_runtime(status);
+
+CREATE INDEX IF NOT EXISTS idx_node_runtime_occupied_by
+ON node_runtime(occupied_by);
+
+CREATE INDEX IF NOT EXISTS idx_node_requests_v2_status_expire
+ON node_registration_requests_v2(status, expire_at);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at
+ON audit_log(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_username_created_at
+ON audit_log(username, created_at);
+"""
+
+
+def get_db_path() -> str:
+    return _DB_PATH
+
+
+def _get_user_version(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+
+
+def _set_user_version(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute(f"PRAGMA user_version = {int(version)}")
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(r[1] == column_name for r in rows)
+
+
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, ddl: str) -> None:
+    if not _column_exists(conn, table_name, column_name):
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
+        log.info(f"Added {column_name} column to {table_name} table")
+
+
+def _ensure_legacy_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(LEGACY_SCHEMA_SQL)
+    _ensure_column(conn, "accounts", "ts_address", "ts_address TEXT DEFAULT ''")
+    _ensure_column(conn, "accounts", "description", "description TEXT DEFAULT ''")
+    _ensure_column(conn, "accounts", "trade_server_address", "trade_server_address TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "accounts", "broker_tag", "broker_tag TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "node_requests", "occupied_by", "occupied_by TEXT DEFAULT ''")
+    _ensure_column(conn, "node_requests", "occupied_at", "occupied_at TEXT DEFAULT ''")
+    _ensure_column(conn, "brokers", "config_version", "config_version INTEGER DEFAULT 0")
+
+
+def _create_v2_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(V2_SCHEMA_SQL)
+    conn.executescript(V2_INDEXES_SQL)
+
+
+def _ensure_v3_schema(conn: sqlite3.Connection) -> None:
+    _ensure_column(conn, "accounts", "broker_tag", "broker_tag TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "nodes", "capabilities_json", "capabilities_json TEXT NOT NULL DEFAULT '[]'")
+    _ensure_column(conn, "node_registration_requests_v2", "server_id", "server_id TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "node_registration_requests_v2", "token", "token TEXT NOT NULL DEFAULT ''")
+
+
+def _has_v2_schema(conn: sqlite3.Connection) -> bool:
+    required_tables = (
+        "nodes",
+        "node_runtime",
+        "node_broker_config",
+        "node_registration_requests_v2",
+    )
+    return all(_table_exists(conn, name) for name in required_tables) and _column_exists(
+        conn,
+        "accounts",
+        "trade_server_address",
+    )
+
+
+def _needs_v1_to_v2_backfill(conn: sqlite3.Connection) -> bool:
+    source_expr = _get_account_address_source_expr(conn)
+    account_row = conn.execute(
+        f"""
+        SELECT 1
+        FROM accounts
+        WHERE COALESCE(trade_server_address, '') = ''
+          AND {source_expr} <> ''
+        LIMIT 1
+        """
+    ).fetchone()
+    if account_row:
+        return True
+
+    request_row = conn.execute(
+        "SELECT 1 FROM node_requests WHERE request_id <> '' LIMIT 1"
+    ).fetchone()
+    if request_row:
+        return True
+
+    broker_row = conn.execute(
+        "SELECT 1 FROM brokers WHERE name <> '' LIMIT 1"
+    ).fetchone()
+    return bool(broker_row)
+
+
+def _get_account_address_source_expr(conn: sqlite3.Connection) -> str:
+    if _column_exists(conn, "accounts", "se_address"):
+        return "COALESCE(NULLIF(se_address, ''), NULLIF(ts_address, ''), '')"
+    return "COALESCE(NULLIF(ts_address, ''), '')"
+
+
+def resolve_trade_server_address(data: dict | sqlite3.Row | None) -> str:
+    if not data:
+        return ""
+    if not isinstance(data, dict):
+        data = dict(data)
+    return (
+        (data.get("trade_server_address") or "").strip()
+        or (data.get("se_address") or "").strip()
+        or (data.get("ts_address") or "").strip()
+    )
+
+
+def _load_json_dict(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _load_json_list(raw: str | None) -> list:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _build_legacy_broker_config_payload(
+    broker_type: str,
+    credentials: dict | None = None,
+    enabled: bool = True,
+    base_config: dict | None = None,
+) -> dict:
+    payload = dict(base_config or {})
+    payload["broker_type"] = broker_type or payload.get("broker_type", "") or ""
+    payload["credentials"] = dict(credentials or {})
+    payload["enabled"] = bool(enabled)
+    return payload
+
+
+def _build_broker_config_response(
+    broker_type: str,
+    credentials: dict | None = None,
+    enabled: bool = True,
+    config_version: int = 0,
+    raw_config: dict | None = None,
+) -> dict:
+    raw = _build_legacy_broker_config_payload(
+        broker_type=broker_type,
+        credentials=credentials,
+        enabled=enabled,
+        base_config=raw_config,
+    )
+    return {
+        "broker_type": broker_type or raw.get("broker_type", "TT"),
+        "credentials": dict(credentials or {}),
+        "enabled": bool(enabled),
+        "config_version": int(config_version or 0),
+        "_raw_config": raw,
+    }
+
+
+def _normalize_broker_tag(broker_tag: str | None = None, allowed_brokers_raw: str | None = None) -> str:
+    tag = (broker_tag or "").strip()
+    if tag:
+        return tag
+    if allowed_brokers_raw:
+        items = _load_json_list(allowed_brokers_raw)
+        if items:
+            return str(items[0] or "").strip()
+    return ""
+
+
+def _build_allowed_brokers_json(broker_tag: str) -> str:
+    tag = (broker_tag or "").strip()
+    return json.dumps([tag] if tag else [], ensure_ascii=False)
+
+
+def _map_request_v2_to_legacy(data: dict | sqlite3.Row | None) -> dict | None:
+    if not data:
+        return None
+    if not isinstance(data, dict):
+        data = dict(data)
+    return {
+        "id": data.get("id", 0),
+        "request_id": data.get("request_id", "") or "",
+        "node_name": data.get("node_name", "") or "",
+        "region": data.get("broker_type", "") or "",
+        "host": data.get("host", "") or "",
+        "capabilities": data.get("capabilities_json", "[]") or "[]",
+        "contact": data.get("contact", "") or "",
+        "description": data.get("description", "") or "",
+        "status": data.get("status", "pending") or "pending",
+        "server_id": data.get("server_id", "") or "",
+        "token": data.get("token", "") or "",
+        "current_ip": data.get("current_ip", "") or "",
+        "expire_at": data.get("expire_at", "") or "",
+        "reviewed_by": data.get("reviewed_by", "") or "",
+        "reviewed_at": data.get("reviewed_at", "") or "",
+        "reject_reason": data.get("reject_reason", "") or "",
+        "created_at": data.get("created_at", "") or "",
+    }
+
+
+def _build_account_compat(data: dict | sqlite3.Row | None) -> dict | None:
+    if not data:
+        return None
+    if not isinstance(data, dict):
+        data = dict(data)
+    data["se_address"] = resolve_trade_server_address(data)
+    broker_tag = _normalize_broker_tag(data.get("broker_tag", ""), data.get("allowed_brokers", ""))
+    data["broker_tag"] = broker_tag
+    data["allowed_brokers"] = _build_allowed_brokers_json(broker_tag)
+    data["ts_address"] = data["se_address"]
+    return data
+
+
+def _ensure_v2_node_record(conn: sqlite3.Connection, server_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM nodes WHERE server_id = ?", (server_id,)).fetchone()
+    if row:
+        return dict(row)
+
+    legacy_row = conn.execute(
+        """
+        SELECT nr.server_id, nr.node_name,
+               COALESCE(NULLIF(b.broker_type, ''), NULLIF(nr.region, ''), '') AS broker_type,
+               COALESCE(NULLIF(nr.host, ''), NULLIF(b.host, ''), '') AS host,
+               COALESCE(nr.token, '') AS token,
+               COALESCE(nr.description, '') AS description,
+               COALESCE(nr.capabilities, '[]') AS capabilities_json,
+               COALESCE(nr.created_at, '') AS created_at,
+               COALESCE(NULLIF(nr.reviewed_at, ''), NULLIF(b.last_heartbeat, ''), nr.created_at, '') AS updated_at
+        FROM node_requests nr
+        LEFT JOIN brokers b ON b.name = nr.server_id
+        WHERE nr.server_id = ?
+        LIMIT 1
+        """,
+        (server_id,),
+    ).fetchone()
+    if not legacy_row:
+        legacy_row = conn.execute(
+            """
+            SELECT b.name AS server_id, b.name AS node_name,
+                   COALESCE(b.broker_type, '') AS broker_type,
+                   COALESCE(b.host, '') AS host,
+                   '' AS token,
+                   '' AS description,
+                   '[]' AS capabilities_json,
+                   COALESCE(b.created_at, '') AS created_at,
+                   COALESCE(NULLIF(b.last_heartbeat, ''), b.created_at, '') AS updated_at
+            FROM brokers b
+            WHERE b.name = ?
+            LIMIT 1
+            """,
+            (server_id,),
+        ).fetchone()
+    if not legacy_row:
+        return None
+
+    data = dict(legacy_row)
+    conn.execute(
+        """
+        INSERT INTO nodes (
+            server_id, node_name, broker_type, host, token,
+            description, capabilities_json, enabled, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(server_id) DO UPDATE SET
+            node_name=excluded.node_name,
+            broker_type=excluded.broker_type,
+            host=excluded.host,
+            token=CASE WHEN excluded.token <> '' THEN excluded.token ELSE nodes.token END,
+            description=excluded.description,
+            capabilities_json=excluded.capabilities_json,
+            updated_at=excluded.updated_at
+        """,
+        (
+            data.get("server_id", "") or server_id,
+            data.get("node_name", "") or server_id,
+            data.get("broker_type", "") or "",
+            data.get("host", "") or "",
+            data.get("token", "") or "",
+            data.get("description", "") or "",
+            data.get("capabilities_json", "[]") or "[]",
+            data.get("created_at", "") or "",
+            data.get("updated_at", "") or data.get("created_at", "") or "",
+        ),
+    )
+    row = conn.execute("SELECT * FROM nodes WHERE server_id = ?", (server_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def _upsert_node_runtime(
+    conn: sqlite3.Connection,
+    server_id: str,
+    status: str,
+    current_ip: str = "",
+    last_heartbeat: str = "",
+    occupied_by: str = "",
+    occupied_at: str = "",
+    updated_at: str = "",
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO node_runtime (
+            server_id, status, current_ip, last_heartbeat,
+            occupied_by, occupied_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(server_id) DO UPDATE SET
+            status=excluded.status,
+            current_ip=excluded.current_ip,
+            last_heartbeat=excluded.last_heartbeat,
+            occupied_by=excluded.occupied_by,
+            occupied_at=excluded.occupied_at,
+            updated_at=excluded.updated_at
+        """,
+        (
+            server_id,
+            status or "offline",
+            current_ip or "",
+            last_heartbeat or "",
+            occupied_by or "",
+            occupied_at or "",
+            updated_at or last_heartbeat or "",
+        ),
+    )
+
+
+def _upsert_node_broker_config(
+    conn: sqlite3.Connection,
+    server_id: str,
+    broker_type: str,
+    credentials: dict | None = None,
+    enabled: bool = True,
+    config_version: int = 0,
+    updated_at: str = "",
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO node_broker_config (
+            server_id, broker_type, credentials_json, enabled,
+            config_version, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(server_id) DO UPDATE SET
+            broker_type=excluded.broker_type,
+            credentials_json=excluded.credentials_json,
+            enabled=excluded.enabled,
+            config_version=excluded.config_version,
+            updated_at=excluded.updated_at
+        """,
+        (
+            server_id,
+            broker_type or "",
+            json.dumps(dict(credentials or {}), ensure_ascii=False),
+            1 if enabled else 0,
+            int(config_version or 0),
+            updated_at or "",
+        ),
+    )
+
+
+def migrate_v1_to_v2(conn: sqlite3.Connection) -> dict:
+    report = {
+        "accounts_backfilled": 0,
+        "registration_requests_copied": 0,
+        "nodes_copied": 0,
+        "runtime_copied": 0,
+        "broker_configs_copied": 0,
+    }
+
+    _create_v2_schema(conn)
+    source_expr = _get_account_address_source_expr(conn)
+
+    report["accounts_backfilled"] = conn.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM accounts
+        WHERE COALESCE(trade_server_address, '') = ''
+          AND {source_expr} <> ''
+        """
+    ).fetchone()[0]
+    conn.execute(
+        f"""
+        UPDATE accounts
+        SET trade_server_address = {source_expr}
+        WHERE COALESCE(trade_server_address, '') = ''
+        """
+    )
+
+    before = conn.total_changes
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO node_registration_requests_v2 (
+            request_id, node_name, broker_type, host, capabilities_json,
+            contact, description, status, server_id, token, reviewed_by, reviewed_at,
+            reject_reason, expire_at, created_at
+        )
+        SELECT
+            request_id,
+            node_name,
+            COALESCE(region, ''),
+            COALESCE(host, ''),
+            COALESCE(capabilities, '[]'),
+            COALESCE(contact, ''),
+            COALESCE(description, ''),
+            COALESCE(status, 'pending'),
+            COALESCE(server_id, ''),
+            COALESCE(token, ''),
+            COALESCE(reviewed_by, ''),
+            COALESCE(reviewed_at, ''),
+            COALESCE(reject_reason, ''),
+            COALESCE(expire_at, ''),
+            COALESCE(created_at, '')
+        FROM node_requests
+        """
+    )
+    report["registration_requests_copied"] = conn.total_changes - before
+
+    before = conn.total_changes
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO nodes (
+            server_id, node_name, broker_type, host, token,
+            description, capabilities_json, enabled, created_at, updated_at
+        )
+        SELECT
+            nr.server_id,
+            nr.node_name,
+            COALESCE(NULLIF(b.broker_type, ''), COALESCE(nr.region, '')),
+            COALESCE(nr.host, ''),
+            COALESCE(nr.token, ''),
+            COALESCE(nr.description, ''),
+            COALESCE(nr.capabilities, '[]'),
+            1,
+            COALESCE(nr.created_at, ''),
+            COALESCE(nr.reviewed_at, nr.created_at, '')
+        FROM node_requests nr
+        LEFT JOIN brokers b ON b.name = nr.server_id
+        WHERE nr.server_id <> ''
+          AND nr.status IN ('approved', 'online', 'offline', 'suspended')
+        """
+    )
+    report["nodes_copied"] = conn.total_changes - before
+
+    before = conn.total_changes
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO node_runtime (
+            server_id, status, current_ip, last_heartbeat,
+            occupied_by, occupied_at, updated_at
+        )
+        SELECT
+            nr.server_id,
+            COALESCE(nr.status, 'offline'),
+            COALESCE(nr.current_ip, ''),
+            COALESCE(b.last_heartbeat, ''),
+            COALESCE(nr.occupied_by, ''),
+            COALESCE(nr.occupied_at, ''),
+            COALESCE(b.last_heartbeat, nr.reviewed_at, nr.created_at, '')
+        FROM node_requests nr
+        LEFT JOIN brokers b ON b.name = nr.server_id
+        WHERE nr.server_id <> ''
+          AND nr.status IN ('approved', 'online', 'offline', 'suspended')
+        """
+    )
+    report["runtime_copied"] = conn.total_changes - before
+
+    before = conn.total_changes
+    node_ids = {
+        row[0]
+        for row in conn.execute("SELECT server_id FROM nodes").fetchall()
+        if row[0]
+    }
+    broker_rows = conn.execute(
+        "SELECT name, broker_type, config, config_version, last_heartbeat FROM brokers"
+    ).fetchall()
+    for broker_row in broker_rows:
+        server_id = broker_row[0]
+        if not server_id or server_id not in node_ids:
+            continue
+        raw_cfg = broker_row[2] or "{}"
+        try:
+            cfg = json.loads(raw_cfg)
+        except Exception:
+            cfg = {}
+        credentials = dict(cfg.get("credentials", {}) or {})
+        enabled = 1 if cfg.get("enabled", True) else 0
+        broker_type = broker_row[1] or cfg.get("broker_type", "") or ""
+        updated_at = broker_row[4] or ""
+        conn.execute(
+            """
+            INSERT INTO node_broker_config (
+                server_id, broker_type, credentials_json, enabled,
+                config_version, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(server_id) DO UPDATE SET
+                broker_type=excluded.broker_type,
+                credentials_json=excluded.credentials_json,
+                enabled=excluded.enabled,
+                config_version=excluded.config_version,
+                updated_at=excluded.updated_at
+            """,
+            (
+                server_id,
+                broker_type,
+                json.dumps(credentials, ensure_ascii=False),
+                enabled,
+                broker_row[3] or 0,
+                updated_at,
+            ),
+        )
+    report["broker_configs_copied"] = conn.total_changes - before
+
+    _set_user_version(conn, DB_SCHEMA_VERSION_V2)
+    return report
+
+
+def migrate_v2_to_v3(conn: sqlite3.Connection) -> dict:
+    report = {
+        "accounts_broker_tag_backfilled": 0,
+        "request_rows_extended": 0,
+        "nodes_capabilities_backfilled": 0,
+    }
+
+    _ensure_v3_schema(conn)
+
+    account_rows = conn.execute(
+        "SELECT id, broker_tag, allowed_brokers FROM accounts"
+    ).fetchall()
+    for row in account_rows:
+        broker_tag = _normalize_broker_tag(row["broker_tag"], row["allowed_brokers"])
+        if broker_tag and (row["broker_tag"] or "") != broker_tag:
+            conn.execute(
+                "UPDATE accounts SET broker_tag = ? WHERE id = ?",
+                (broker_tag, row["id"]),
+            )
+            report["accounts_broker_tag_backfilled"] += 1
+
+    req_rows = conn.execute(
+        "SELECT request_id, server_id, token FROM node_requests WHERE request_id <> ''"
+    ).fetchall()
+    for row in req_rows:
+        cursor = conn.execute(
+            """
+            UPDATE node_registration_requests_v2
+            SET server_id = CASE WHEN server_id = '' THEN ? ELSE server_id END,
+                token = CASE WHEN token = '' THEN ? ELSE token END
+            WHERE request_id = ?
+              AND ((server_id = '' AND ? <> '') OR (token = '' AND ? <> ''))
+            """,
+            (row["server_id"] or "", row["token"] or "", row["request_id"], row["server_id"] or "", row["token"] or ""),
+        )
+        report["request_rows_extended"] += cursor.rowcount
+
+    node_rows = conn.execute(
+        "SELECT server_id, capabilities FROM node_requests WHERE server_id <> ''"
+    ).fetchall()
+    for row in node_rows:
+        cursor = conn.execute(
+            """
+            UPDATE nodes
+            SET capabilities_json = CASE WHEN capabilities_json = '' OR capabilities_json = '[]' THEN ? ELSE capabilities_json END
+            WHERE server_id = ?
+              AND (capabilities_json = '' OR capabilities_json = '[]')
+            """,
+            (row["capabilities"] or "[]", row["server_id"]),
+        )
+        report["nodes_capabilities_backfilled"] += cursor.rowcount
+
+    _set_user_version(conn, DB_SCHEMA_VERSION_V3)
+    return report
+
+
+def run_migrations(conn: sqlite3.Connection) -> list[dict]:
+    reports: list[dict] = []
+    _ensure_legacy_schema(conn)
+    _create_v2_schema(conn)
+    _ensure_v3_schema(conn)
+    version = _get_user_version(conn)
+    if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
+        _set_user_version(conn, DB_SCHEMA_VERSION_V2)
+        version = DB_SCHEMA_VERSION_V2
+    if version < DB_SCHEMA_VERSION_V2:
+        report = migrate_v1_to_v2(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V2
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V2
+    if version < DB_SCHEMA_VERSION_V3:
+        report = migrate_v2_to_v3(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V3
+        reports.append(report)
+    return reports
+
+
 def ensure_super_admin_account() -> None:
     """确保系统始终存在且仅存在一个超级管理员账号。"""
     conn = _get_conn()
@@ -43,10 +792,14 @@ def ensure_super_admin_account() -> None:
         if not rows:
             conn.execute(
                 """
-                INSERT INTO accounts (username, password_hash, role, status, allowed_brokers, ts_address, description, created_at, updated_at)
-                VALUES (?, ?, 'super_admin', 'active', '[]', '', '系统内置超级管理员', ?, ?)
+                INSERT INTO accounts (
+                    username, password_hash, role, status,
+                    allowed_brokers, trade_server_address, ts_address, broker_tag,
+                    description, created_at, updated_at
+                )
+                VALUES (?, ?, 'super_admin', 'active', '[]', '', '', '', ?, ?, ?)
                 """,
-                ("admin", _sha256("admin_sc"), now, now),
+                ("admin", _sha256("admin_sc"), "system built-in super admin", now, now),
             )
             conn.commit()
             return
@@ -71,121 +824,38 @@ def ensure_super_admin_account() -> None:
 
 
 
-def init_db():
-    """初始化数据库表结构"""
+def init_db() -> list[dict]:
+    """Initialize the database schema and run required migrations."""
     conn = _get_conn()
+    reports: list[dict] = []
     try:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'trader',
-                status TEXT DEFAULT 'active',
-                allowed_brokers TEXT DEFAULT '[]',
-                ts_address TEXT DEFAULT '',
-                created_at TEXT DEFAULT '',
-                updated_at TEXT DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS brokers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                broker_type TEXT DEFAULT 'tastytrade',
-                host TEXT DEFAULT '',
-                port INTEGER DEFAULT 0,
-                config TEXT DEFAULT '{}',
-                status TEXT DEFAULT 'offline',
-                last_heartbeat TEXT DEFAULT '',
-                registered_at TEXT DEFAULT '',
-                created_at TEXT DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT DEFAULT '',
-                action TEXT DEFAULT '',
-                resource TEXT DEFAULT '',
-                detail TEXT DEFAULT '',
-                ip_address TEXT DEFAULT '',
-                created_at TEXT DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS node_requests (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                request_id TEXT UNIQUE NOT NULL,
-                node_name TEXT NOT NULL,
-                region TEXT DEFAULT '',
-                host TEXT DEFAULT '',
-                capabilities TEXT DEFAULT '[]',
-                contact TEXT DEFAULT '',
-                description TEXT DEFAULT '',
-                status TEXT DEFAULT 'pending',
-                server_id TEXT DEFAULT '',
-                token TEXT DEFAULT '',
-                current_ip TEXT DEFAULT '',
-                expire_at TEXT DEFAULT '',
-                reviewed_by TEXT DEFAULT '',
-                reviewed_at TEXT DEFAULT '',
-                reject_reason TEXT DEFAULT '',
-                created_at TEXT DEFAULT ''
-            );
-        """)
-        # 兼容已有数据库：添加 ts_address 列（如果不存在）
-        try:
-            conn.execute("SELECT ts_address FROM accounts LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute("ALTER TABLE accounts ADD COLUMN ts_address TEXT DEFAULT ''")
-            log.info("Added ts_address column to accounts table (migration)")
-
-        # 兼容已有数据库：添加 description 列（如果不存在）
-        try:
-            conn.execute("SELECT description FROM accounts LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute("ALTER TABLE accounts ADD COLUMN description TEXT DEFAULT ''")
-            log.info("Added description column to accounts table (migration)")
-
-        # 兼容已有数据库：添加节点占用字段（如果不存在）
-        try:
-            conn.execute("SELECT occupied_by FROM node_requests LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute("ALTER TABLE node_requests ADD COLUMN occupied_by TEXT DEFAULT ''")
-            conn.execute("ALTER TABLE node_requests ADD COLUMN occupied_at TEXT DEFAULT ''")
-            log.info("Added occupation columns to node_requests table (migration)")
-
+        reports = run_migrations(conn)
         conn.commit()
-        log.info(f"Database initialized: {_DB_PATH}")
+        log.info(f"Database initialized: {_DB_PATH} (schema_version={_get_user_version(conn)})")
     finally:
         conn.close()
 
-    # 初始化后确保固定超级管理员存在
     ensure_super_admin_account()
-
+    cleanup_audit_logs()
+    return reports
 
 
 def verify_account(username: str, password: str) -> dict | None:
-    """
-    验证账号密码
-
-    Returns:
-        账户字典 或 None（验证失败）
-    """
+    """Validate account credentials."""
     conn = _get_conn()
     try:
         pw_hash = _sha256(password)
         row = conn.execute(
-            "SELECT id, username, role, status, allowed_brokers, ts_address FROM accounts "
-            "WHERE username = ? AND password_hash = ? AND status = 'active'",
+            "SELECT id, username, role, status, broker_tag, allowed_brokers, trade_server_address, description "
+            "FROM accounts WHERE username = ? AND password_hash = ? AND status = 'active'",
             (username, pw_hash),
         ).fetchone()
         if row:
-            # 记录审计日志
             _audit_log(username, "LOGIN", "account", f"Login success for {username}")
-            return dict(row)
+            return _build_account_compat(row)
         return None
     finally:
         conn.close()
-
 
 def verify_web_admin(username: str, password: str) -> dict | None:
     """验证 Web 管理后台账号（仅 super_admin / admin）。"""
@@ -206,9 +876,26 @@ def verify_web_admin(username: str, password: str) -> dict | None:
 
 
 def get_broker_list() -> list[dict]:
-    """获取所有已注册且在线的券商列表"""
+    """???????????????"""
     conn = _get_conn()
     try:
+        if _has_v2_schema(conn):
+            rows = conn.execute(
+                """
+                SELECT
+                    n.server_id AS name,
+                    COALESCE(NULLIF(cfg.broker_type, ''), NULLIF(n.broker_type, ''), 'TT') AS broker_type,
+                    COALESCE(n.host, '') AS host,
+                    0 AS port,
+                    COALESCE(rt.status, 'offline') AS status
+                FROM nodes n
+                LEFT JOIN node_runtime rt ON rt.server_id = n.server_id
+                LEFT JOIN node_broker_config cfg ON cfg.server_id = n.server_id
+                ORDER BY n.created_at ASC, n.id ASC
+                """
+            ).fetchall()
+            return [dict(r) for r in rows]
+
         rows = conn.execute(
             "SELECT name, broker_type, host, port, status FROM brokers WHERE status != 'deleted'"
         ).fetchall()
@@ -216,32 +903,70 @@ def get_broker_list() -> list[dict]:
     finally:
         conn.close()
 
-
 def check_ts_online(ts_address: str) -> dict:
-    """
-    检查指定 TS 地址是否存在对应的在线节点
-
-    Args:
-        ts_address: TS 地址，如 "127.0.0.1:8900" 或 "127.0.0.1"
-
-    Returns:
-        dict: {"online": bool, "node_name": str, "server_id": str, "match_field": str,
-               "occupied_by": str, "occupied_at": str}
-              match_field 说明匹配方式: "current_ip"(精确IP匹配) / "host"(host字段匹配)
-              occupied_by 非空表示该节点已被占用
-        如果没有匹配的节点或节点不在线: {"online": False, ...}
-    """
+    """???????????????????"""
     conn = _get_conn()
     try:
         if not ts_address:
-            return {"online": False, "reason": "未配置 TS 地址"}
+            return {"online": False, "reason": "?????????"}
 
-        # 解析地址（支持 "ip:port" 或纯 "ip" 格式）
-        addr_part = ts_address.split(":")[0] if ":" in ts_address else ts_address
-        addr_part = addr_part.strip()
+        addr_part = ts_address.split(":")[0].strip() if ":" in ts_address else ts_address.strip()
+        if not addr_part:
+            return {"online": False, "reason": "????????", "address": ts_address}
 
-        # 1. 精确匹配 current_ip 字段（心跳上报的实际 IP）
-        row = conn.execute("""
+        if _has_v2_schema(conn):
+            row = conn.execute(
+                """
+                SELECT n.server_id, n.node_name, rt.current_ip, n.host,
+                       COALESCE(rt.status, 'offline') AS runtime_status,
+                       rt.occupied_by, rt.occupied_at
+                FROM nodes n
+                LEFT JOIN node_runtime rt ON rt.server_id = n.server_id
+                WHERE (rt.current_ip = ? OR rt.current_ip LIKE ?)
+                  AND COALESCE(rt.status, 'offline') IN ('online', 'approved')
+                LIMIT 1
+                """,
+                (addr_part, f"{addr_part}%"),
+            ).fetchone()
+            if row and row["runtime_status"] == "online":
+                r = dict(row)
+                return {
+                    "online": True,
+                    "node_name": r["node_name"],
+                    "server_id": r["server_id"],
+                    "match_field": "current_ip",
+                    "address": ts_address,
+                    "occupied_by": r.get("occupied_by", "") or "",
+                    "occupied_at": r.get("occupied_at", "") or "",
+                }
+
+            row = conn.execute(
+                """
+                SELECT n.server_id, n.node_name, rt.current_ip, n.host,
+                       COALESCE(rt.status, 'offline') AS runtime_status,
+                       rt.occupied_by, rt.occupied_at
+                FROM nodes n
+                LEFT JOIN node_runtime rt ON rt.server_id = n.server_id
+                WHERE n.host = ?
+                  AND COALESCE(rt.status, 'offline') IN ('online', 'approved')
+                LIMIT 1
+                """,
+                (addr_part,),
+            ).fetchone()
+            if row and row["runtime_status"] == "online":
+                r = dict(row)
+                return {
+                    "online": True,
+                    "node_name": r["node_name"],
+                    "server_id": r["server_id"],
+                    "match_field": "host",
+                    "address": ts_address,
+                    "occupied_by": r.get("occupied_by", "") or "",
+                    "occupied_at": r.get("occupied_at", "") or "",
+                }
+
+        row = conn.execute(
+            """
             SELECT nr.server_id, nr.node_name, nr.current_ip, nr.host,
                    b.status AS broker_status, nr.status AS req_status,
                    nr.occupied_by, nr.occupied_at
@@ -250,17 +975,23 @@ def check_ts_online(ts_address: str) -> dict:
             WHERE (nr.current_ip = ? OR nr.current_ip LIKE ?)
               AND nr.status IN ('online', 'approved')
             LIMIT 1
-        """, (addr_part, f"{addr_part}%")).fetchone()
-
+            """,
+            (addr_part, f"{addr_part}%"),
+        ).fetchone()
         if row and dict(row).get("req_status") == "online":
             r = dict(row)
-            return {"online": True, "node_name": r["node_name"], "server_id": r["server_id"],
-                    "match_field": "current_ip", "address": ts_address,
-                    "occupied_by": r.get("occupied_by", "") or "",
-                    "occupied_at": r.get("occupied_at", "") or ""}
+            return {
+                "online": True,
+                "node_name": r["node_name"],
+                "server_id": r["server_id"],
+                "match_field": "current_ip",
+                "address": ts_address,
+                "occupied_by": r.get("occupied_by", "") or "",
+                "occupied_at": r.get("occupied_at", "") or "",
+            }
 
-        # 2. 回退到 host 字段匹配
-        row2 = conn.execute("""
+        row = conn.execute(
+            """
             SELECT nr.server_id, nr.node_name, nr.current_ip, nr.host,
                    b.status AS broker_status, nr.status AS req_status,
                    nr.occupied_by, nr.occupied_at
@@ -269,42 +1000,98 @@ def check_ts_online(ts_address: str) -> dict:
             WHERE nr.host = ?
               AND nr.status IN ('online', 'approved')
             LIMIT 1
-        """, (addr_part,)).fetchone()
+            """,
+            (addr_part,),
+        ).fetchone()
+        if row and dict(row).get("req_status") == "online":
+            r = dict(row)
+            return {
+                "online": True,
+                "node_name": r["node_name"],
+                "server_id": r["server_id"],
+                "match_field": "host",
+                "address": ts_address,
+                "occupied_by": r.get("occupied_by", "") or "",
+                "occupied_at": r.get("occupied_at", "") or "",
+            }
 
-        if row2 and dict(row2).get("req_status") == "online":
-            r = dict(row2)
-            return {"online": True, "node_name": r["node_name"], "server_id": r["server_id"],
-                    "match_field": "host", "address": ts_address,
-                    "occupied_by": r.get("occupied_by", "") or "",
-                    "occupied_at": r.get("occupied_at", "") or ""}
-
-        return {"online": False, "reason": f"未找到与地址 '{ts_address}' 匹配的在线子服务器",
-                "address": ts_address, "occupied_by": "", "occupied_at": ""}
+        return {
+            "online": False,
+            "reason": f"?????? '{ts_address}' ???????",
+            "address": ts_address,
+            "occupied_by": "",
+            "occupied_at": "",
+        }
     except Exception as e:
         log.error(f"check_ts_online failed: {e}")
-        return {"online": False, "reason": f"查询异常: {e}", "address": ts_address,
-                "occupied_by": "", "occupied_at": ""}
+        return {
+            "online": False,
+            "reason": f"????: {e}",
+            "address": ts_address,
+            "occupied_by": "",
+            "occupied_at": "",
+        }
     finally:
         conn.close()
 
-
 def register_broker(name: str, broker_type: str = "tastytrade",
                     host: str = "", port: int = 0, config: dict | None = None) -> bool:
-    """注册/更新券商信息"""
+    """????????????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute("""
-            INSERT INTO brokers (name, broker_type, host, port, config, status, registered_at, created_at)
-            VALUES (?, ?, ?, ?, ?, 'online', ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                broker_type=excluded.broker_type,
-                host=excluded.host,
-                port=excluded.port,
-                config=excluded.config,
+        cfg = dict(config or {})
+        credentials = dict(cfg.get("credentials", {}) or {})
+        enabled = bool(cfg.get("enabled", True))
+        normalized_type = broker_type or cfg.get("broker_type", "") or "TT"
+        if _has_v2_schema(conn):
+            conn.execute(
+                """
+                INSERT INTO nodes (
+                    server_id, node_name, broker_type, host, token,
+                    description, capabilities_json, enabled, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, '', '', '[]', 1, ?, ?)
+                ON CONFLICT(server_id) DO UPDATE SET
+                    node_name=excluded.node_name,
+                    broker_type=excluded.broker_type,
+                    host=excluded.host,
+                    updated_at=excluded.updated_at
+                """,
+                (name, name, normalized_type, host or '', now, now),
+            )
+            _upsert_node_runtime(
+                conn,
+                server_id=name,
                 status='online',
-                last_heartbeat=?
-        """, (name, broker_type, host, port, json.dumps(config or {}), now, now, now))
+                current_ip='',
+                last_heartbeat=now,
+                updated_at=now,
+            )
+            _upsert_node_broker_config(
+                conn,
+                server_id=name,
+                broker_type=normalized_type,
+                credentials=credentials,
+                enabled=enabled,
+                config_version=cfg.get('config_version', 0) or 0,
+                updated_at=now,
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO brokers (name, broker_type, host, port, config, status, registered_at, created_at)
+                VALUES (?, ?, ?, ?, ?, 'online', ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    broker_type=excluded.broker_type,
+                    host=excluded.host,
+                    port=excluded.port,
+                    config=excluded.config,
+                    status='online',
+                    last_heartbeat=?
+                """,
+                (name, normalized_type, host, port, json.dumps(cfg, ensure_ascii=False), now, now, now),
+            )
         conn.commit()
         return True
     except Exception as e:
@@ -315,53 +1102,91 @@ def register_broker(name: str, broker_type: str = "tastytrade",
 
 
 def update_broker_heartbeat(name: str):
-    """更新券商心跳时间"""
+    """?????????????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "UPDATE brokers SET last_heartbeat=?, status='online' WHERE name=?",
-            (now, name),
-        )
+        if _has_v2_schema(conn):
+            node = _ensure_v2_node_record(conn, name)
+            if node:
+                rt = conn.execute(
+                    "SELECT status, current_ip, occupied_by, occupied_at FROM node_runtime WHERE server_id = ?",
+                    (name,),
+                ).fetchone()
+                rt_data = dict(rt) if rt else {}
+                _upsert_node_runtime(
+                    conn,
+                    server_id=name,
+                    status=rt_data.get('status', 'online') or 'online',
+                    current_ip=rt_data.get('current_ip', '') or '',
+                    last_heartbeat=now,
+                    occupied_by=rt_data.get('occupied_by', '') or '',
+                    occupied_at=rt_data.get('occupied_at', '') or '',
+                    updated_at=now,
+                )
+                conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, name))
+        else:
+            conn.execute("UPDATE brokers SET last_heartbeat=?, status='online' WHERE name=?", (now, name))
         conn.commit()
     finally:
         conn.close()
-
-
-# ── 节点注册请求管理（node_requests 表）─────────────────────────────────
 
 def create_node_request(request_id: str, node_name: str, region: str = "",
                         host: str = "", capabilities: list | None = None,
                         contact: str = "", description: str = "",
                         expire_hours: int = 24) -> dict | None:
-    """
-    创建节点注册请求（暂存区）
-
-    Returns:
-        创建的记录字典，或 None（失败）
-    """
-    import secrets
+    """?????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc)
         from datetime import timedelta
+
         expire_at = (now + timedelta(hours=expire_hours)).isoformat()
-        conn.execute("""
-            INSERT INTO node_requests
-                (request_id, node_name, region, host, capabilities,
-                 contact, description, status, expire_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-        """, (
-            request_id, node_name, region, host,
-            json.dumps(capabilities or []),
-            contact, description, expire_at, now.isoformat(),
-        ))
+        capabilities_json = json.dumps(capabilities or [], ensure_ascii=False)
+        if _has_v2_schema(conn):
+            conn.execute(
+                """
+                INSERT INTO node_registration_requests_v2 (
+                    request_id, node_name, broker_type, host, capabilities_json,
+                    contact, description, status, server_id, token,
+                    reviewed_by, reviewed_at, reject_reason, expire_at, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', '', '', '', '', ?, ?)
+                ON CONFLICT(request_id) DO UPDATE SET
+                    node_name=excluded.node_name,
+                    broker_type=excluded.broker_type,
+                    host=excluded.host,
+                    capabilities_json=excluded.capabilities_json,
+                    contact=excluded.contact,
+                    description=excluded.description,
+                    status='pending',
+                    server_id='',
+                    token='',
+                    reviewed_by='',
+                    reviewed_at='',
+                    reject_reason='',
+                    expire_at=excluded.expire_at,
+                    created_at=excluded.created_at
+                """,
+                (request_id, node_name, region, host, capabilities_json, contact, description, expire_at, now.isoformat()),
+            )
+            row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
+            result = _map_request_v2_to_legacy(row)
+        else:
+            conn.execute(
+                """
+                INSERT INTO node_requests
+                    (request_id, node_name, region, host, capabilities,
+                     contact, description, status, expire_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (request_id, node_name, region, host, capabilities_json, contact, description, expire_at, now.isoformat()),
+            )
+            row = conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone()
+            result = dict(row) if row else None
         conn.commit()
-        row = conn.execute(
-            "SELECT * FROM node_requests WHERE request_id = ?", (request_id,)
-        ).fetchone()
         log.info(f"Node registration request created: {request_id} ({node_name})")
-        return dict(row) if row else None
+        return result
     except Exception as e:
         log.error(f"create_node_request failed: {e}")
         return None
@@ -370,90 +1195,123 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
 
 
 def get_node_request_by_id(request_id: str) -> dict | None:
-    """通过 request_id 查询注册请求"""
+    """?? request_id ???????"""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT * FROM node_requests WHERE request_id = ?", (request_id,)
-        ).fetchone()
+        if _has_v2_schema(conn):
+            row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
+            return _map_request_v2_to_legacy(row)
+        row = conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
 
 
 def get_pending_node_requests() -> list[dict]:
-    """获取所有待审核的注册请求"""
+    """?????????????"""
     conn = _get_conn()
     try:
-        rows = conn.execute("""
-            SELECT * FROM node_requests
-            WHERE status = 'pending' AND expire_at > ?
-            ORDER BY created_at ASC
-        """, (datetime.now(timezone.utc).isoformat(),)).fetchall()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if _has_v2_schema(conn):
+            rows = conn.execute(
+                "SELECT * FROM node_registration_requests_v2 WHERE status = 'pending' AND expire_at > ? ORDER BY created_at ASC",
+                (now_iso,),
+            ).fetchall()
+            return [_map_request_v2_to_legacy(r) for r in rows]
+        rows = conn.execute(
+            "SELECT * FROM node_requests WHERE status = 'pending' AND expire_at > ? ORDER BY created_at ASC",
+            (now_iso,),
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
 def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | None:
-    """
-    审核通过注册请求：生成 server_id + token，写入正式表(brokers)
-
-    Returns:
-        更新后的记录字典（含 server_id 和 token），或 None
-    """
+    """????????????????????"""
     import secrets
+
     conn = _get_conn()
     try:
-        # 先查询原始请求
-        req = conn.execute(
-            "SELECT * FROM node_requests WHERE request_id = ? AND status = 'pending'",
-            (request_id,),
-        ).fetchone()
-        if not req:
-            return None
+        has_v2 = _has_v2_schema(conn)
+        if has_v2:
+            req_row = conn.execute(
+                "SELECT * FROM node_registration_requests_v2 WHERE request_id = ? AND status = 'pending'",
+                (request_id,),
+            ).fetchone()
+            if not req_row:
+                return None
+            req = _map_request_v2_to_legacy(req_row)
+        else:
+            req_row = conn.execute(
+                "SELECT * FROM node_requests WHERE request_id = ? AND status = 'pending'",
+                (request_id,),
+            ).fetchone()
+            if not req_row:
+                return None
+            req = dict(req_row)
 
         now = datetime.now(timezone.utc).isoformat()
         server_id = f"node_{req['node_name']}_{secrets.token_hex(4)}"
         token = secrets.token_urlsafe(32)
-
-        # 1) 更新 node_requests 状态
-        conn.execute("""
-            UPDATE node_requests SET
-                status='approved', server_id=?, token=?,
-                reviewed_by=?, reviewed_at=?
-            WHERE request_id=?
-        """, (server_id, token, reviewer, now, request_id))
-
-        # 2) 写入 brokers 正式表（复用现有表作为已批准节点存储）
-        caps_json = json.loads(req['capabilities']) if isinstance(req['capabilities'], str) else (req['capabilities'] or [])
-        config_data = {
-            "region": req['region'],
-            "capabilities": caps_json,
-            "contact": req['contact'],
-            "description": req['description'],
-        }
         approved_broker_type = (req['region'] or 'TT').strip() or 'TT'
-        conn.execute("""
-            INSERT INTO brokers (name, broker_type, host, port, config, status,
-                                registered_at, created_at)
-            VALUES (?, ?, '', 0, ?, 'online', ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                broker_type=excluded.broker_type,
-                host=excluded.host,
-                port=excluded.port,
-                config=excluded.config,
-                status='online',
-                registered_at=excluded.registered_at
-        """, (server_id, approved_broker_type, json.dumps(config_data), now, now))
+        caps_json = _load_json_list(req['capabilities'])
 
-        # 同时在 brokers 行中保存 token 用于心跳验证
-        # 复用 config 字段存 token（或可扩展字段）
-        # 这里用独立方式：token 存在 node_requests 中，心跳时查询
+        if has_v2:
+            conn.execute(
+                """
+                UPDATE node_registration_requests_v2
+                SET status='approved', server_id=?, token=?, reviewed_by=?, reviewed_at=?, reject_reason=''
+                WHERE request_id=?
+                """,
+                (server_id, token, reviewer, now, request_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO nodes (
+                    server_id, node_name, broker_type, host, token,
+                    description, capabilities_json, enabled, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(server_id) DO UPDATE SET
+                    node_name=excluded.node_name,
+                    broker_type=excluded.broker_type,
+                    host=excluded.host,
+                    token=excluded.token,
+                    description=excluded.description,
+                    capabilities_json=excluded.capabilities_json,
+                    enabled=1,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    server_id,
+                    req['node_name'],
+                    approved_broker_type,
+                    req['host'] or '',
+                    token,
+                    req['description'] or '',
+                    json.dumps(caps_json, ensure_ascii=False),
+                    req['created_at'] or now,
+                    now,
+                ),
+            )
+            _upsert_node_runtime(conn, server_id, 'approved', '', '', '', '', now)
+            _upsert_node_broker_config(conn, server_id, approved_broker_type, {}, True, 0, now)
+            row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
+            result = _map_request_v2_to_legacy(row)
+        else:
+            conn.execute(
+                """
+                UPDATE node_requests SET status='approved', server_id=?, token=?, reviewed_by=?, reviewed_at=?
+                WHERE request_id=?
+                """,
+                (server_id, token, reviewer, now, request_id),
+            )
+            row = conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone()
+            result = dict(row) if row else None
 
         conn.commit()
-        result = dict(conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone())
-        log.info(f"Node request approved: {request_id} → server_id={server_id}")
+        log.info(f"Node request approved: {request_id} -> server_id={server_id}")
         return result
     except Exception as e:
         log.error(f"approve_node_request failed: {e}")
@@ -463,16 +1321,20 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
 
 
 def reject_node_request(request_id: str, reason: str = "", reviewer: str = "admin") -> bool:
-    """审核拒绝注册请求"""
+    """???????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        cursor = conn.execute("""
-            UPDATE node_requests SET
-                status='rejected', reject_reason=?,
-                reviewed_by=?, reviewed_at=?
-            WHERE request_id = ? AND status = 'pending'
-        """, (reason, reviewer, now, request_id))
+        if _has_v2_schema(conn):
+            cursor = conn.execute(
+                "UPDATE node_registration_requests_v2 SET status='rejected', reject_reason=?, reviewed_by=?, reviewed_at=? WHERE request_id = ? AND status = 'pending'",
+                (reason, reviewer, now, request_id),
+            )
+        else:
+            cursor = conn.execute(
+                "UPDATE node_requests SET status='rejected', reject_reason=?, reviewed_by=?, reviewed_at=? WHERE request_id = ? AND status = 'pending'",
+                (reason, reviewer, now, request_id),
+            )
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
@@ -488,66 +1350,52 @@ def cancel_node_request(
     reviewer: str = "se_node",
     force_discard_approved: bool = True,
 ) -> dict:
-    """SE 主动取消注册请求。
-
-    行为：
-    - pending   -> cancelled
-    - approved/online/offline/suspended -> （可选）彻底废弃并清理 brokers
-    - 其它终态 -> 幂等返回
-    """
+    """???????????"""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT * FROM node_requests WHERE request_id = ?",
-            (request_id,),
-        ).fetchone()
-        if not row:
+        has_v2 = _has_v2_schema(conn)
+        if has_v2:
+            row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
+            req = _map_request_v2_to_legacy(row)
+        else:
+            row = conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone()
+            req = dict(row) if row else None
+        if not req:
             return {"ok": False, "error": "request_not_found"}
 
-        req = dict(row)
         status = (req.get("status") or "").strip()
         now = datetime.now(timezone.utc).isoformat()
-
         if status == "pending":
-            conn.execute(
-                """
-                UPDATE node_requests
-                SET status='cancelled', reject_reason=?, reviewed_by=?, reviewed_at=?
-                WHERE request_id = ?
-                """,
-                (reason or "node_cancelled", reviewer, now, request_id),
-            )
+            if has_v2:
+                conn.execute(
+                    "UPDATE node_registration_requests_v2 SET status='cancelled', reject_reason=?, reviewed_by=?, reviewed_at=? WHERE request_id = ?",
+                    (reason or "node_cancelled", reviewer, now, request_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE node_requests SET status='cancelled', reject_reason=?, reviewed_by=?, reviewed_at=? WHERE request_id = ?",
+                    (reason or "node_cancelled", reviewer, now, request_id),
+                )
             conn.commit()
             return {"ok": True, "action": "cancelled_pending", "request_id": request_id}
 
         if status in ("approved", "online", "offline", "suspended"):
             server_id = req.get("server_id", "")
             if not force_discard_approved:
-                return {
-                    "ok": False,
-                    "error": "already_approved",
-                    "status": status,
-                    "server_id": server_id,
-                }
-
-            if server_id:
-                conn.execute("DELETE FROM brokers WHERE name = ?", (server_id,))
-            conn.execute("DELETE FROM node_requests WHERE request_id = ?", (request_id,))
+                return {"ok": False, "error": "already_approved", "status": status, "server_id": server_id}
+            if has_v2:
+                if server_id:
+                    conn.execute("DELETE FROM nodes WHERE server_id = ?", (server_id,))
+                conn.execute("DELETE FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,))
+            else:
+                if server_id:
+                    conn.execute("DELETE FROM brokers WHERE name = ?", (server_id,))
+                conn.execute("DELETE FROM node_requests WHERE request_id = ?", (request_id,))
             conn.commit()
             log.warning(f"Node request discarded after approval: {request_id}, server_id={server_id}")
-            return {
-                "ok": True,
-                "action": "discarded_approved",
-                "request_id": request_id,
-                "server_id": server_id,
-            }
+            return {"ok": True, "action": "discarded_approved", "request_id": request_id, "server_id": server_id}
 
-        return {
-            "ok": True,
-            "action": "already_final",
-            "request_id": request_id,
-            "status": status,
-        }
+        return {"ok": True, "action": "already_final", "request_id": request_id, "status": status}
     except Exception as e:
         log.error(f"cancel_node_request failed: {e}")
         return {"ok": False, "error": str(e)}
@@ -556,16 +1404,20 @@ def cancel_node_request(
 
 
 def cleanup_expired_requests() -> int:
-
-    """清理过期的待审核请求，返回清理数量"""
+    """????????????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        cursor = conn.execute("""
-            UPDATE node_requests
-            SET status='expired'
-            WHERE status = 'pending' AND expire_at <= ?
-        """, (now,))
+        if _has_v2_schema(conn):
+            cursor = conn.execute(
+                "UPDATE node_registration_requests_v2 SET status='expired' WHERE status = 'pending' AND expire_at <= ?",
+                (now,),
+            )
+        else:
+            cursor = conn.execute(
+                "UPDATE node_requests SET status='expired' WHERE status = 'pending' AND expire_at <= ?",
+                (now,),
+            )
         count = cursor.rowcount
         if count > 0:
             conn.commit()
@@ -574,56 +1426,88 @@ def cleanup_expired_requests() -> int:
     finally:
         conn.close()
 
-
 def verify_node_token(token: str) -> dict | None:
-    """
-    验证节点的 Bearer Token
-
-    Returns:
-        节点信息字典 或 None（无效/过期）
-        
-    注意: 允许 offline/suspended 状态的节点通过验证，
-    以便它们恢复上线后能正常发送心跳将状态更新回 online。
-    """
+    """???? Bearer Token?"""
     conn = _get_conn()
     try:
+        if _has_v2_schema(conn):
+            row = conn.execute(
+                """
+                SELECT
+                    n.server_id,
+                    n.node_name,
+                    n.host,
+                    n.token,
+                    n.description,
+                    n.created_at,
+                    COALESCE(rt.status, 'approved') AS status,
+                    COALESCE(rt.current_ip, '') AS current_ip,
+                    COALESCE(rt.occupied_by, '') AS occupied_by,
+                    COALESCE(rt.occupied_at, '') AS occupied_at,
+                    COALESCE(rt.last_heartbeat, '') AS last_heartbeat,
+                    COALESCE(n.broker_type, '') AS region
+                FROM nodes n
+                LEFT JOIN node_runtime rt ON rt.server_id = n.server_id
+                WHERE n.token = ?
+                  AND n.enabled = 1
+                  AND COALESCE(rt.status, 'approved') IN ('approved', 'online', 'offline', 'suspended')
+                LIMIT 1
+                """,
+                (token,),
+            ).fetchone()
+            if row:
+                data = dict(row)
+                data["req_status"] = data.get("status", "approved")
+                return data
+
         row = conn.execute(
             "SELECT * FROM node_requests WHERE token = ? AND status IN ('approved', 'online', 'offline', 'suspended')",
             (token,),
         ).fetchone()
-        if row:
-            return dict(row)
-
-        # 也检查是否在 brokers 表中有对应记录
-        # 通过 server_id 关联
-        return None
+        return dict(row) if row else None
     finally:
         conn.close()
 
 
 def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
-    """
-    更新已批准节点的心跳时间和 IP
-
-    注意：只允许将状态恢复为 online 的场景：
-      - online（保持在线）
-      - offline（从离线恢复）
-      - approved（首次心跳激活）
-    不允许覆盖 suspended/occupied 等管理员主动设置的状态，
-    避免心跳将暂停的节点强行改回在线。
-    """
+    """??????????????? IP?"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        # 同步更新 node_requests 和 brokers 两张表（带状态守卫）
-        conn.execute("""
-            UPDATE node_requests SET current_ip=?, status='online'
-            WHERE server_id = ? AND status IN ('online', 'offline', 'approved')
-        """, (current_ip, server_id))
-        conn.execute("""
-            UPDATE brokers SET last_heartbeat=?, status='online'
-            WHERE name = ? AND status IN ('online', 'offline', 'approved')
-        """, (now, server_id))
+        if _has_v2_schema(conn):
+            node_row = _ensure_v2_node_record(conn, server_id)
+            if not node_row:
+                return False
+            runtime_row = conn.execute(
+                "SELECT status, occupied_by, occupied_at FROM node_runtime WHERE server_id = ?",
+                (server_id,),
+            ).fetchone()
+            runtime = dict(runtime_row) if runtime_row else {}
+            current_status = runtime.get('status', 'approved') or 'approved'
+            if current_status not in ('online', 'offline', 'approved'):
+                current_status = 'online'
+            _upsert_node_runtime(
+                conn,
+                server_id=server_id,
+                status='online',
+                current_ip=current_ip,
+                last_heartbeat=now,
+                occupied_by=runtime.get('occupied_by', '') or '',
+                occupied_at=runtime.get('occupied_at', '') or '',
+                updated_at=now,
+            )
+            conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, server_id))
+            conn.commit()
+            return True
+
+        conn.execute(
+            "UPDATE node_requests SET current_ip=?, status='online' WHERE server_id = ? AND status IN ('online', 'offline', 'approved')",
+            (current_ip, server_id),
+        )
+        conn.execute(
+            "UPDATE brokers SET last_heartbeat=?, status='online' WHERE name = ? AND status IN ('online', 'offline', 'approved')",
+            (now, server_id),
+        )
         conn.commit()
         return True
     except Exception as e:
@@ -632,116 +1516,153 @@ def update_node_heartbeat(server_id: str, current_ip: str = "") -> bool:
     finally:
         conn.close()
 
-
-# ── 支持的券商类型列表 ───────────────────────────────────────────────────
-
-BROKER_TYPES = ["IB", "TT", "Test"]
-"""支持的券商类型枚举，TS注册和SM审批时共用此列表"""
-
-
-# ── 券商配置管理（节点审批时录入凭证）───────────────────────────────
-
-def _ensure_config_version_column():
-    """迁移：确保 brokers 表有 config_version 列"""
-    conn = _get_conn()
-    try:
-        conn.execute("SELECT config_version FROM brokers LIMIT 1")
-    except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE brokers ADD COLUMN config_version INTEGER DEFAULT 0")
-        log.info("Added config_version column to brokers table (migration)")
-    finally:
-        conn.close()
-
-
 def get_node_broker_config(server_id: str) -> dict | None:
-    """
-    获取节点的完整券商配置（含凭证）
-
-    Returns:
-        {broker_type, credentials, enabled, config_version} 或 None
-    """
+    """????????????"""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT config, config_version, broker_type FROM brokers WHERE name = ?",
-            (server_id,),
-        ).fetchone()
+        if _has_v2_schema(conn):
+            row = conn.execute(
+                """
+                SELECT cfg.broker_type, cfg.credentials_json, cfg.enabled, cfg.config_version, n.broker_type AS node_broker_type
+                FROM nodes n
+                LEFT JOIN node_broker_config cfg ON cfg.server_id = n.server_id
+                WHERE n.server_id = ?
+                LIMIT 1
+                """,
+                (server_id,),
+            ).fetchone()
+            if row:
+                data = dict(row)
+                broker_type = data.get("broker_type") or data.get("node_broker_type") or "TT"
+                credentials = _load_json_dict(data.get("credentials_json"))
+                enabled = bool(data.get("enabled", 1))
+                return _build_broker_config_response(
+                    broker_type=broker_type,
+                    credentials=credentials,
+                    enabled=enabled,
+                    config_version=data.get("config_version", 0) or 0,
+                )
+
+        row = conn.execute("SELECT config, config_version, broker_type FROM brokers WHERE name = ?", (server_id,)).fetchone()
         if not row:
             return None
-        cfg = json.loads(row["config"]) if row["config"] else {}
+        cfg = _load_json_dict(row["config"])
         credentials = dict(cfg.get("credentials", {}) or {})
-
-        # 统一凭证模型：支持 2 要素（token/secret）与 4 要素（username/password/token/secret）
-        # 账号口令保留在 SM 配置中，SE 仅按需拉取并在内存短暂使用，不做本地持久化。
-        if cfg.get("account_username") is not None and "account_username" not in credentials:
-            credentials["account_username"] = cfg.get("account_username", "")
-        if cfg.get("account_password") is not None and "account_password" not in credentials:
-            credentials["account_password"] = cfg.get("account_password", "")
-
-        return {
-            "broker_type": row["broker_type"] or cfg.get("broker_type", "TT"),
-            "credentials": credentials,
-            "enabled": cfg.get("enabled", True),
-            "config_version": row["config_version"] or 0,
-            "_raw_config": cfg,
-        }
+        return _build_broker_config_response(
+            broker_type=row["broker_type"] or cfg.get("broker_type", "TT"),
+            credentials=credentials,
+            enabled=cfg.get("enabled", True),
+            config_version=row["config_version"] or 0,
+            raw_config=cfg,
+        )
     except Exception as e:
         log.error(f"get_node_broker_config failed: {e}")
         return None
     finally:
         conn.close()
 
+def get_node_broker_configs(server_ids: list[str]) -> dict[str, dict]:
+    """Return broker configs for multiple nodes in one database round-trip."""
+    ids = [str(sid or "").strip() for sid in server_ids if str(sid or "").strip()]
+    if not ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in ids)
+    conn = _get_conn()
+    try:
+        configs: dict[str, dict] = {}
+        if _has_v2_schema(conn):
+            rows = conn.execute(
+                f"""
+                SELECT n.server_id,
+                       cfg.broker_type,
+                       cfg.credentials_json,
+                       cfg.enabled,
+                       cfg.config_version,
+                       n.broker_type AS node_broker_type
+                FROM nodes n
+                LEFT JOIN node_broker_config cfg ON cfg.server_id = n.server_id
+                WHERE n.server_id IN ({placeholders})
+                """,
+                ids,
+            ).fetchall()
+            for row in rows:
+                data = dict(row)
+                broker_type = data.get("broker_type") or data.get("node_broker_type") or "TT"
+                credentials = _load_json_dict(data.get("credentials_json"))
+                enabled = bool(data.get("enabled", 1))
+                configs[data["server_id"]] = _build_broker_config_response(
+                    broker_type=broker_type,
+                    credentials=credentials,
+                    enabled=enabled,
+                    config_version=data.get("config_version", 0) or 0,
+                )
+            return configs
+
+        rows = conn.execute(
+            f"SELECT name, config, config_version, broker_type FROM brokers WHERE name IN ({placeholders})",
+            ids,
+        ).fetchall()
+        for row in rows:
+            cfg = _load_json_dict(row["config"])
+            credentials = dict(cfg.get("credentials", {}) or {})
+            configs[row["name"]] = _build_broker_config_response(
+                broker_type=row["broker_type"] or cfg.get("broker_type", "TT"),
+                credentials=credentials,
+                enabled=cfg.get("enabled", True),
+                config_version=row["config_version"] or 0,
+                raw_config=cfg,
+            )
+        return configs
+    except Exception as e:
+        log.error(f"get_node_broker_configs failed: {e}")
+        return {}
+    finally:
+        conn.close()
 
 def set_node_broker_config(
     server_id: str,
     broker_type: str,
     credentials: dict | None = None,
     enabled: bool = True,
-    account_username: str = "",
-    account_password: str = "",
 ) -> bool:
-    """
-    设置/更新节点的券商配置（审批时调用或管理员修改时调用）
-
-    自动递增 config_version 以便 SE 检测到变更。
-    
-    新增参数：
-        account_username: 账户用户名（审批时由管理员填写）
-        account_password: 账户密码（审批时由管理员填写，明文存储）
-    """
+    """????????????"""
     conn = _get_conn()
     try:
-        # 读取现有 config
-        row = conn.execute(
-            "SELECT config, config_version FROM brokers WHERE name = ?", (server_id,)
-        ).fetchone()
+        now = datetime.now(timezone.utc).isoformat()
+        has_v2 = _has_v2_schema(conn)
+        if has_v2:
+            node_row = _ensure_v2_node_record(conn, server_id)
+            if not node_row:
+                log.error(f"set_node_broker_config: server_id '{server_id}' not found")
+                return False
+            current = conn.execute(
+                "SELECT broker_type, credentials_json, enabled, config_version FROM node_broker_config WHERE server_id = ?",
+                (server_id,),
+            ).fetchone()
+            new_version = int(current["config_version"] or 0) + 1 if current else 1
+            normalized_type = broker_type or (current["broker_type"] if current else "") or node_row.get("broker_type", "TT") or "TT"
+            conn.execute("UPDATE nodes SET broker_type = ?, updated_at = ? WHERE server_id = ?", (normalized_type, now, server_id))
+            _upsert_node_broker_config(conn, server_id, normalized_type, credentials, enabled, new_version, now)
+            conn.commit()
+            log.info(f"Broker config updated for {server_id}: type={normalized_type}, version={new_version}")
+            return True
+
+        row = conn.execute("SELECT config, config_version FROM brokers WHERE name = ?", (server_id,)).fetchone()
         if not row:
             log.error(f"set_node_broker_config: server_id '{server_id}' not found")
             return False
-
-        cfg = json.loads(row["config"]) if row["config"] else {}
+        cfg = _load_json_dict(row["config"])
         new_version = (row["config_version"] or 0) + 1
-
         cfg["broker_type"] = broker_type
         cfg["credentials"] = credentials or {}
         cfg["enabled"] = enabled
-        # 存储账户信息
-        if account_username is not None:
-            cfg["account_username"] = account_username
-        if account_password is not None:
-            cfg["account_password"] = account_password
-
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute("""
-            UPDATE brokers SET broker_type = ?, config = ?, config_version = ?, last_heartbeat = ?
-            WHERE name = ?
-        """, (broker_type, json.dumps(cfg), new_version, now, server_id))
-        conn.commit()
-
-        log.info(
-            f"Broker config updated for {server_id}: "
-            f"type={broker_type}, version={new_version}, account={account_username or '(none)'}"
+        conn.execute(
+            "UPDATE brokers SET broker_type = ?, config = ?, config_version = ?, last_heartbeat = ? WHERE name = ?",
+            (broker_type, json.dumps(cfg, ensure_ascii=False), new_version, now, server_id),
         )
+        conn.commit()
+        log.info(f"Broker config updated for {server_id}: type={broker_type}, version={new_version}")
         return True
     except Exception as e:
         log.error(f"set_node_broker_config failed: {e}")
@@ -751,25 +1672,39 @@ def set_node_broker_config(
 
 
 def increment_reload_flag(server_id: str) -> int:
-    """
-    管理员触发 reload 时调用：仅递增 config_version 不改内容
-    SE 检测到版本变化后主动拉取最新配置。
-
-    Returns:
-        新的 config_version
-    """
+    """???????????????????"""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT config_version FROM brokers WHERE name = ?", (server_id,)
-        ).fetchone()
+        now = datetime.now(timezone.utc).isoformat()
+        if _has_v2_schema(conn):
+            node_row = _ensure_v2_node_record(conn, server_id)
+            if not node_row:
+                return 0
+            current = conn.execute(
+                "SELECT broker_type, credentials_json, enabled, config_version FROM node_broker_config WHERE server_id = ?",
+                (server_id,),
+            ).fetchone()
+            if current:
+                new_ver = int(current["config_version"] or 0) + 1
+                broker_type = current["broker_type"] or node_row.get("broker_type", "TT") or "TT"
+                credentials = _load_json_dict(current["credentials_json"])
+                enabled = bool(current["enabled"])
+            else:
+                new_ver = 1
+                broker_type = node_row.get("broker_type", "TT") or "TT"
+                credentials = {}
+                enabled = True
+            _upsert_node_broker_config(conn, server_id, broker_type, credentials, enabled, new_ver, now)
+            conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, server_id))
+            conn.commit()
+            log.info(f"Reload flag incremented for {server_id}: version={new_ver}")
+            return new_ver
+
+        row = conn.execute("SELECT config_version FROM brokers WHERE name = ?", (server_id,)).fetchone()
         if not row:
             return 0
         new_ver = (row["config_version"] or 0) + 1
-        conn.execute(
-            "UPDATE brokers SET config_version = ? WHERE name = ?",
-            (new_ver, server_id),
-        )
+        conn.execute("UPDATE brokers SET config_version = ? WHERE name = ?", (new_ver, server_id))
         conn.commit()
         log.info(f"Reload flag incremented for {server_id}: version={new_ver}")
         return new_ver
@@ -779,80 +1714,82 @@ def increment_reload_flag(server_id: str) -> int:
     finally:
         conn.close()
 
-
 def verify_node_token_for_config(token: str, target_server_id: str) -> bool:
-    """
-    验证 token 是否属于指定 server_id（用于 SE 拉取自身配置的鉴权）
-    """
+    """?? token ?????? server_id?"""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT server_id FROM node_requests WHERE token = ?",
-            (token,),
-        ).fetchone()
-        if row and row["server_id"] == target_server_id:
-            return True
-        return False
+        if _has_v2_schema(conn):
+            row = conn.execute(
+                "SELECT 1 FROM nodes WHERE token = ? AND server_id = ? AND enabled = 1",
+                (token, target_server_id),
+            ).fetchone()
+            if row:
+                return True
+
+        row = conn.execute("SELECT server_id FROM node_requests WHERE token = ?", (token,)).fetchone()
+        return bool(row and row["server_id"] == target_server_id)
     finally:
         conn.close()
 
 
-# ── 心跳超时配置 ────────────────────────────────────────────────────────
-
-# 心跳超时阈值（秒）：超过此时间未收到心跳则判定为离线
-# 建议设为心跳间隔的 3 倍（默认间隔20s → 超时60s）
-# 此值用于后台自动巡检和前端刷新展示，较长可避免网络抖动导致误判
 HEARTBEAT_TIMEOUT_SECONDS = 60
 
 
 def check_offline_nodes(timeout_seconds: int | None = None) -> int:
-    """
-    检测并标记心跳超时的在线节点为离线
-
-    扫描所有 status='online' 的节点，对比 last_heartbeat 时间戳，
-    超过阈值未收到心跳的节点将被标记为 offline。
-
-    Returns:
-        被标记为离线的节点数量
-    """
+    """??????????????????"""
     timeout = timeout_seconds or HEARTBEAT_TIMEOUT_SECONDS
     conn = _get_conn()
     try:
         from datetime import timedelta
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeout)
-        cutoff_iso = cutoff.isoformat()
 
-        # 查找心跳超时但状态仍为 online 的节点
-        rows = conn.execute("""
-            SELECT b.name AS server_id, nr.node_name, b.last_heartbeat
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=timeout)).isoformat()
+        if _has_v2_schema(conn):
+            rows = conn.execute(
+                """
+                SELECT n.server_id, n.node_name,
+                       COALESCE(rt.last_heartbeat, '') AS last_heartbeat,
+                       COALESCE(rt.current_ip, '') AS current_ip
+                FROM nodes n
+                JOIN node_runtime rt ON rt.server_id = n.server_id
+                WHERE COALESCE(rt.status, 'approved') = 'online'
+                  AND (rt.last_heartbeat = '' OR rt.last_heartbeat < ?)
+                """,
+                (cutoff_iso,),
+            ).fetchall()
+            count = len(rows)
+            if count == 0:
+                return 0
+            now = datetime.now(timezone.utc).isoformat()
+            for row in rows:
+                sid = row['server_id']
+                _upsert_node_runtime(conn, sid, 'offline', row['current_ip'] or '', row['last_heartbeat'] or '', '', '', now)
+                conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, sid))
+                log.info(
+                    f"Node marked OFFLINE & RELEASED: {sid} ({row['node_name']}) - "
+                    f"last_heartbeat={row['last_heartbeat'] or '(never)'}, cutoff={cutoff_iso} [occupation auto-cleared]"
+                )
+            conn.commit()
+            return count
+
+        rows = conn.execute(
+            """
+            SELECT b.name AS server_id, nr.node_name, b.last_heartbeat,
+                   nr.current_ip
             FROM brokers b
             JOIN node_requests nr ON nr.server_id = b.name
             WHERE b.status = 'online'
               AND (b.last_heartbeat IS NULL OR b.last_heartbeat < ?)
               AND nr.status = 'online'
-        """, (cutoff_iso,)).fetchall()
-
+            """,
+            (cutoff_iso,),
+        ).fetchall()
         count = len(rows)
         if count == 0:
             return 0
-
-        # 批量标记为离线 + 自动释放占用
-        now = datetime.now(timezone.utc).isoformat()
         for row in rows:
-            sid = row["server_id"]
-            conn.execute("""
-                UPDATE node_requests SET status='offline', occupied_by='', occupied_at=''
-                WHERE server_id = ?
-            """, (sid,))
-            conn.execute("""
-                UPDATE brokers SET status='offline' WHERE name = ?
-            """, (sid,))
-            log.info(
-                f"Node marked OFFLINE & RELEASED: {sid} ({row['node_name']}) "
-                f"— last_heartbeat={row['last_heartbeat'] or '(never)'}, "
-                f"cutoff={cutoff_iso} [occupation auto-cleared]"
-            )
-
+            sid = row['server_id']
+            conn.execute("UPDATE node_requests SET status='offline', occupied_by='', occupied_at='' WHERE server_id = ?", (sid,))
+            conn.execute("UPDATE brokers SET status='offline' WHERE name = ?", (sid,))
         conn.commit()
         return count
     except Exception as e:
@@ -861,63 +1798,15 @@ def check_offline_nodes(timeout_seconds: int | None = None) -> int:
     finally:
         conn.close()
 
-
 def force_check_all_nodes() -> dict:
-    """
-    查询所有节点的最新状态（供管理员手动刷新使用，只读不写库）
-
-    基于数据库中的现有状态和心跳时间戳，纯计算每个节点的展示状态。
-    不修改任何数据库记录，避免"刷新导致在线/离线反复切换"的问题。
-
-    状态判定逻辑：
-      occupied   — 节点被账户占用（最高优先级）
-      suspended  — 管理员手动暂停
-      offline    — 数据库中标记为离线，或 心跳超时超过阈值
-      online     — 有活跃心跳且状态正常
-
-    四种状态的优先级：occupied > suspended > offline > online/approved
-
-    Returns:
-        dict: {
-            "checked": int,
-            "online": int, "offline": int, "occupied": int, "suspended": int,
-            "nodes": [
-                {所有 get_all_nodes 字段 + "real_status": 计算后的最终展示状态}
-            ]
-        }
-    """
-    conn = _get_conn()
+    """????????????????????"""
     try:
         from datetime import timedelta
+
         now_utc = datetime.now(timezone.utc)
+        cutoff_iso = (now_utc - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)).isoformat()
+        rows = get_all_nodes()
 
-        # 使用后台巡检相同的宽松阈值做展示判断（仅用于前端显示，不写库）
-        _display_timeout = HEARTBEAT_TIMEOUT_SECONDS
-        cutoff = now_utc - timedelta(seconds=_display_timeout)
-        cutoff_iso = cutoff.isoformat()
-
-        # ── 1) 查询完整节点数据 ──
-
-        rows = conn.execute("""
-            SELECT nr.server_id, nr.node_name, nr.region, nr.host,
-                   nr.capabilities, nr.status AS req_status, nr.current_ip,
-                   nr.token, b.status AS broker_status, b.last_heartbeat,
-                   nr.occupied_by, nr.occupied_at, nr.description,
-                   b.config AS broker_config
-            FROM node_requests nr
-            LEFT JOIN brokers b ON nr.server_id = b.name
-            WHERE nr.status IN ('approved', 'online', 'suspended', 'offline')
-            ORDER BY
-                CASE nr.status
-                    WHEN 'online' THEN 1
-                    WHEN 'suspended' THEN 2
-                    WHEN 'approved' THEN 3
-                    WHEN 'offline' THEN 4
-                END,
-                nr.created_at ASC
-        """).fetchall()
-
-        # ── 2) 统一计算每个节点的真实最终展示状态（纯计算，不写库）──
         nodes = []
         online_count = 0
         offline_count = 0
@@ -926,26 +1815,21 @@ def force_check_all_nodes() -> dict:
 
         for row in rows:
             n = dict(row)
-            req_status = n.get("req_status", "")
+            req_status = (n.get("req_status") or "").strip()
             occ_by = (n.get("occupied_by") or "").strip()
-            last_hb = n.get("last_heartbeat") or ""
-
-            # 四种状态优先级：suspended(管理操作) > offline(含心跳超时) > occupied(需在线) > online/approved
-            # 注意：occupied 前提是节点必须实际在线（有心跳），离线节点即使有占用记录也显示离线
-            is_alive = bool(last_hb and last_hb >= cutoff_iso)  # 心跳活跃
+            last_hb = (n.get("last_heartbeat") or "").strip()
+            is_alive = bool(last_hb and last_hb >= cutoff_iso)
 
             if req_status == "suspended":
                 real_status = "suspended"
                 suspended_count += 1
-            elif not is_alive or req_status == "offline":
-                # 节点已离线或心跳超时 → 显示离线（不管是否有历史占用记录）
+            elif req_status == "offline" or not is_alive:
                 real_status = "offline"
                 offline_count += 1
             elif occ_by:
-                # 节点在线且有占用者 → 显示已占用
                 real_status = "occupied"
                 occupied_count += 1
-            else:  # 'online' 或 'approved' 且心跳活跃且未被占用
+            else:
                 real_status = "online"
                 online_count += 1
 
@@ -957,7 +1841,6 @@ def force_check_all_nodes() -> dict:
             f"online={online_count}, offline={offline_count}, "
             f"suspended={suspended_count}, occupied={occupied_count}"
         )
-
         return {
             "checked": len(nodes),
             "online": online_count,
@@ -968,17 +1851,75 @@ def force_check_all_nodes() -> dict:
         }
     except Exception as e:
         log.error(f"force_check_all_nodes failed: {e}")
-        return {"checked": 0, "marked_offline": 0, "online": 0, "offline": 0,
-                "occupied": 0, "suspended": 0, "nodes": [], "error": str(e)}
-    finally:
-        conn.close()
-
+        return {
+            "checked": 0,
+            "marked_offline": 0,
+            "online": 0,
+            "offline": 0,
+            "occupied": 0,
+            "suspended": 0,
+            "nodes": [],
+            "error": str(e),
+        }
 
 def get_all_nodes() -> list[dict]:
-    """获取所有已批准节点列表（含在线/暂停/离线状态）—— 兼容旧接口，实际应使用 node_state.manager"""
+    """?????????????????????"""
     conn = _get_conn()
     try:
-        rows = conn.execute("""
+        if _has_v2_schema(conn):
+            rows = conn.execute(
+                """
+                SELECT
+                    n.server_id,
+                    n.node_name,
+                    COALESCE(NULLIF(cfg.broker_type, ''), NULLIF(n.broker_type, ''), 'TT') AS region,
+                    COALESCE(n.host, '') AS host,
+                    COALESCE(NULLIF(n.capabilities_json, ''), '[]') AS capabilities,
+                    COALESCE(rt.status, 'approved') AS req_status,
+                    COALESCE(rt.current_ip, '') AS current_ip,
+                    COALESCE(n.token, '') AS token,
+                    COALESCE(rt.status, 'approved') AS broker_status,
+                    COALESCE(rt.last_heartbeat, '') AS last_heartbeat,
+                    COALESCE(rt.occupied_by, '') AS occupied_by,
+                    COALESCE(rt.occupied_at, '') AS occupied_at,
+                    COALESCE(n.description, '') AS description,
+                    COALESCE(cfg.broker_type, '') AS cfg_broker_type,
+                    COALESCE(cfg.credentials_json, '{}') AS credentials_json,
+                    COALESCE(cfg.enabled, 1) AS cfg_enabled,
+                    COALESCE(cfg.config_version, 0) AS config_version,
+                    COALESCE(n.created_at, '') AS created_at
+                FROM nodes n
+                LEFT JOIN node_runtime rt ON rt.server_id = n.server_id
+                LEFT JOIN node_broker_config cfg ON cfg.server_id = n.server_id
+                ORDER BY
+                    CASE COALESCE(rt.status, 'approved')
+                        WHEN 'online' THEN 1
+                        WHEN 'suspended' THEN 2
+                        WHEN 'approved' THEN 3
+                        WHEN 'offline' THEN 4
+                        ELSE 5
+                    END,
+                    n.created_at ASC,
+                    n.id ASC
+                """
+            ).fetchall()
+            results = []
+            for row in rows:
+                data = dict(row)
+                broker_type = data.get("cfg_broker_type") or data.get("region") or "TT"
+                credentials = _load_json_dict(data.get("credentials_json"))
+                enabled = bool(data.get("cfg_enabled", 1))
+                broker_cfg = _build_legacy_broker_config_payload(
+                    broker_type=broker_type,
+                    credentials=credentials,
+                    enabled=enabled,
+                )
+                data["broker_config"] = json.dumps(broker_cfg, ensure_ascii=False)
+                results.append(data)
+            return results
+
+        rows = conn.execute(
+            """
             SELECT nr.server_id, nr.node_name, nr.region, nr.host,
                    nr.capabilities, nr.status AS req_status, nr.current_ip,
                    nr.token, b.status AS broker_status, b.last_heartbeat,
@@ -995,11 +1936,11 @@ def get_all_nodes() -> list[dict]:
                     WHEN 'offline' THEN 4
                 END,
                 nr.created_at ASC
-        """).fetchall()
+            """
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
-
 
 def get_approved_nodes_for_memory_load() -> list[dict]:
     """
@@ -1012,34 +1953,31 @@ def get_approved_nodes_for_memory_load() -> list[dict]:
 
 
 def sync_node_states_to_db(states: list[dict]) -> int:
-    """
-    将内存中的实时状态批量回写到数据库（用于定期持久化）。
-
-    Args:
-        states: node_state.manager.prepare_db_sync_data() 的输出
-
-    Returns:
-        更新的行数
-    """
+    """????????????????????"""
     if not states:
         return 0
     conn = _get_conn()
     try:
+        has_v2 = _has_v2_schema(conn)
         count = 0
         for s in states:
             sid = s["server_id"]
-            # 更新 node_requests 实时字段
-            conn.execute("""
-                UPDATE node_requests SET status=?, current_ip=?,
-                                      occupied_by=?, occupied_at=?
-                WHERE server_id = ?
-            """, (s["status"], s["current_ip"],
-                  s["occupied_by"], s["occupied_at"], sid))
-            # 更新 brokers 实时字段
-            conn.execute("""
-                UPDATE brokers SET status=?, last_heartbeat=?
-                WHERE name = ?
-            """, (s["status"], s["last_heartbeat"], sid))
+            status = s.get("status", "offline")
+            current_ip = s.get("current_ip", "") or ""
+            occupied_by = s.get("occupied_by", "") or ""
+            occupied_at = s.get("occupied_at", "") or ""
+            last_heartbeat = s.get("last_heartbeat", "") or ""
+            sync_time = s.get("_sync_time", "") or last_heartbeat
+            if has_v2:
+                _ensure_v2_node_record(conn, sid)
+                _upsert_node_runtime(conn, sid, status, current_ip, last_heartbeat, occupied_by, occupied_at, sync_time)
+                conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (sync_time, sid))
+            else:
+                conn.execute(
+                    "UPDATE node_requests SET status=?, current_ip=?, occupied_by=?, occupied_at=? WHERE server_id = ?",
+                    (status, current_ip, occupied_by, occupied_at, sid),
+                )
+                conn.execute("UPDATE brokers SET status=?, last_heartbeat=? WHERE name = ?", (status, last_heartbeat, sid))
             count += 1
         conn.commit()
         if count > 0:
@@ -1053,13 +1991,15 @@ def sync_node_states_to_db(states: list[dict]) -> int:
 
 
 def delete_node(server_id: str) -> bool:
-    """彻底删除已批准节点（同时清理 node_requests 和 brokers）"""
+    """??????????"""
     conn = _get_conn()
     try:
-        # 先删 brokers 表记录
-        conn.execute("DELETE FROM brokers WHERE name = ?", (server_id,))
-        # 再删 node_requests 记录
-        cursor = conn.execute("DELETE FROM node_requests WHERE server_id = ?", (server_id,))
+        if _has_v2_schema(conn):
+            cursor = conn.execute("DELETE FROM nodes WHERE server_id = ?", (server_id,))
+            conn.execute("DELETE FROM node_registration_requests_v2 WHERE server_id = ?", (server_id,))
+        else:
+            conn.execute("DELETE FROM brokers WHERE name = ?", (server_id,))
+            cursor = conn.execute("DELETE FROM node_requests WHERE server_id = ?", (server_id,))
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
@@ -1073,16 +2013,27 @@ def delete_node(server_id: str) -> bool:
 
 
 def suspend_node(server_id: str) -> bool:
-    """暂停节点（标记为 suspended，心跳验证将拒绝）"""
+    """?????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute("""
-            UPDATE node_requests SET status='suspended' WHERE server_id = ? AND status IN ('approved','online')
-        """, (server_id,))
-        conn.execute("""
-            UPDATE brokers SET status='suspended' WHERE name = ?
-        """, (server_id,))
+        if _has_v2_schema(conn):
+            _ensure_v2_node_record(conn, server_id)
+            rt_row = conn.execute("SELECT current_ip, last_heartbeat, occupied_by, occupied_at FROM node_runtime WHERE server_id = ?", (server_id,)).fetchone()
+            _upsert_node_runtime(
+                conn,
+                server_id,
+                'suspended',
+                (rt_row['current_ip'] if rt_row else '') or '',
+                (rt_row['last_heartbeat'] if rt_row else now) or now,
+                (rt_row['occupied_by'] if rt_row else '') or '',
+                (rt_row['occupied_at'] if rt_row else '') or '',
+                now,
+            )
+            conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, server_id))
+        else:
+            conn.execute("UPDATE node_requests SET status='suspended' WHERE server_id = ? AND status IN ('approved','online')", (server_id,))
+            conn.execute("UPDATE brokers SET status='suspended' WHERE name = ?", (server_id,))
         conn.commit()
         log.info(f"Node suspended: {server_id}")
         return True
@@ -1094,19 +2045,27 @@ def suspend_node(server_id: str) -> bool:
 
 
 def resume_node(server_id: str) -> bool:
-    """恢复被暂停的节点"""
+    """?????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        # 恢复为 online 状态（与前端 renderNodes 的 st==='online' 判断一致，
-        # 这样恢复后卡片立即显示绿色"运行中"底色）
-        # 同时更新 last_heartbeat 时间戳，避免后台巡检在60秒内将其标回离线
-        conn.execute("""
-            UPDATE node_requests SET status='online' WHERE server_id = ? AND status = 'suspended'
-        """, (server_id,))
-        conn.execute("""
-            UPDATE brokers SET status='online', last_heartbeat=? WHERE name = ?
-        """, (now, server_id))
+        if _has_v2_schema(conn):
+            _ensure_v2_node_record(conn, server_id)
+            rt_row = conn.execute("SELECT current_ip, occupied_by, occupied_at FROM node_runtime WHERE server_id = ?", (server_id,)).fetchone()
+            _upsert_node_runtime(
+                conn,
+                server_id,
+                'online',
+                (rt_row['current_ip'] if rt_row else '') or '',
+                now,
+                (rt_row['occupied_by'] if rt_row else '') or '',
+                (rt_row['occupied_at'] if rt_row else '') or '',
+                now,
+            )
+            conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, server_id))
+        else:
+            conn.execute("UPDATE node_requests SET status='online' WHERE server_id = ? AND status = 'suspended'", (server_id,))
+            conn.execute("UPDATE brokers SET status='online', last_heartbeat=? WHERE name = ?", (now, server_id))
         conn.commit()
         log.info(f"Node resumed: {server_id}")
         return True
@@ -1117,23 +2076,28 @@ def resume_node(server_id: str) -> bool:
         conn.close()
 
 
-# ── 节点占用管理（occupation）──────────────────────────────────────
-
-
 def occupy_node(server_id: str, username: str) -> bool:
-    """标记节点被指定账户占用（独占锁定）"""
+    """????????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute("""
-            UPDATE node_requests SET occupied_by=?, occupied_at=?
-            WHERE server_id = ? AND status IN ('online', 'approved')
-        """, (username, now, server_id))
-        # 同步到 brokers 表
-        conn.execute("""
-            UPDATE brokers SET last_heartbeat=last_heartbeat
-            WHERE name = ?
-        """, (server_id,))
+        if _has_v2_schema(conn):
+            _ensure_v2_node_record(conn, server_id)
+            rt_row = conn.execute("SELECT status, current_ip, last_heartbeat FROM node_runtime WHERE server_id = ?", (server_id,)).fetchone()
+            rt = dict(rt_row) if rt_row else {}
+            _upsert_node_runtime(
+                conn,
+                server_id,
+                rt.get('status', 'approved') or 'approved',
+                rt.get('current_ip', '') or '',
+                rt.get('last_heartbeat', '') or '',
+                username,
+                now,
+                now,
+            )
+            conn.execute("UPDATE nodes SET updated_at = ? WHERE server_id = ?", (now, server_id))
+        else:
+            conn.execute("UPDATE node_requests SET occupied_by=?, occupied_at=? WHERE server_id = ? AND status IN ('online', 'approved')", (username, now, server_id))
         conn.commit()
         log.info(f"Node {server_id} occupied by account '{username}'")
         return True
@@ -1145,13 +2109,25 @@ def occupy_node(server_id: str, username: str) -> bool:
 
 
 def release_node(server_id: str) -> bool:
-    """释放节点的占用状态"""
+    """?????????"""
     conn = _get_conn()
     try:
-        conn.execute("""
-            UPDATE node_requests SET occupied_by='', occupied_at=''
-            WHERE server_id = ?
-        """, (server_id,))
+        if _has_v2_schema(conn):
+            _ensure_v2_node_record(conn, server_id)
+            rt_row = conn.execute("SELECT status, current_ip, last_heartbeat FROM node_runtime WHERE server_id = ?", (server_id,)).fetchone()
+            rt = dict(rt_row) if rt_row else {}
+            _upsert_node_runtime(
+                conn,
+                server_id,
+                rt.get('status', 'approved') or 'approved',
+                rt.get('current_ip', '') or '',
+                rt.get('last_heartbeat', '') or '',
+                '',
+                '',
+                datetime.now(timezone.utc).isoformat(),
+            )
+        else:
+            conn.execute("UPDATE node_requests SET occupied_by='', occupied_at='' WHERE server_id = ?", (server_id,))
         conn.commit()
         log.info(f"Node {server_id} released (occupation cleared)")
         return True
@@ -1163,39 +2139,25 @@ def release_node(server_id: str) -> bool:
 
 
 def get_occupation_info(server_id: str) -> dict | None:
-    """查询节点的占用信息"""
+    """?????????"""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT occupied_by, occupied_at FROM node_requests WHERE server_id = ?",
-            (server_id,),
-        ).fetchone()
+        if _has_v2_schema(conn):
+            row = conn.execute("SELECT occupied_by, occupied_at FROM node_runtime WHERE server_id = ?", (server_id,)).fetchone()
+            if row and dict(row).get('occupied_by'):
+                return dict(row)
+            return None
+        row = conn.execute("SELECT occupied_by, occupied_at FROM node_requests WHERE server_id = ?", (server_id,)).fetchone()
         if row and dict(row).get("occupied_by"):
             return dict(row)
         return None
     finally:
         conn.close()
 
-
-# ── 账户管理（accounts 表）───────────────────────────────────────────
-
-def create_account(username: str, password: str, ts_address: str = "",
+def create_account(username: str, password: str, se_address: str = "",
                    broker_tag: str = "", description: str = "",
                    role: str = "trader") -> dict | None:
-    """
-    创建新账户
-
-    Args:
-        username: 用户名（唯一）
-        password: 明文密码（将 SHA256 哈希存储）
-        ts_address: Trader_Server 地址 (如 127.0.0.1:8900)
-        broker_tag: 券商标签
-        description: 账户描述信息（非必填）
-        role: 角色 (trader/admin)
-
-    Returns:
-        创建的账户字典，或 None（失败，如用户名已存在）
-    """
+    """Create a new account."""
     role = (role or "trader").strip().lower()
     if role not in ("trader", "admin"):
         log.warning(f"Account create failed: unsupported role '{role}'")
@@ -1205,17 +2167,23 @@ def create_account(username: str, password: str, ts_address: str = "",
     try:
         now = datetime.now(timezone.utc).isoformat()
         pw_hash = _sha256(password)
-        brokers_json = json.dumps([broker_tag] if broker_tag else [])
-        conn.execute("""
-            INSERT INTO accounts (username, password_hash, role, status,
-                                  allowed_brokers, ts_address, description, created_at, updated_at)
-            VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)
-        """, (username, pw_hash, role, brokers_json, ts_address, description, now, now))
+        normalized_broker_tag = (broker_tag or '').strip()
+        brokers_json = _build_allowed_brokers_json(normalized_broker_tag)
+        conn.execute(
+            """
+            INSERT INTO accounts (
+                username, password_hash, role, status,
+                broker_tag, allowed_brokers, trade_server_address, ts_address,
+                description, created_at, updated_at
+            )
+            VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (username, pw_hash, role, normalized_broker_tag, brokers_json, se_address, se_address, description, now, now),
+        )
         conn.commit()
         row = conn.execute("SELECT * FROM accounts WHERE id = last_insert_rowid()").fetchone()
-        log.info(f"Account created: {username} role={role} (ts={ts_address}, broker={broker_tag})")
-        return dict(row) if row else None
-
+        log.info(f"Account created: {username} role={role} (se={se_address}, broker={broker_tag})")
+        return _build_account_compat(row)
     except sqlite3.IntegrityError:
         log.warning(f"Account create failed: username '{username}' already exists")
         return None
@@ -1227,22 +2195,24 @@ def create_account(username: str, password: str, ts_address: str = "",
 
 
 def get_all_accounts() -> list[dict]:
-    """获取所有账户列表"""
+    """Get all accounts."""
     conn = _get_conn()
     try:
-        rows = conn.execute("""
-            SELECT id, username, role, status, allowed_brokers, ts_address,
-                   description, created_at, updated_at
+        rows = conn.execute(
+            """
+            SELECT id, username, role, status, broker_tag, allowed_brokers,
+                   trade_server_address, description, created_at, updated_at
             FROM accounts
             ORDER BY id DESC
-        """).fetchall()
-        return [dict(r) for r in rows]
+            """
+        ).fetchall()
+        return [_build_account_compat(row) for row in rows]
     finally:
         conn.close()
 
 
 def delete_account(account_id: int) -> bool:
-    """删除账户（超级管理员账户不可删除）"""
+    """?????super_admin ??????"""
     conn = _get_conn()
     try:
         cursor = conn.execute("DELETE FROM accounts WHERE id = ? AND role <> 'super_admin'", (account_id,))
@@ -1258,16 +2228,15 @@ def delete_account(account_id: int) -> bool:
         conn.close()
 
 
-
 def suspend_account(account_id: int) -> bool:
-    """暂停账户（状态设为 disabled，超级管理员不可暂停）"""
+    """?????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        cursor = conn.execute("""
-            UPDATE accounts SET status='disabled', updated_at=?
-            WHERE id = ? AND status != 'disabled' AND role <> 'super_admin'
-        """, (now, account_id))
+        cursor = conn.execute(
+            "UPDATE accounts SET status='disabled', updated_at=? WHERE id = ? AND status != 'disabled' AND role <> 'super_admin'",
+            (now, account_id),
+        )
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
@@ -1280,16 +2249,15 @@ def suspend_account(account_id: int) -> bool:
         conn.close()
 
 
-
 def resume_account(account_id: int) -> bool:
-    """恢复被暂停的账户"""
+    """?????????"""
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        cursor = conn.execute("""
-            UPDATE accounts SET status='active', updated_at=?
-            WHERE id = ? AND status = 'disabled'
-        """, (now, account_id))
+        cursor = conn.execute(
+            "UPDATE accounts SET status='active', updated_at=? WHERE id = ? AND status = 'disabled'",
+            (now, account_id),
+        )
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
@@ -1303,28 +2271,29 @@ def resume_account(account_id: int) -> bool:
 
 
 def get_account_by_id(account_id: int) -> dict | None:
-    """根据 ID 获取单个账户详情（不含密码哈希）"""
+    """Get account details by id."""
     conn = _get_conn()
     try:
-        row = conn.execute("""
-            SELECT id, username, role, status, allowed_brokers, ts_address,
-                   description, created_at, updated_at
-            FROM accounts WHERE id = ?
-        """, (account_id,)).fetchone()
-        return dict(row) if row else None
+        row = conn.execute(
+            "SELECT id, username, role, status, broker_tag, allowed_brokers, trade_server_address, description, created_at, updated_at FROM accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+        return _build_account_compat(row)
     finally:
         conn.close()
 
 
 def get_account_by_username(username: str) -> dict | None:
-    """根据用户名获取账户信息（含密码哈希）。"""
+    """Get account details by username."""
     conn = _get_conn()
     try:
-        row = conn.execute("SELECT * FROM accounts WHERE username = ?", (username,)).fetchone()
-        return dict(row) if row else None
+        row = conn.execute(
+            "SELECT id, username, role, status, broker_tag, allowed_brokers, trade_server_address, description, created_at, updated_at FROM accounts WHERE username = ?",
+            (username,),
+        ).fetchone()
+        return _build_account_compat(row)
     finally:
         conn.close()
-
 
 def rename_super_admin_username(account_id: int, new_username: str) -> tuple[bool, str]:
     """重命名超级管理员用户名（仅允许超级管理员本人）。"""
@@ -1408,46 +2377,40 @@ def update_super_admin_password(account_id: int, current_password: str, new_pass
 
 
 
-def update_account(account_id: int, ts_address: str = "", broker_tag: str = "",
+def update_account(account_id: int, se_address: str = "", broker_tag: str = "",
                    description: str = "", password: str = "") -> bool:
-    """
-    更新账户信息
-
-    Args:
-        account_id: 账户 ID
-        ts_address: 新的 TS 地址
-        broker_tag: 新的券商标签
-        description: 新的描述信息
-        password: 新密码（为空则不修改）
-
-    Returns:
-        是否更新成功
-    """
+    """Update account fields."""
     import hashlib
+
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        brokers_json = json.dumps([broker_tag] if broker_tag else [])
+        normalized_broker_tag = (broker_tag or '').strip()
+        brokers_json = _build_allowed_brokers_json(normalized_broker_tag)
 
         if password:
-            # 包含密码修改
             pw_hash = hashlib.sha256(password.encode()).hexdigest()
-            cursor = conn.execute("""
-                UPDATE accounts SET ts_address=?, allowed_brokers=?,
+            cursor = conn.execute(
+                """
+                UPDATE accounts SET trade_server_address=?, ts_address=?, broker_tag=?, allowed_brokers=?,
                     description=?, password_hash=?, updated_at=?
                 WHERE id = ?
-            """, (ts_address, brokers_json, description, pw_hash, now, account_id))
+                """,
+                (se_address, se_address, normalized_broker_tag, brokers_json, description, pw_hash, now, account_id),
+            )
         else:
-            # 不改密码
-            cursor = conn.execute("""
-                UPDATE accounts SET ts_address=?,
+            cursor = conn.execute(
+                """
+                UPDATE accounts SET trade_server_address=?, ts_address=?, broker_tag=?,
                     allowed_brokers=?, description=?, updated_at=?
                 WHERE id = ?
-            """, (ts_address, brokers_json, description, now, account_id))
+                """,
+                (se_address, se_address, normalized_broker_tag, brokers_json, description, now, account_id),
+            )
         conn.commit()
         ok = cursor.rowcount > 0
         if ok:
-            log.info(f"Account updated: id={account_id} (ts={ts_address}, broker={broker_tag})")
+            log.info(f"Account updated: id={account_id} (se={se_address}, broker={broker_tag})")
         return ok
     except Exception as e:
         log.error(f"update_account failed: {e}")
@@ -1455,20 +2418,99 @@ def update_account(account_id: int, ts_address: str = "", broker_tag: str = "",
     finally:
         conn.close()
 
-
-# ── 审计日志 ─────────────────────────────────────────────────────────────
-
-def _audit_log(username: str, action: str, resource: str, detail: str, ip: str = ""):
-    """记录审计日志"""
+def record_audit_log(username: str, action: str, resource: str, detail: str, ip: str = "") -> None:
+    """Record one SM operation event for dashboard and audit views."""
     conn = _get_conn()
     try:
         conn.execute(
             "INSERT INTO audit_log (username, action, resource, detail, ip_address, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (username, action, resource, detail, ip, datetime.now(timezone.utc).isoformat()),
+            (
+                username or "system",
+                action or "UNKNOWN",
+                resource or "system",
+                detail or "",
+                ip or "",
+                datetime.now(timezone.utc).isoformat(),
+            ),
         )
         conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(f"record_audit_log failed: {e}")
+    finally:
+        conn.close()
+
+
+def _audit_log(username: str, action: str, resource: str, detail: str, ip: str = ""):
+    """Backward-compatible audit log wrapper."""
+    record_audit_log(username, action, resource, detail, ip)
+
+
+def get_audit_logs(limit: int = 10, days: int = 7, offset: int = 0) -> list[dict]:
+    """Return recent audit events, newest first."""
+    safe_limit = max(1, min(int(limit or 10), 500))
+    safe_offset = max(0, int(offset or 0))
+    safe_days = max(1, min(int(days or 7), 3650))
+    from datetime import timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, username, action, resource, detail, ip_address, created_at
+            FROM audit_log
+            WHERE created_at >= ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (cutoff, safe_limit, safe_offset),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def count_audit_logs(days: int = 7) -> int:
+    """Count audit events within the recent days window."""
+    safe_days = max(1, min(int(days or 7), 3650))
+    from datetime import timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM audit_log WHERE created_at >= ?",
+            (cutoff,),
+        ).fetchone()
+        return int(row["total"] or 0) if row else 0
+    finally:
+        conn.close()
+
+
+def cleanup_audit_logs(retention_days: int | None = None) -> int:
+    """Delete audit events older than retention_days. Defaults to 30 days."""
+    raw_days = retention_days
+    if raw_days is None:
+        raw_days = os.environ.get("SM_AUDIT_LOG_RETENTION_DAYS", "30")
+    try:
+        safe_days = max(1, int(raw_days or 30))
+    except (TypeError, ValueError):
+        safe_days = 30
+
+    from datetime import timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    conn = _get_conn()
+    try:
+        cursor = conn.execute("DELETE FROM audit_log WHERE created_at < ?", (cutoff,))
+        conn.commit()
+        deleted = cursor.rowcount if cursor.rowcount is not None else 0
+        if deleted:
+            log.info(f"Cleaned {deleted} audit log row(s), retention_days={safe_days}")
+        return deleted
+    except Exception as e:
+        log.warning(f"cleanup_audit_logs failed: {e}")
+        return 0
     finally:
         conn.close()

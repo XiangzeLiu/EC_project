@@ -1,3 +1,5 @@
+import os
+
 """
 Constants & Theme Definitions
 颜色主题、字体配置、全局常量
@@ -59,15 +61,15 @@ HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
 MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)
 
 # ── Server defaults ─────────────────────────────────────────────────────────────
-DEFAULT_SERVER_HOST = "127.0.0.1"
-DEFAULT_SERVER_PORT = 8800
+DEFAULT_SERVER_HOST = os.getenv("CLIENT_SM_HOST", "127.0.0.1")
+DEFAULT_SERVER_PORT = int(os.getenv("CLIENT_SM_PORT", "8800"))
 
 # ── Trader_Server (TS) 直连配置 ────────────────────────────────────────────
-DEFAULT_TS_HOST = "127.0.0.1"
-DEFAULT_TS_PORT = 8900
+DEFAULT_TS_HOST = os.getenv("CLIENT_TS_HOST", "127.0.0.1")
+DEFAULT_TS_PORT = int(os.getenv("CLIENT_TS_PORT", "8900"))
 
 # ── TS 自动重连配置 ───────────────────────────────────────────────────────────
-TS_RECONNECT_ENABLED = True           # 是否启用自动重连
-TS_RECONNECT_BASE_INTERVAL = 3       # 首次重连等待时间(秒)
-TS_RECONNECT_MAX_INTERVAL = 30       # 最大重连间隔(秒)，指数退避上限
-TS_RECONNECT_MAX_ATTEMPTS = 0        # 最大重连次数(0=无限次)
+TS_RECONNECT_ENABLED = os.getenv("CLIENT_TS_RECONNECT_ENABLED", "1").strip().lower() not in {"0", "false", "no"}  # 是否启用自动重连
+TS_RECONNECT_BASE_INTERVAL = int(os.getenv("CLIENT_TS_RECONNECT_BASE_INTERVAL", "3"))  # 首次重连等待时间(秒)
+TS_RECONNECT_MAX_INTERVAL = int(os.getenv("CLIENT_TS_RECONNECT_MAX_INTERVAL", "30"))  # 最大重连间隔(秒)，指数退避上限
+TS_RECONNECT_MAX_ATTEMPTS = int(os.getenv("CLIENT_TS_RECONNECT_MAX_ATTEMPTS", "10"))  # 最大重连次数(0=无限次)

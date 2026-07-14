@@ -1,0 +1,33 @@
+2026-07-03 03:09:02 [trader_server] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Trader_Server\data\logs\ts_20260703.log)
+2026-07-03 03:09:02 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-03 03:09:02 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-03 03:09:02 [trader_server.registration] INFO: Restored session: server_id=node_trader-node-01_fc22aeb7
+2026-07-03 03:09:02 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-03 03:09:02 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-03 03:09:02 [trader_server.heartbeat] INFO: Heartbeat started (interval=20s)
+2026-07-03 03:09:03 [trader_server.api.ib] WARNING: ibapi not installed, IBBroker will be non-functional
+2026-07-03 03:09:04 [trader_server.config_sync] INFO: Config event listener started
+2026-07-03 03:09:04 [trader_server.config_sync] INFO: check_andreload: source=heartbeat, version changed 0 → 1, pulling new config...
+2026-07-03 03:09:04 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-03 03:09:06 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-03 03:09:06 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-03 03:09:06 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-03 03:09:06 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-07-03 03:09:09 [trader_server.ws_server] INFO: [sess_faa170f17d167828] WS connected from 127.0.0.1:55049
+2026-07-03 03:09:09 [trader_server.msg_log] INFO: [sess_faa170f17d167828][trc_159bd86eeac64b8d] Client 已连接 127.0.0.1:55049
+2026-07-03 03:09:09 [trader_server.msg_log] INFO: [sess_faa170f17d167828][trc_159bd86eeac64b8d] 认证通过 ✓
+2026-07-03 03:09:09 [trader_server.ws_server] INFO: [sess_faa170f17d167828] Auth OK, connection established
+2026-07-03 03:09:09 [trader_server.ws_server] INFO: [sess_faa170f17d167828] WS disconnected by client
+2026-07-03 03:09:09 [trader_server.ws_server] INFO: [sess_faa170f17d167828] Connection cleaned up (remaining connections: 0)
+2026-07-03 03:09:09 [trader_server.msg_log] INFO: [sess_faa170f17d167828] Client 断开连接
+2026-07-03 03:09:09 [trader_server.ws_server] INFO: [sess_2b74017c6e232219] WS connected from 127.0.0.1:55053
+2026-07-03 03:09:09 [trader_server.msg_log] INFO: [sess_2b74017c6e232219][trc_458b736abc614b93] Client 已连接 127.0.0.1:55053
+2026-07-03 03:09:09 [trader_server.msg_log] INFO: [sess_2b74017c6e232219][trc_458b736abc614b93] 认证通过 ✓
+2026-07-03 03:09:09 [trader_server.ws_server] INFO: [sess_2b74017c6e232219] Auth OK, connection established
+2026-07-03 03:09:10 [trader_server.msg_log] INFO: [sess_2b74017c6e232219][trc_7149ff5b5a224086] [BROKER_STATUS_QUERY]
+2026-07-03 03:09:10 [trader_server.msg_log] INFO: [sess_2b74017c6e232219][trc_7149ff5b5a224086] [BROKER_STATUS_RESPONSE]
+2026-07-03 03:12:46 [trader_server.msg_log] INFO: [sess_2b74017c6e232219][trc_820f0b741bf24d7d] [BROKER_LOGIN]
+2026-07-03 03:12:46 [trader_server.msg_log] INFO: [sess_2b74017c6e232219][trc_820f0b741bf24d7d] [BROKER_LOGIN_RESPONSE]
+2026-07-03 03:12:55 [trader_server.ws_server] INFO: [sess_2b74017c6e232219] WS disconnected by client
+2026-07-03 03:12:55 [trader_server.ws_server] INFO: [sess_2b74017c6e232219] Connection cleaned up (remaining connections: 0)
+2026-07-03 03:12:55 [trader_server.msg_log] INFO: [sess_2b74017c6e232219] Client 断开连接

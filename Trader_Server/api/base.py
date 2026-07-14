@@ -25,6 +25,21 @@ class BaseBrokerAPI(ABC):
         self._connected = False
         self._credentials = {}
         self._quote_callback: Callable | None = None
+        self._last_connect_error: dict[str, Any] = {
+            "code": "",
+            "message": "",
+            "retryable": True,
+        }
+    @classmethod
+    def capabilities(cls) -> dict[str, bool]:
+        """Return the adapter capabilities exposed to upper layers."""
+        return {
+            "quotes": True,
+            "orders": True,
+            "cancel_order": True,
+            "positions": True,
+            "order_query": True,
+        }
 
     @classmethod
     def credential_profiles(cls) -> list[tuple[str, ...]]:
@@ -169,15 +184,32 @@ class BaseBrokerAPI(ABC):
         self._quote_callback = callback
 
     def _on_quote_data(self, quote: dict) -> None:
-        """内部方法：当收到行情数据时调用回调"""
+        """鍐呴儴鏂规硶锛氬綋鏀跺埌琛屾儏鏁版嵁鏃惰皟鐢ㄥ洖璋?"""
         if self._quote_callback:
             try:
                 self._quote_callback(quote)
             except Exception as e:
                 log.warning(f"Quote callback error: {e}")
 
+    def set_connection_error(self, code: str, message: str, retryable: bool = True) -> None:
+        self._last_connect_error = {
+            "code": str(code or ""),
+            "message": str(message or ""),
+            "retryable": bool(retryable),
+        }
+
+    def clear_connection_error(self) -> None:
+        self._last_connect_error = {
+            "code": "",
+            "message": "",
+            "retryable": True,
+        }
+
+    def get_connection_error(self) -> dict[str, Any]:
+        return dict(self._last_connect_error)
     # ── 辅助 ──────────────────────────────────────────────────
 
     def __repr__(self) -> str:
         status = "CONNECTED" if self._connected else "DISCONNECTED"
         return f"<{self.__class__.__name__} type={self.broker_type} status={status}>"
+

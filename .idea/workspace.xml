@@ -4,20 +4,52 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="打包">
+    <list default="true" id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="名称优化修改">
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/C/Client/Client/Client.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Client/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/constants.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Client/network/se_websocket.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/network/ts_websocket.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/network/ts_websocket.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/network/ws_client.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/Client/services/trading_session.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/services/trading_session.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/ui/log_area.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/log_area.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Client/ui/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/main_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/ui/orders_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/orders_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/ui/positions_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/positions_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/ui/trading_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/trading_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/SM/ServerManager/ServerManager/ServerManager.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Server_manager/data/server_manager.db" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/data/server_manager.db" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Server_manager/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/database.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Server_manager/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/node_state.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/node_state.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/routers/auth_router.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/routers/auth_router.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/routers/order_router.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/routers/position_router.py" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/routers/position_router.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/services/session_cache.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/services/tastytrade_svc.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/templates/dashboard.html" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/templates/dashboard.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/TS/TraderServer/TraderServer/TraderServer.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/api/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/base.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/api/factory.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/factory.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/api/interactive_brokers.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/interactive_brokers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/api/tastytrade.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/tastytrade.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Trader_Server/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Trader_Server/data/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/config.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Trader_Server/gui/api_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/gui/api_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Trader_Server/gui/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/gui/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/gui/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/gui/api_client.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/gui/app.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/Trader_Server/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/network/ws_server.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/network/ws_server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/services/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/services/config_sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/config_sync.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/services/quote_provider.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/quote_provider.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/services/trading_svc.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/trading_svc.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -54,6 +86,11 @@
     &quot;Python.main (2).executor&quot;: &quot;Run&quot;,
     &quot;Python.main (3).executor&quot;: &quot;Run&quot;,
     &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main_demo.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main_qt.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main_qt_demo.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main_v2_demo.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main_window.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
@@ -79,11 +116,11 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Server_manager" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Trader_Server" />
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Server_manager/main.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Trader_Server/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -101,33 +138,11 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Server_economic" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Server_manager" />
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Server_economic/main.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="main (3)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="EC_project" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Trader_Server" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Trader_Server/main.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Server_manager/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -158,12 +173,57 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <configuration name="main_demo" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="EC_project" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Trader_Server/qt_draft" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Trader_Server/qt_draft/main_demo.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="main_qt" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="EC_project" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Client" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Client/main_qt.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
         <item itemvalue="Python.main" />
-        <item itemvalue="Python.main (3)" />
         <item itemvalue="Python.main (1)" />
         <item itemvalue="Python.main (2)" />
+        <item itemvalue="Python.main_demo" />
+        <item itemvalue="Python.main_qt" />
       </list>
     </recent_temporary>
   </component>
@@ -303,7 +363,15 @@
       <option name="project" value="LOCAL" />
       <updated>1779822217958</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="名称优化修改">
+      <option name="closed" value="true" />
+      <created>1781458574800</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1781458574800</updated>
+    </task>
+    <option name="localTasksCounter" value="17" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -328,6 +396,7 @@
     <MESSAGE value="优化web管理界面功能。" />
     <MESSAGE value="优化登录与注册逻辑，增加servermanager的管理分级。" />
     <MESSAGE value="打包" />
-    <option name="LAST_COMMIT_MESSAGE" value="打包" />
+    <MESSAGE value="名称优化修改" />
+    <option name="LAST_COMMIT_MESSAGE" value="名称优化修改" />
   </component>
 </project>

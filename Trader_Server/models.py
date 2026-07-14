@@ -1,4 +1,4 @@
-"""Server_economic 数据模型定义（Pydantic）"""
+"""Trader_Server 数据模型定义（Pydantic）"""
 
 from pydantic import BaseModel, Field
 from typing import Optional

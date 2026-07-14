@@ -34,7 +34,7 @@ except ImportError:
     # 兼容单独运行时的 fallback
     TS_RECONNECT_BASE_INTERVAL = 3
     TS_RECONNECT_MAX_INTERVAL = 30
-    TS_RECONNECT_MAX_ATTEMPTS = 0
+    TS_RECONNECT_MAX_ATTEMPTS = 10
 
 
 class TSWebSocketClient:
@@ -44,6 +44,8 @@ class TSWebSocketClient:
                  token: str = "", server_id: str = "",
                  on_message_callback: Callable[[dict], None] = None,
                  on_status_callback: Callable[[str], None] = None,
+                 on_latency_callback: Callable[[int], None] = None,
+                 on_reconnect_prepare_callback: Callable[[int], bool] | None = None,
                  reconnect_enabled: bool = False):
 
         self.host = host
@@ -53,6 +55,8 @@ class TSWebSocketClient:
         self.on_message = on_message_callback
 
         self.on_status = on_status_callback
+        self.on_latency = on_latency_callback
+        self.on_reconnect_prepare = on_reconnect_prepare_callback
         self._active = False
         self._connected = False
         self._reconnect_enabled = reconnect_enabled   # 是否启用自动重连
@@ -69,6 +73,9 @@ class TSWebSocketClient:
         self._resp_lock = threading.Lock()
         # ★ 连接丢失事件：任一子协程检测到断连时 set，其他协程立即响应
         self._conn_lost: asyncio.Event | None = None
+        self._send_wakeup: asyncio.Event | None = None
+        self._send_lock: asyncio.Lock | None = None
+        self._ping_sent_at: dict[str, float] = {}
 
 
     @property
@@ -116,6 +123,7 @@ class TSWebSocketClient:
     def stop(self):
         """停止连接"""
         self._active = False
+        self._connected = False
         if self._loop and self._loop.is_running():
             try:
                 self._loop.call_soon_threadsafe(self._do_stop)
@@ -128,6 +136,20 @@ class TSWebSocketClient:
             # 使用 run_coroutine_threadsafe 避免未等待的协程警告
             asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)
 
+    def _enqueue_message(self, msg: dict):
+        with self._req_lock:
+            self._pending_requests.append(msg)
+        self._wake_sender()
+
+    def _wake_sender(self):
+        loop = self._loop
+        wakeup = self._send_wakeup
+        if loop and wakeup and loop.is_running():
+            try:
+                loop.call_soon_threadsafe(wakeup.set)
+            except Exception:
+                pass
+
     def send_query_status(self) -> str:
         """发送节点状态查询请求"""
         req_id = f"req_{int(time.time() * 1000)}"
@@ -137,8 +159,7 @@ class TSWebSocketClient:
             "timestamp": int(time.time() * 1000),
             "payload": {},
         }
-        with self._req_lock:
-            self._pending_requests.append(msg)
+        self._enqueue_message(msg)
         return req_id
 
     def send_raw_message(self, msg_type: str, payload: dict | None = None) -> str:
@@ -160,8 +181,7 @@ class TSWebSocketClient:
             "payload": p,
         }
 
-        with self._req_lock:
-            self._pending_requests.append(msg)
+        self._enqueue_message(msg)
         return req_id
 
     def request_sync(self, msg_type: str, payload: dict | None = None, timeout: float = 10.0) -> dict | None:
@@ -189,8 +209,7 @@ class TSWebSocketClient:
         with self._resp_lock:
             self._response_waiters[req_id] = q
 
-        with self._req_lock:
-            self._pending_requests.append(msg)
+        self._enqueue_message(msg)
 
         try:
             return q.get(timeout=timeout)
@@ -257,15 +276,29 @@ class TSWebSocketClient:
         # ── 重连循环：当启用重连且未被显式 stop 时持续尝试 ──
         while True:
             try:
+                if reconnect_attempts > 0 and self.on_reconnect_prepare:
+                    try:
+                        if not self.on_reconnect_prepare(reconnect_attempts):
+                            raise ConnectionRefusedError("reconnect_prepare_failed")
+                    except Exception as prep_exc:
+                        last_error = f"reconnect_prepare_failed: {prep_exc}"
+                        raise ConnectionRefusedError(last_error)
+
                 # 每次连接尝试前确保 event loop 可用
                 if self._loop.is_closed():
                     self._loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(self._loop)
 
-                self._loop.run_until_complete(self._connect_and_run())
+                connected_this_run = bool(self._loop.run_until_complete(self._connect_and_run()))
                 # 正常退出（async with 结束或认证失败返回）→ 检查是否继续重连
                 if not self._reconnect_enabled or not self._active:
                     break
+                if connected_this_run:
+                    reconnect_attempts = 0
+                last_error = "connection_lost"
+                reconnect_attempts += 1
+                if self.on_status:
+                    self.on_status(f"Reconnecting ({reconnect_attempts})... | connection_lost")
 
             except websockets.exceptions.ConnectionClosed as e:
                 # 管理端强制断开：不进行自动重连
@@ -321,6 +354,7 @@ class TSWebSocketClient:
                     self.on_status(f"Reconnect failed after {reconnect_attempts} attempts: {last_error}")
                 break
 
+
             # sleep 在 loop 外部进行，不阻塞 event loop
             time.sleep(delay)
 
@@ -345,6 +379,8 @@ class TSWebSocketClient:
 
         # ★ 初始化连接丢失事件（每次新连接重置）
         self._conn_lost = asyncio.Event()
+        self._send_wakeup = asyncio.Event()
+        self._send_lock = asyncio.Lock()
 
         async with websockets.connect(uri) as ws:
             self._ws = ws
@@ -365,7 +401,7 @@ class TSWebSocketClient:
             }
 
 
-            await ws.send(json.dumps(connect_msg))
+            await self._send_ws_json(ws, connect_msg)
 
             # 阶段2: 等待 CONNECT_ACK
             ack_raw = await asyncio.wait_for(ws.recv(), timeout=10.0)
@@ -391,6 +427,8 @@ class TSWebSocketClient:
             # ★ return_exceptions=True: 任意子协程异常退出不会杀死其他协程
             #    例如 _receive_loop 因 WS 断开而退出时，_heartbeat_loop 和
             #    _send_pending_loop 可以继续运行直到 ws 被关闭，避免竞态
+            self._send_wakeup.set()
+            await self._send_latency_ping(ws)
             results = await asyncio.gather(
                 self._receive_loop(ws),
                 self._heartbeat_loop(ws),
@@ -402,6 +440,15 @@ class TSWebSocketClient:
                 if isinstance(r, Exception):
                     names = ["receive", "heartbeat", "send_pending"]
                     log.debug(f"[TS] {names[i]} exited with: {r}")
+            return True
+
+    async def _send_ws_json(self, ws, msg: dict):
+        data = json.dumps(msg)
+        if self._send_lock is None:
+            await ws.send(data)
+            return
+        async with self._send_lock:
+            await ws.send(data)
 
     async def _receive_loop(self, ws):
         """接收服务端消息并回调（任何异常仅退出本协程，同时通知其他协程）"""
@@ -427,6 +474,16 @@ class TSWebSocketClient:
                 continue
 
             msg_type = msg.get("type", "")
+            if msg_type == "PONG":
+                ping_id = msg.get("id", "")
+                sent_at = self._ping_sent_at.pop(ping_id, None)
+                if sent_at is not None and self.on_latency:
+                    latency_ms = max(0, int((time.perf_counter() - sent_at) * 1000))
+                    try:
+                        self.on_latency(latency_ms)
+                    except Exception:
+                        pass
+
 
             # 优先唤醒同步等待者（按请求 id 关联）
             req_id = msg.get("id", "")
@@ -450,6 +507,28 @@ class TSWebSocketClient:
                     self.on_message(msg)
                 except Exception:
                     pass  # 回调异常不应影响接收循环
+
+    async def _send_latency_ping(self, ws) -> bool:
+        ping_id = f"ping_{int(time.time() * 1000)}"
+        ping = {
+            "type": "PING",
+            "id": ping_id,
+            "timestamp": int(time.time() * 1000),
+            "payload": {},
+        }
+        try:
+            self._ping_sent_at[ping_id] = time.perf_counter()
+            await self._send_ws_json(ws, ping)
+            # 避免异常场景下累计过多旧 PING 记录。
+            if len(self._ping_sent_at) > 8:
+                for old_id in list(self._ping_sent_at)[:-8]:
+                    self._ping_sent_at.pop(old_id, None)
+            return True
+        except Exception:
+            if self._conn_lost is not None:
+                self._conn_lost.set()
+            return False
+
 
     async def _heartbeat_loop(self, ws):
         """每15秒发送 PING（同时监听连接丢失事件以快速响应断连）"""
@@ -482,40 +561,30 @@ class TSWebSocketClient:
                 self._conn_lost.set()
                 break
 
-            ping = {
-                "type": "PING",
-                "id": f"ping_{int(time.time() * 1000)}",
-                "timestamp": int(time.time() * 1000),
-                "payload": {},
-            }
-            try:
-                await ws.send(json.dumps(ping))
-            except Exception:
-                self._conn_lost.set()
+            if not await self._send_latency_ping(ws):
                 break
 
     async def _send_pending_loop(self, ws):
-        """检查并发送待处理请求（每50ms检查一次，同时监听连接丢失事件）"""
+        """Send queued requests as soon as they are enqueued."""
         while self._active:
-            if self._conn_lost is None:
+            if self._conn_lost is None or self._send_wakeup is None:
                 break
             try:
-                # ★ 同时监听 50ms 定时器和 conn_lost 事件
-                # 创建任务以便可以取消
-                sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+                send_task = asyncio.create_task(self._send_wakeup.wait())
                 event_task = asyncio.create_task(self._conn_lost.wait())
                 done, pending = await asyncio.wait(
-                    [sleep_task, event_task],
+                    [send_task, event_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                # 取消未完成的任务
                 for task in pending:
                     task.cancel()
-                # 等待取消的任务完成（避免警告）
                 if pending:
                     await asyncio.gather(*pending, return_exceptions=True)
             except (asyncio.CancelledError, RuntimeError):
                 break
+
+            if self._send_wakeup:
+                self._send_wakeup.clear()
 
             is_open = self._is_ws_open(ws)
             if self._conn_lost.is_set() or not self._active or not is_open:
@@ -534,13 +603,13 @@ class TSWebSocketClient:
 
             for req in requests:
                 try:
-                    await ws.send(json.dumps(req))
-                except Exception as e:
-                    # 发送失败 → 回滚到队列头部 + 广播断连
+                    await self._send_ws_json(ws, req)
+                except Exception:
                     with self._req_lock:
                         self._pending_requests.insert(0, req)
                     self._conn_lost.set()
                     break
+
 
 
 # 向后兼容别名

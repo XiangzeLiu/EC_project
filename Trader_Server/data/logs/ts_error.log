@@ -1,0 +1,34 @@
+2026-07-09 23:20:21 [trader_server.selftest] ERROR: codex_log_selftest_ts
+2026-07-09 23:39:57 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-09 23:39:57 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-09 23:40:05 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-09 23:40:05 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 00:11:37 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 00:11:37 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 00:11:44 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 00:11:44 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:36:38 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:36:38 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:37:07 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:37:07 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:39:36 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:39:36 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:45:55 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 01:45:55 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:31:25 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:31:25 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:31:34 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:31:34 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:32:30 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:32:30 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:32:50 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:32:50 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:37:16 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:37:16 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:37:20 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-10 02:37:20 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-13 02:50:08 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-14 23:35:22 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-14 23:35:22 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-14 23:38:28 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-14 23:38:28 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}

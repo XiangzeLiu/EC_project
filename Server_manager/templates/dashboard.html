@@ -447,7 +447,7 @@
       font-size: 22px; flex-shrink: 0;
     }
     .stat-info { flex: 1; min-width: 0; }
-    .stat-label { font-size: 12px; color: #b9c0d2; margin-bottom: 2px; }
+    .stat-label { font-size: 15px; font-weight: 600; color: #1d2236; margin-bottom: 4px; }
     .stat-value { font-size: 24px; font-weight: 700; color: #1d2236; line-height: 1.2; }
     .stat-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
     /* stat card color variants */
@@ -478,6 +478,55 @@
 
     /* quick action row in overview */
     .quick-actions { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid #eef0f6; }
+
+
+
+    /* Overview detail rows and audit log */
+    .overview-grid.ov-main { grid-template-columns: 1fr 1fr 1fr; align-items: stretch; }
+    .ov-list-head { display: grid; grid-template-columns: minmax(120px,1.1fr) minmax(80px,.7fr) minmax(120px,1fr) auto; gap: 10px; align-items: center; margin: 12px 16px 0; padding: 0 12px 4px; color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+    .ov-list-detail { padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 10px; max-height: 430px; overflow: auto; }
+    .ov-detail-row { display: grid; grid-template-columns: minmax(120px,1.1fr) minmax(80px,.7fr) minmax(120px,1fr) auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid #eef0f6; border-radius: 10px; background: #fbfcff; }
+    .ov-detail-main { min-width: 0; }
+    .ov-detail-title { font-size: 13px; font-weight: 700; color: #1d2236; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ov-detail-sub { margin-top: 2px; font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ov-detail-mid { font-size: 12px; color: #5b6480; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ov-status-pill { display: inline-flex; align-items: center; justify-content: center; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .ov-status-occupied { background:#f3e8ff; color:#9333ea; }
+    .ov-status-active { background:#f0fdf4; color:#16a34a; }
+    .ov-status-paused { background:#fff7ed; color:#d97706; }
+    .ov-status-offline { background:#fef2f2; color:#dc2626; }
+    .ov-status-other { background:#eef4ff; color:#3b63f6; }
+    .audit-list { padding: 12px 16px 16px; display:flex; flex-direction:column; gap:10px; max-height:430px; overflow:auto; }
+    .audit-item { display:grid; grid-template-columns: 82px minmax(0,1fr); gap:10px; padding:12px; border:1px solid #eef0f6; border-radius:10px; background:#fbfcff; }
+    .audit-time { color:#3b63f6; font-size:11px; font-weight:700; white-space:nowrap; }
+    .audit-detail { color:#3f475f; font-size:13px; line-height:1.5; word-break:break-word; }
+    .audit-meta { margin-top:4px; color:#94a3b8; font-size:11px; line-height:1.4; }
+    .theme-toggle-wrap { padding: 0 12px 12px; }
+    .theme-toggle { width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #eef0f6; border-radius:8px; background:#f7f8fb; color:#3f475f; cursor:pointer; font-size:13px; }
+    .theme-toggle i { color:#3b63f6; }
+    body.sm-dark { background:#111827; color:#e5e7eb; }
+    body.sm-dark .sidebar, body.sm-dark .topbar, body.sm-dark .panel, body.sm-dark .stat-card, body.sm-dark .modal-panel {
+      background:rgba(31,41,55,.82);
+      border-color:rgba(148,163,184,.22);
+      box-shadow:0 16px 38px rgba(0,0,0,.24);
+      backdrop-filter:blur(18px);
+    }
+    body.sm-dark .content, body.sm-dark .main-area {
+      background:
+        radial-gradient(circle at 14% 10%, rgba(59,99,246,.16), transparent 28%),
+        radial-gradient(circle at 86% 6%, rgba(34,197,94,.10), transparent 24%),
+        #111827;
+    }
+    body.sm-dark .page-title, body.sm-dark .panel-title, body.sm-dark .stat-value, body.sm-dark .sidebar-logo-title, body.sm-dark .user-name, body.sm-dark .ov-detail-title { color:#f8fafc; }
+    body.sm-dark .sidebar-logo-subtitle, body.sm-dark .user-role, body.sm-dark .stat-label, body.sm-dark .stat-sub, body.sm-dark .ov-detail-sub, body.sm-dark .audit-meta { color:#94a3b8; }
+    body.sm-dark .sidebar-user-card, body.sm-dark .nav-item:hover, body.sm-dark .toolbar, body.sm-dark .toolbar-inner, body.sm-dark .srv-item, body.sm-dark .ov-detail-row, body.sm-dark .audit-item, body.sm-dark .theme-toggle { background:rgba(15,23,42,.56); border-color:rgba(148,163,184,.18); }
+    body.sm-dark .ov-list-head { color:#94a3b8; }
+    body.sm-dark .nav-item { color:#a7b0c0; }
+    body.sm-dark .nav-item.active { color:#86a8ff; background:rgba(59,99,246,.18); }
+    body.sm-dark .ov-name, body.sm-dark .ov-count, body.sm-dark .ov-detail-mid, body.sm-dark .audit-detail, body.sm-dark .srv-name { color:#d1d5db; }
+    body.sm-dark input, body.sm-dark select, body.sm-dark textarea, body.sm-dark .inp, body.sm-dark .sel { background:rgba(15,23,42,.72); color:#e5e7eb; border-color:rgba(148,163,184,.22); }
+    body.sm-dark .btn-xs, body.sm-dark .btn-primary-lg { border-color:rgba(148,163,184,.22); }
+    @media (max-width: 1180px) { .overview-grid.ov-main { grid-template-columns: 1fr; } }
 
     /* Responsive */
     @media (max-width: 768px) {
@@ -514,15 +563,23 @@
         <i class="ri-user-settings-line"></i><span>账户管理</span>
       </button>
       <button data-module="server-economic" class="nav-item" type="button">
-        <i class="ri-node-tree"></i><span>SE 节点管理</span>
+        <i class="ri-node-tree"></i><span>TS 节点管理</span>
       </button>
 
       <div class="nav-section-title" style="margin-top:8px;">系统工具</div>
+      <button data-module="audit" class="nav-item" type="button">
+        <i class="ri-history-line"></i><span>日志信息</span>
+      </button>
       <button data-module="docs" class="nav-item" type="button">
         <i class="ri-file-text-line"></i><span>产品文档（待补充）</span>
       </button>
     </nav>
 
+    <div class="theme-toggle-wrap">
+      <button id="theme-toggle" class="theme-toggle" type="button" onclick="toggleThemeMode()">
+        <span><i class="ri-moon-line"></i> 夜间模式</span><strong id="theme-toggle-state">关闭</strong>
+      </button>
+    </div>
     <div class="sidebar-user">
       <div class="sidebar-user-card">
         <div class="user-avatar">{{ admin_username[0]|upper }}</div>
@@ -559,29 +616,26 @@
 
       <!-- ════ 总览大盘 ════ -->
       <section id="mod-overview" class="section active">
-        <!-- 4 个统计卡片 -->
         <div class="stats-grid" id="overview-stats">
           <div class="stat-card sc-blue">
             <div class="stat-icon-wrap"><i class="ri-group-line"></i></div>
-            <div class="stat-info"><div class="stat-label">账户总数</div><div class="stat-value" id="ov-acct-total">-</div><div class="stat-sub"></div></div>
+            <div class="stat-info"><div class="stat-label">交易账户总数</div><div class="stat-value" id="ov-acct-total">-</div><div class="stat-sub"></div></div>
           </div>
           <div class="stat-card sc-green">
             <div class="stat-icon-wrap"><i class="ri-checkbox-circle-line"></i></div>
-            <div class="stat-info"><div class="stat-label">可使用</div><div class="stat-value" id="ov-acct-online">-</div><div class="stat-sub" id="ov-acct-offline-sub"></div></div>
+            <div class="stat-info"><div class="stat-label">可使用交易账户</div><div class="stat-value" id="ov-acct-online">-</div><div class="stat-sub" id="ov-acct-offline-sub"></div></div>
           </div>
           <div class="stat-card sc-purple">
             <div class="stat-icon-wrap"><i class="ri-node-tree"></i></div>
-            <div class="stat-info"><div class="stat-label">节点总数</div><div class="stat-value" id="ov-node-total">-</div><div class="stat-sub"></div></div>
+            <div class="stat-info"><div class="stat-label">TS节点总数</div><div class="stat-value" id="ov-node-total">-</div><div class="stat-sub"></div></div>
           </div>
           <div class="stat-card sc-orange">
             <div class="stat-icon-wrap"><i class="ri-wifi-line"></i></div>
-            <div class="stat-info"><div class="stat-label">运行中节点</div><div class="stat-value" id="ov-node-online">-</div><div class="stat-sub" id="ov-node-other-sub"></div></div>
+            <div class="stat-info"><div class="stat-label">运行中的节点</div><div class="stat-value" id="ov-node-online">-</div><div class="stat-sub" id="ov-node-other-sub"></div></div>
           </div>
         </div>
 
-        <!-- 概览面板 -->
-        <div class="overview-grid">
-          <!-- 账户状态 -->
+        <div class="overview-grid ov-main">
           <div class="panel">
             <div class="panel-header">
               <div class="panel-header-left">
@@ -590,91 +644,41 @@
               </div>
               <button onclick="switchTab('accounts')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 查看</button>
             </div>
-            <div class="ov-list" id="ov-acct-list">
+            <div class="ov-list-head"><span>账户名称</span><span>账户券商</span><span>配置 TS 节点</span><span>账户状态</span></div>
+            <div class="ov-list-detail" id="ov-acct-list">
               <div style="text-align:center;padding:24px;color:#b9c0d2;font-size:13px">加载中...</div>
             </div>
           </div>
 
-          <!-- 节点状态 -->
           <div class="panel">
             <div class="panel-header">
               <div class="panel-header-left">
                 <div class="tile-icon ti-purple"><i class="ri-node-tree"></i></div>
-                <h2 class="panel-title">节点状态分布</h2>
+                <h2 class="panel-title">节点状态</h2>
               </div>
               <button onclick="switchTab('server-economic')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 查看</button>
             </div>
-            <div class="ov-list" id="ov-node-list">
+            <div class="ov-list-head"><span>节点名称</span><span>配置券商</span><span>主机地址</span><span>节点状态</span></div>
+            <div class="ov-list-detail" id="ov-node-list">
               <div style="text-align:center;padding:24px;color:#b9c0d2;font-size:13px">加载中...</div>
             </div>
           </div>
 
-          <!-- 系统服务 -->
           <div class="panel">
             <div class="panel-header">
               <div class="panel-header-left">
-                <div class="tile-icon ti-green"><i class="ri-settings-3-line"></i></div>
-                <h2 class="panel-title">系统服务状态</h2>
+                <div class="tile-icon ti-orange"><i class="ri-history-line"></i></div>
+                <h2 class="panel-title">最近事件</h2>
               </div>
+              <button onclick="refreshAuditLogs()" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
             </div>
-            <div class="srv-list" id="ov-srv-list">
-              <div class="srv-item">
-                <div class="srv-left">
-                  <div class="srv-icon" style="background:#e0f2fe;color:#0284c7"><i class="ri-cpu-line"></i></div>
-                  <span class="srv-name">SDK 服务</span>
-                </div>
-                <span class="srv-status" id="ov-srv-sdk" style="background:#f0fdf4;color:#16a34a">{{ sdk_status }}</span>
-              </div>
-              <div class="srv-item">
-                <div class="srv-left">
-                  <div class="srv-icon" style="background:#fce7f3;color:#db2777"><i class="ri-stock-line"></i></div>
-                  <span class="srv-name">IB TWS</span>
-                </div>
-                <span class="srv-status" id="ov-srv-ib" style="background:#f0fdf4;color:#16a34a">{{ ib_status }}</span>
-              </div>
-              <div class="srv-item">
-                <div class="srv-left">
-                  <div class="srv-icon" style="background:#ede9fe;color:#7c3aed"><i class="ri-server-line"></i></div>
-                  <span class="srv-name">服务模式</span>
-                </div>
-                <span class="srv-status" id="ov-srv-mode" style="background:#eef4ff;color:#3b63f6">{{ server_mode }}</span>
-              </div>
-              <div class="srv-item">
-                <div class="srv-left">
-                  <div class="srv-icon" style="background:#dcfce7;color:#16a34a"><i class="ri-group-line"></i></div>
-                  <span class="srv-name">在线客户端</span>
-                </div>
-                <span class="srv-status" id="ov-srv-clients" style="background:#f0fdf4;color:#16a34a">{{ active_clients }} 人</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 快捷操作 -->
-          <div class="panel">
-            <div class="panel-header">
-              <div class="panel-header-left">
-                <div class="tile-icon ti-orange"><i class="ri-flashlight-line"></i></div>
-                <h2 class="panel-title">快捷操作</h2>
-              </div>
-            </div>
-            <div class="quick-actions" style="flex-direction:column;gap:12px;padding:20px 24px;">
-              <button onclick="switchTab('accounts')" class="btn-primary-lg" style="width:100%;justify-content:center">
-                <i class="ri-user-add-line"></i> 新建账户
-              </button>
-              <div style="display:flex;gap:10px;">
-                <button onclick="refreshAllOverview()" class="btn-xs btn-pri" style="flex:1;padding:10px 16px;font-size:13px">
-                  <i class="ri-refresh-line"></i> 刷新数据
-                </button>
-                <button onclick="switchTab('server-economic')" class="btn-xs btn-ok" style="flex:1;padding:10px 16px;font-size:13px">
-                  <i class="ri-node-tree"></i> 管理节点
-                </button>
-              </div>
+            <div class="audit-list" id="ov-audit-list">
+              <div style="text-align:center;padding:24px;color:#b9c0d2;font-size:13px">加载中...</div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- ════ 账户管理 ════ -->
       <section id="mod-accounts" class="section">
         <div class="panel">
           <div class="panel-header">
@@ -697,7 +701,7 @@
                   <option value="trader" selected>交易员</option>
                   {% if is_super_admin %}<option value="admin">管理员</option>{% endif %}
                 </select>
-                <input class="inp req" id="inp-se-addr" placeholder="SE 地址（如 127.0.0.1:8900）" autocomplete="off" style="flex:1;min-width:0" />
+                <input class="inp req" id="inp-se-addr" placeholder="TS 地址（如 127.0.0.1:8900）" autocomplete="off" style="flex:1;min-width:0" />
                 <select class="sel" id="inp-broker" autocomplete="off" style="flex:1;min-width:0">
                   <option value="" disabled selected>选择券商</option>
                   <option value="IB">IB</option>
@@ -751,13 +755,13 @@
         </div>
       </section>
 
-      <!-- ════ SE 节点管理 ════ -->
+      <!-- ════ TS 节点管理 ════ -->
       <section id="mod-server-economic" class="section">
         <div class="panel">
           <div class="panel-header">
             <div class="panel-header-left">
               <div class="tile-icon ti-purple"><i class="ri-node-tree"></i></div>
-              <h2 class="panel-title">Server_economic 管理</h2>
+                <h2 class="panel-title">节点状态</h2>
               <span id="node-count" class="badge" style="background:#eef4ff;color:#3b63f6">加载中...</span>
             </div>
             <button id="btn-refresh-nodes" onclick="refreshNodes()" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
@@ -786,6 +790,24 @@
       </section>
 
       <!-- ════ 产品文档（待补充） ════ -->
+      <section id="mod-audit" class="section">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-header-left">
+              <div class="tile-icon ti-orange"><i class="ri-history-line"></i></div>
+              <h2 class="panel-title">日志信息</h2>
+              <span class="badge" style="background:#eef4ff;color:#3b63f6">最近 7 天</span>
+            </div>
+            <button onclick="refreshAuditLogs({full:true,page:1,force:true})" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
+          </div>
+          <div class="audit-list" id="audit-log-list" style="max-height:calc(100vh - 220px)">
+            <div style="text-align:center;padding:24px;color:#b9c0d2;font-size:13px">加载中...</div>
+          </div>
+          <div class="audit-pager" id="audit-log-pager" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(148,163,184,.22);color:#5b6480;font-size:13px"></div>
+        </div>
+      </section>
+
+      <!-- Docs placeholder -->
       <section id="mod-docs" class="section">
         <div class="panel">
           <div class="panel-header">
@@ -823,6 +845,16 @@ function fmtTime(isoStr) {
 function escapeHtml(s){
   var d=document.createElement('div');
   d.textContent=s; return d.innerHTML;
+}
+
+function maskToken(tok){
+  tok=(tok||'').toString();
+  if(!tok) return '-';
+  if(tok.length<=10) return tok.substring(0,2)+'***';
+  return tok.substring(0,6)+'...'+tok.substring(tok.length-4);
+}
+function jsString(s){
+  return JSON.stringify((s||'').toString());
 }
 
 // Toast 通知
@@ -890,17 +922,24 @@ function alertDlg(title, msg){
 // ═══════════════════════════════════════════════════
 //  侧边栏导航
 // ═══════════════════════════════════════════════════
+var _activeModule='overview';
+var _auditFullLoaded=false;
+var _auditPage=1;
+var _auditLimit=50;
+var _auditTotal=0;
 document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
   item.addEventListener('click',function(e){
     e.preventDefault();
     var target=this.getAttribute('data-module');
+    _activeModule=target;
     document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
     this.classList.add('active');
-    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'SE 节点管理'};
+    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'TS 节点管理','audit':'日志信息','docs':'产品文档'};
     document.getElementById('page-title').textContent=titles[target]||'仪表盘';
     document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
     var el=document.getElementById('mod-'+target);
     if(el) el.classList.add('active');
+    if(target==='audit' && !_auditFullLoaded){ refreshAuditLogs({full:true,page:_auditPage}); }
   });
 });
 
@@ -909,8 +948,12 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
 // ═══════════════════════════════════════════════════
 function renderPending(nodes){
   var c=document.getElementById('pending-body'), b=document.getElementById('pending-count');
-  _pendingCache = nodes||[]; // 缓存待审核节点，审批时用于自动填充券商类型
-  if(!nodes||nodes.length===0){
+  nodes = nodes||[];
+  _pendingCache = nodes; // 缓存待审核节点，审批时用于自动填充券商类型
+  var sig=stableStringify(nodes);
+  if(sig===_pendingRenderSig) return;
+  _pendingRenderSig=sig;
+  if(!nodes.length){
     c.innerHTML='<div class="empty-state"><i class="ri-emotion-happy-line"></i>暂无待审核的注册请求</div>';
     b.style.display='none'; return;
   }
@@ -942,12 +985,31 @@ function renderPending(nodes){
 // ═══════════════════════════════════════════════════
 var _nodesCache=[];
 var _pendingCache=[];
+var _nodesRenderSig='';
+var _pendingRenderSig='';
+var _accountsRenderSig='';
+var _overviewRenderSig='';
+var _auditRenderSig={};
+function stableStringify(value){
+  try{return JSON.stringify(value||null);}catch(e){return String(Date.now());}
+}
+function setTextIfChanged(id,value){
+  var el=document.getElementById(id);
+  if(el && el.textContent!==String(value)){el.textContent=String(value);}
+}
 function renderNodes(nodes){
-  _nodesCache = nodes||[];
+  nodes = nodes||[];
+  _nodesCache = nodes;
   var c=document.getElementById('nodes-body');
   var b=document.getElementById('online-count');
   var cb=document.getElementById('node-count');
-  if(!nodes||nodes.length===0){
+  var sig=stableStringify(nodes);
+  if(sig===_nodesRenderSig){
+    if(_overviewInited) renderOverview();
+    return;
+  }
+  _nodesRenderSig=sig;
+  if(!nodes.length){
     c.innerHTML='<div class="empty-state"><i class="ri-server-line"></i>暂无已注册节点</div>';
     b.style.display='none'; cb.textContent='0 个节点'; return;
   }
@@ -989,7 +1051,7 @@ function renderNodes(nodes){
       try{var hbD=new Date(n.last_heartbeat); hbInfo=hbD.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
       catch(e){hbInfo=n.last_heartbeat;}
     }
-    var ts=n.token ? n.token.substring(0,14)+'...' : '-';
+    var ts=maskToken(n.token||'');
 
     var ab='', lk=isOcc?'disabled':'';
     // 所有状态都有"详情"和"配置"按钮
@@ -1026,7 +1088,7 @@ function renderNodes(nodes){
       +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">当前 IP</span><span class="nc-value">'+escapeHtml(n.current_ip||n.host||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">最后心跳</span><span class="nc-value">'+hbInfo+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">Token</span><span class="token-copy" title="点击复制 Token" onclick="copyToken(\''+(n.token||'')+'\',this)">'+ts+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">Token</span><span class="token-copy" title="点击复制 Token" data-token="'+encodeURIComponent(n.token||'')+'" onclick="copyToken(decodeURIComponent(this.dataset.token),this)">'+ts+'</span></div>'
       +'</div>'
       +'<div class="nc-actions">'+ab+'</div></div>';
   }).join('');
@@ -1047,7 +1109,7 @@ async function refreshNodes(){
       fetch('/api/nodes/pending',{credentials:'same-origin'})
     ]);
     var nd=await nr.json(), pd=await pr.json();
-    if(nd.ok&&nd.nodes){renderNodes(nd.nodes);var sb=document.getElementById('status-node-count');if(sb)sb.textContent=(nd.nodes||[]).length;}
+    if(nd.ok&&nd.nodes){renderNodes(nd.nodes);setTextIfChanged('status-node-count',(nd.nodes||[]).length);}
     if(pd.ok)renderPending(pd.data);
   }catch(e){console.error('Refresh error:',e);}
   finally{_rn=false;if(btn){btn.disabled=false;btn.innerHTML='<i class="ri-refresh-line"></i> 刷新';}}
@@ -1069,7 +1131,7 @@ async function approveNode(rid,b){
     +'  <div class="modal-head"><h3>审批通过 - 节点配置</h3>'
     +'    <button class="modal-close-btn" aria-label="close"><i class="ri-close-line"></i></button></div>'
     +'  <div class="modal-body">'
-    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">请填写以下四项信息，审批通过后 SE 将根据此配置进行券商 API 连接</p>'
+    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">审核通过后仅保存 Token / Secret，券商账号登录迁移到 Client 端。</p>'
     // 字段1: 券商类型（自动填充，可修改）
     +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
     +'<select class="sel" id="app-broker-type" onchange="toggleBrokerFields()" style="width:100%">'
@@ -1077,13 +1139,8 @@ async function approveNode(rid,b){
     +brokerOptions
     +'</select></div>'
 
-    // 字段2: 账户用户名
-    +'    <div class="field-group"><label class="field-label">账户用户名 <span style="color:#ef4444">*</span></label><input class="inp" id="app-acct-user" placeholder="券商账户登录用户名" /></div>'
 
-    // 字段3: 账户密码
-    +'    <div class="field-group"><label class="field-label">账户密码 <span style="color:#ef4444">*</span></label><input class="inp" type="password" id="app-acct-pwd" placeholder="券商账户登录密码" /></div>'
-
-    // 字段4: 券商凭证（根据类型切换）
+      // Step 2: fill credentials according to selected broker.
     +'<div id="fields-tastytrade">'
     +'  <div class="field-group"><label class="field-label">Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" placeholder="Tastytrade Session Secret" style="font-family:monospace;font-size:12px" /></div>'
     +'  <div class="field-group"><label class="field-label">Token <span style="color:#ef4444">*</span></label><textarea class="inp" id="app-tt-token" rows="4" placeholder="Tastytrade Session Token" style="font-family:monospace;font-size:12px;line-height:1.45;resize:vertical;min-height:112px;white-space:pre-wrap;word-break:break-all"></textarea></div>'
@@ -1124,11 +1181,6 @@ async function doApproveWithConfig(rid,btn){
   var bt=document.getElementById('app-broker-type').value;
   if(!bt){toast('\u8bf7\u9009\u62e9\u5238\u5546\u7c7b\u578b','warn');return;}
 
-  // 新增：账户信息校验
-  var acctUser=document.getElementById('app-acct-user').value.trim();
-  var acctPwd=document.getElementById('app-acct-pwd').value.trim();
-  if(!acctUser){toast('\u8bf7\u586b\u5199\u8d26\u6237\u7528\u6237\u540d','warn');return;}
-  if(!acctPwd){toast('\u8bf7\u586b\u5199\u8d26\u6237\u5bc6\u7801','warn');return;}
 
   var creds={};
   if(bt==='TT'){
@@ -1148,7 +1200,7 @@ async function doApproveWithConfig(rid,btn){
     var r=await fetch('/api/nodes/'+rid+'/approve',{
       method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({broker_type:bt,credentials:creds,account_username:acctUser,account_password:acctPwd})
+      body:JSON.stringify({broker_type:bt,credentials:creds})
     });
     var d=await r.json();
     if(d.ok){toast('\u8282\u70b9\u5df2\u901a\u8fc7\u5ba1\u6838\uff0c\u5238\u5546\u914d\u7f6e\u5df2\u4fdd\u5b58','ok');
@@ -1253,7 +1305,7 @@ function showNodeDetail(sid){
     try{var hbD=new Date(n.last_heartbeat);hbInfo=hbD.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2digit',second:'2digit'});}
     catch(e){hbInfo=n.last_heartbeat;}
   }
-  var ts=n.token||'-';
+  var ts=maskToken(n.token||'');
 
   // 解析 broker_config（兼容字符串/对象两种返回）
   var cfg={};
@@ -1261,8 +1313,6 @@ function showNodeDetail(sid){
     cfg=(typeof n.broker_config==='string')?JSON.parse(n.broker_config||'{}'):(n.broker_config||{});
   }catch(e){}
   var creds=cfg.credentials||{};
-  var acctUser=cfg.account_username||creds.account_username||'-';
-  var acctPwdExists=!!(cfg.account_password||creds.account_password);
   var brokerType=cfg.broker_type||n.region||'-';
   var credsDisplay='';
   if(brokerType==='TT' || brokerType==='tastytrade'){
@@ -1314,10 +1364,8 @@ function showNodeDetail(sid){
 
     // 分割线 + 账户与券商配置区
     +'<div style="padding:14px 24px;border-top:1px solid #eef0f6;background:#fafbff">'
-    +'  <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:10px"><i class="ri-settings-3-line" style="margin-right:4px"></i>账户与券商配置</div>'
+    +'  <div style="font-size:12px;font-weight:600;color:#7c3aed;margin-bottom:10px"><i class="ri-settings-3-line" style="margin-right:4px"></i>券商配置</div>'
     +'<div class="detail-row"><span class="detail-label">券商类型</span><span>'+btBadge+'</span></div>'
-    +'<div class="detail-row"><span class="detail-label">账户用户名</span><span class="detail-val">'+escapeHtml(acctUser)+'</span></div>'
-    +'<div class="detail-row"><span class="detail-label">账户密码</span><span class="detail-val-mono">'+(acctPwdExists?'\u2022\u2022\u2022\u2022\u2022\u2022': '-')+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">凭证信息</span><span>'+credsDisplay+'</span></div>'
     +'</div>'
 
@@ -1326,7 +1374,7 @@ function showNodeDetail(sid){
     +'<div class="detail-row"><span class="detail-label">注册 IP</span><span class="detail-val-mono">'+escapeHtml(n.host||'-')+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">当前 IP</span><span class="detail-val">'+escapeHtml(n.current_ip||'-')+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">最后心跳</span><span class="detail-val">'+hbInfo+'</span></div>'
-    +'<div class="detail-row"><span class="detail-label">Token</span><span class="detail-val-mono"><span class="token-copy" onclick="copyToken(\''+(n.token||'')+'\',this)">'+ts+'</span></span></div>'
+    +'<div class="detail-row"><span class="detail-label">Token</span><span class="detail-val-mono"><span class="token-copy" data-token="'+encodeURIComponent(n.token||'')+'" onclick="copyToken(decodeURIComponent(this.dataset.token),this)">'+ts+'</span></span></div>'
     +'<div class="detail-row"><span class="detail-label">创建时间</span><span class="detail-val">'+fmtTime(n.created_at)+'</span></div>'
     +'<div class="detail-row" style="margin-bottom:0"><span class="detail-label">更新时间</span><span class="detail-val">'+fmtTime(n.updated_at)+'</span></div>'
     +'</div>'
@@ -1351,8 +1399,6 @@ function showNodeConfig(sid){
   var cfg={};
   try{cfg=JSON.parse(n.broker_config||'{}');}catch(e){}
   var curBroker=cfg.broker_type||'';
-  var curAcctUser=cfg.account_username||'';
-  var curAcctPwd=cfg.account_password||'';
   var creds=cfg.credentials||{};
   var ttSecret=(creds.secret)||'';
   var ttToken=(creds.token)||'';
@@ -1374,8 +1420,6 @@ function showNodeConfig(sid){
     +'  <option value="Test" '+(curBroker==='Test'?'selected':'')+'>Test 测试模式</option>'
     +'</select></div>'
     // 账户信息
-    +'    <div class="field-group"><label class="field-label">账户用户名 <span style="color:#ef4444">*</span></label><input class="inp" id="cfg-acct-user" value="'+escapeHtml(curAcctUser)+'" placeholder="\u5238\u5546\u8d26\u6237\u7528\u6237\u540d" /></div>'
-    +'    <div class="field-group"><label class="field-label">账户密码 <span style="color:#94a3b8">\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539</span></label><input class="inp" type="password" id="cfg-acct-pwd" placeholder="\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539\u5bc6\u7801" /></div>'
     // TT 凭证
     +'<div id="cfg-fields-tastytrade"' + ((curBroker==='TT'||curBroker==='tastytrade'||curBroker==='') ? '' : ' style="display:none"') + '>'
     +'  <div class="field-group"><label class="field-label">Secret</label><input class="inp" id="cfg-tt-secret" value="'+escapeHtml(ttSecret)+'" placeholder="Tastytrade Session Secret" style="font-family:monospace;font-size:12px" /></div>'
@@ -1411,9 +1455,7 @@ function toggleCfgFields(){
 async function doSaveNodeConfig(sid,btn){
   var bt=document.getElementById('cfg-broker-type').value;
   if(!bt){toast('\u8bf7\u9009\u62e9\u5238\u5546\u7c7b\u578b','warn');return;}
-  var acctUser=document.getElementById('cfg-acct-user').value.trim();
-  if(!acctUser){toast('\u8bf7\u586b\u5199\u8d26\u6237\u7528\u6237\u540d','warn');return;}
-  var acctPwd=document.getElementById('cfg-acct-pwd').value.trim(); // 留空表示不修改
+  var creds={};
 
   var creds={};
   if(bt==='TT'){
@@ -1434,8 +1476,6 @@ async function doSaveNodeConfig(sid,btn){
       body:JSON.stringify({
         broker_type:bt,
         credentials:creds,
-        account_username:acctUser,
-        account_password:acctPwd || undefined,
       })
     });
     var d=await r.json();
@@ -1448,11 +1488,16 @@ async function doSaveNodeConfig(sid,btn){
 }
 
 function copyToken(tok,el){
+  tok=(tok||'').toString();
   if(!tok)return;
-  navigator.clipboard.writeText(tok).then(function(){
-    el.textContent='已复制!';
-    setTimeout(function(){el.textContent=tok.substring(0,14)+'...';},1500);
-  }).catch(function(){prompt('请手动复制 Token:',tok);});
+  confirmDlg('复制敏感令牌', 'Token 属于节点凭证，复制后请只用于必要的管理操作。确认复制？').then(function(ok){
+    if(!ok)return;
+    navigator.clipboard.writeText(tok).then(function(){
+      var masked=maskToken(tok);
+      el.textContent='已复制';
+      setTimeout(function(){el.textContent=masked;},1500);
+    }).catch(function(){prompt('请手动复制 Token:',tok);});
+  });
 }
 
 // ═══════════════════════════════════════════════════
@@ -1470,7 +1515,14 @@ async function refreshAccounts(){
 }
 
 function renderAccounts(accounts){
-  _acctCache = accounts||[];
+  accounts = accounts||[];
+  _acctCache = accounts;
+  var sig=stableStringify({accounts:accounts,nodes:_nodesCache});
+  if(sig===_accountsRenderSig){
+    if(_overviewInited) renderOverview();
+    return;
+  }
+  _accountsRenderSig=sig;
   var adminSection=document.getElementById('accounts-admin-section');
   var adminBody=document.getElementById('accounts-admin-body');
   var traderBody=document.getElementById('accounts-trader-body');
@@ -1529,14 +1581,14 @@ function renderAccounts(accounts){
         if(isSuspended){
           ab += '<button class="btn-xs btn-ok" onclick="resumeAccount('+a.id+')">恢复</button>';
         }else if(isInUse){
-          ab += '<span class="occupied-badge"><i class="ri-link"></i> 已连接 SE 服务</span>';
+          ab += '<span class="occupied-badge"><i class="ri-link"></i> 已连接 TS 服务</span>';
         }else{
           ab += '<button class="btn-xs btn-warn" onclick="suspendAccount('+a.id+')">暂停</button>';
         }
         ab += '<button class="btn-xs btn-del" onclick="deleteAccount('+a.id+')">删除</button>';
       }
 
-      var seAddrRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">SE 地址</span><span class="acct-value-mono">'+escapeHtml(seAddr||'-')+'</span></div>' : '';
+      var seAddrRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">TS 地址</span><span class="acct-value-mono">'+escapeHtml(seAddr||'-')+'</span></div>' : '';
       var brokerRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">券商</span><span class="acct-value">'+escapeHtml(brokers)+'</span></div>' : '';
 
       return '<div class="'+cardClass+'">'
@@ -1571,7 +1623,7 @@ function onCreateRoleChanged(){
   var isTrader=(roleEl.value==='trader');
   seEl.disabled=!isTrader;
   brokerEl.disabled=!isTrader;
-  seEl.placeholder=isTrader?'SE 地址（如 127.0.0.1:8900）':'管理员账户无需 SE 地址';
+  seEl.placeholder=isTrader?'TS 地址（如 127.0.0.1:8900）':'管理员账户无需 TS 地址';
   if(!isTrader){
     seEl.value='';
     brokerEl.value='';
@@ -1709,7 +1761,7 @@ async function createAccount(){
     if(!p){toast('请输入密码','warn');return;}
     if(role==='admin' && CURRENT_ADMIN_ROLE!=='super_admin'){toast('仅超级管理员可创建管理员账户','warn');return;}
     if(role==='trader'){
-      if(!s){toast('请输入 SE 地址','warn');return;}
+      if(!s){toast('请输入 TS 地址','warn');return;}
       if(!b){toast('请选择券商','warn');return;}
     }
     var r=await fetch('/api/accounts/create',{
@@ -1775,7 +1827,7 @@ function _renderAccountDetailModal(a){
     +'      <div class="detail-row"><span class="detail-label">用户名</span><span class="detail-val">'+escapeHtml(a.username)+'</span></div>'
     +'      <div class="detail-row"><span class="detail-label">角色</span><span class="detail-val">'+escapeHtml(a.role)+'</span></div>'
     +'      <div class="detail-row"><span class="detail-label">状态</span><span>'+(a.status==='active'?'<span class="badge" style="background:#f0fdf4;color:#16a34a"><span class="dot dot-on" style="margin-right:4px"></span>正常</span>':'<span class="badge" style="background:#fef2f2;color:#ef4444"><span class="dot dot-err" style="margin-right:4px"></span>已暂停</span>')+'</span></div>'
-    +'      <div class="detail-row"><span class="detail-label">SE 地址</span><span class="detail-val-mono">'+escapeHtml(a.se_address||'-')+'</span></div>'
+    +'      <div class="detail-row"><span class="detail-label">TS 地址</span><span class="detail-val-mono">'+escapeHtml(a.se_address||'-')+'</span></div>'
     +'      <div class="detail-row"><span class="detail-label">券商</span><span class="detail-val">'+escapeHtml(a._br)+'</span></div>'
     +'      <div class="detail-row"><span class="detail-label">描述</span><span class="detail-val">'+escapeHtml(a.description||'-')+'</span></div>'
     +'      <div class="detail-row"><span class="detail-label">创建时间</span><span class="detail-val">'+fmtTime(a.created_at)+'</span></div>'
@@ -1810,7 +1862,7 @@ function showAccountEdit(id,user,seAddr,broker,desc){
     +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-edit-modal\').remove()"><i class="ri-close-line"></i></button></div>'
     +'    <div class="modal-body">'
     +'      <div class="field-group"><label class="field-label">用户名（不可修改）</label><div class="field-readonly">'+escapeHtml(user)+'</div></div>'
-    +'      <div class="field-group"><label class="field-label">SE 地址 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" /></div>'
+    +'      <div class="field-group"><label class="field-label">TS 地址 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" /></div>'
     +'      <div class="field-group"><label class="field-label">券商 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-broker" value="'+escapeHtml(broker)+'" /></div>'
     +'      <div class="field-group"><label class="field-label">描述</label><input class="inp" id="edit-desc" value="'+escapeHtml(desc)+'" /></div>'
     +'      <div class="field-group"><label class="field-label">新密码（留空不修改）</label><input class="inp" type="password" id="edit-pwd" placeholder="留空则不修改密码" /></div>'
@@ -1827,7 +1879,7 @@ async function doUpdateAccount(id,btn){
   var br=document.getElementById('edit-broker').value.trim();
   var de=document.getElementById('edit-desc').value.trim();
   var pw=document.getElementById('edit-pwd').value;
-  if(!sa){toast('请输入 SE 地址','warn');return;}
+  if(!sa){toast('请输入 TS 地址','warn');return;}
   if(!br){toast('请输入券商','warn');return;}
   btn.disabled=true;
   btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 保存中...';
@@ -1857,71 +1909,191 @@ function switchTab(module){
 }
 
 var _acctCache=[];
+function brokerLabel(value){
+  var v=(value||'').toString();
+  if(v==='TT'||v==='tastytrade') return 'Tastytrade';
+  if(v==='IB'||v==='interactive_brokers') return 'IB';
+  if(v==='Test') return 'Test';
+  return v || '-';
+}
+function accountBroker(a){
+  if(a.broker_tag) return brokerLabel(a.broker_tag);
+  try{ var arr=JSON.parse(a.allowed_brokers||'[]'); if(arr && arr.length) return brokerLabel(arr[0]); }catch(e){}
+  return '-';
+}
+function nodeBroker(n){
+  try{
+    var cfg=(typeof n.broker_config==='string')?JSON.parse(n.broker_config||'{}'):(n.broker_config||{});
+    return brokerLabel(cfg.broker_type||n.region||n.broker_type||'-');
+  }catch(e){ return brokerLabel(n.region||n.broker_type||'-'); }
+}
+function accountState(a, occMap){
+  var st=a.status||'active';
+  var seAddr=(a.se_address||a.trade_server_address||'').trim();
+  var occupier=seAddr ? occMap[seAddr] : '';
+  if(st!=='active') return {rank:3,label:'暂停/异常',cls:'ov-status-paused',occupier:occupier};
+  if(occupier===a.username) return {rank:1,label:'占用中',cls:'ov-status-occupied',occupier:occupier};
+  return {rank:2,label:'可使用',cls:'ov-status-active',occupier:occupier};
+}
+function nodeState(n){
+  var rs=n.real_status||n.req_status||'approved';
+  if(rs==='occupied'||n.occupied_by) return {rank:1,label:'占用中',cls:'ov-status-occupied'};
+  if(rs==='offline') return {rank:4,label:'离线',cls:'ov-status-offline'};
+  if(rs==='suspended') return {rank:3,label:'异常/暂停',cls:'ov-status-paused'};
+  return {rank:2,label:'在线',cls:'ov-status-active'};
+}
 function renderOverview(){
-  var accts=_acctCache||[];
+  var accts=(_acctCache||[]).filter(function(a){return (a.role||'trader')==='trader';});
   var nodes=_nodesCache||[];
+  var overviewSig=stableStringify({accounts:accts,nodes:nodes});
+  if(overviewSig===_overviewRenderSig) return;
+  _overviewRenderSig=overviewSig;
 
-  /* 账户统计 — 三种状态 */
+  var tsNameByAddress={};
   var seOccupiedMap={};
   (nodes||[]).forEach(function(n){
+    var name=n.node_name||n.server_id||'-';
+    [n.host,n.current_ip].forEach(function(addr){ if(addr){ tsNameByAddress[addr]=name; } });
     if(n.occupied_by && n.host){ seOccupiedMap[n.host]=n.occupied_by; }
     if(n.occupied_by && n.current_ip){ seOccupiedMap[n.current_ip]=n.occupied_by; }
   });
-  var acctTotal=accts.length, acctAvail=0, acctInUse=0, acctSuspended=0;
+
+  var acctTotal=accts.length, acctTradable=0, acctInUse=0, acctStopped=0;
   accts.forEach(function(a){
-    var st=a.status||'active';
-    var seAddr=(a.se_address||'').trim();
-    var occupier = seAddr ? seOccupiedMap[seAddr] : '';
-    if(st!=='active'){ acctSuspended++; }
-    else if(occupier===a.username){ acctInUse++; }
-    else{ acctAvail++; }
+    var state=accountState(a,seOccupiedMap);
+    if((a.status||'active')==='active') acctTradable++;
+    if(state.rank===1) acctInUse++;
+    if(state.rank===3) acctStopped++;
   });
-  document.getElementById('ov-acct-total').textContent=acctTotal;
-  document.getElementById('ov-acct-online').textContent=acctAvail;
+  setTextIfChanged('ov-acct-total',acctTotal);
+  setTextIfChanged('ov-acct-online',acctTradable);
   var offSub=document.getElementById('ov-acct-offline-sub');
-  var subParts=[];
-  if(acctInUse) subParts.push(acctInUse+' 使用中');
-  if(acctSuspended) subParts.push(acctSuspended+' 暂停');
-  offSub.textContent=subParts.length ? subParts.join(' / ') : '全部可用';
-  offSub.style.color=(acctInUse||acctSuspended) ? '#9333ea' : '#22c55e';
+  offSub.textContent=(acctInUse?acctInUse+' 占用中 / ':'')+acctStopped+' 暂停或异常';
+  offSub.style.color=(acctStopped ? '#d97706' : '#22c55e');
 
-  /* 账户列表 */
-  var acl=document.getElementById('ov-acct-list');
-  acl.innerHTML=''
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#16a34a"></span><span class="ov-name">可使用</span></div><span class="ov-count" style="color:#16a34a">'+acctAvail+'</span></div>'
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#9333ea"></span><span class="ov-name">使用中</span></div><span class="ov-count" style="color:#9333ea">'+acctInUse+'</span></div>'
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#d97706"></span><span class="ov-name">暂停使用</span></div><span class="ov-count" style="color:#d97706">'+acctSuspended+'</span></div>'
-    +'<div class="ov-item" style="border-bottom:none"><div class="ov-item-left"><span class="ov-dot" style="background:#eef0f6"></span><span class="ov-name">总计</span></div><span class="ov-count">'+acctTotal+'</span></div>';
+  var acctRows=accts.slice().sort(function(a,b){
+    var sa=accountState(a,seOccupiedMap), sb=accountState(b,seOccupiedMap);
+    return sa.rank-sb.rank || String(a.username||'').localeCompare(String(b.username||''),'zh-CN');
+  }).map(function(a){
+    var s=accountState(a,seOccupiedMap);
+    var addr=(a.se_address||a.trade_server_address||'').trim();
+    var tsName=tsNameByAddress[addr] || addr || '-';
+    return '<div class="ov-detail-row">'
+      +'<div class="ov-detail-main"><div class="ov-detail-title">'+escapeHtml(a.username||'-')+'</div><div class="ov-detail-sub">账户名称</div></div>'
+      +'<div class="ov-detail-mid">'+escapeHtml(accountBroker(a))+'</div>'
+      +'<div class="ov-detail-mid" title="'+escapeHtml(tsName)+'">'+escapeHtml(tsName)+'</div>'
+      +'<span class="ov-status-pill '+s.cls+'">'+s.label+'</span>'
+      +'</div>';
+  }).join('');
+  document.getElementById('ov-acct-list').innerHTML=acctRows || '<div class="empty-state">暂无交易账户</div>';
 
-  /* 节点统计 */
-  var nOnline=0,nSuspended=0,nOffline=0,nOccupied=0,nOther=0;
-  nodes.forEach(function(n){
-    var rs=n.real_status||'';
-    if(rs==='occupied') nOccupied++;
-    else if(rs==='suspended'||n.req_status==='suspended') nSuspended++;
-    else if(rs==='offline'||n.req_status==='offline') nOffline++;
-    else if(rs==='online'||n.req_status==='online'||n.req_status==='approved') nOnline++;
-    else nOther++;
-  });
   var nodeTotal=nodes.length;
-  document.getElementById('ov-node-total').textContent=nodeTotal;
-  document.getElementById('ov-node-online').textContent=nOnline;
-  var otherParts=[];
-  if(nOccupied) otherParts.push(nOccupied+' 占用');
-  if(nSuspended) otherParts.push(nSuspended+' 暂停');
-  if(nOffline) otherParts.push(nOffline+' 离线');
-  document.getElementById('ov-node-other-sub').textContent=otherParts.length?otherParts.join(' / '):'全部运行中';
-  document.getElementById('status-node-count').textContent=nodeTotal;
+  var nodeRunning=0,nodeOffline=0,nodeSuspended=0;
+  nodes.forEach(function(n){
+    var s=nodeState(n);
+    if(s.label!=='离线') nodeRunning++;
+    if(s.rank===3) nodeSuspended++;
+    if(s.rank===4) nodeOffline++;
+  });
+  setTextIfChanged('ov-node-total',nodeTotal);
+  setTextIfChanged('ov-node-online',nodeRunning);
+  document.getElementById('ov-node-other-sub').textContent=nodeOffline ? (nodeOffline+' 离线 / '+nodeSuspended+' 异常') : '无离线节点';
+  setTextIfChanged('status-node-count',nodeTotal);
 
-  /* 节点列表 */
-  var nsl=document.getElementById('ov-node-list');
-  nsl.innerHTML=''
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#16a34a"></span><span class="ov-name">运行中</span></div><span class="ov-count" style="color:#16a34a">'+nOnline+'</span></div>'
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#9333ea"></span><span class="ov-name">已占用</span></div><span class="ov-count" style="color:#9333ea">'+nOccupied+'</span></div>'
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#d97706"></span><span class="ov-name">已暂停</span></div><span class="ov-count" style="color:#d97706">'+nSuspended+'</span></div>'
-    +'<div class="ov-item"><div class="ov-item-left"><span class="ov-dot" style="background:#dc2626"></span><span class="ov-name">离线</span></div><span class="ov-count" style="color:#dc2626">'+nOffline+'</span></div>'
-    +'<div class="ov-item" style="border-bottom:none"><div class="ov-item-left"><span class="ov-dot" style="background:#eef0f6"></span><span class="ov-name">总计</span></div><span class="ov-count">'+nodeTotal+'</span></div>';
+  var nodeRows=nodes.slice().sort(function(a,b){
+    var sa=nodeState(a), sb=nodeState(b);
+    return sa.rank-sb.rank || String(a.node_name||a.server_id||'').localeCompare(String(b.node_name||b.server_id||''),'zh-CN');
+  }).map(function(n){
+    var s=nodeState(n);
+    var name=n.node_name||n.server_id||'-';
+    return '<div class="ov-detail-row">'
+      +'<div class="ov-detail-main"><div class="ov-detail-title">'+escapeHtml(name)+'</div><div class="ov-detail-sub">'+escapeHtml(n.server_id||'-')+'</div></div>'
+      +'<div class="ov-detail-mid">'+escapeHtml(nodeBroker(n))+'</div>'
+      +'<div class="ov-detail-mid" title="'+escapeHtml(n.host||n.current_ip||'-')+'">'+escapeHtml(n.host||n.current_ip||'-')+'</div>'
+      +'<span class="ov-status-pill '+s.cls+'">'+s.label+'</span>'
+      +'</div>';
+  }).join('');
+  document.getElementById('ov-node-list').innerHTML=nodeRows || '<div class="empty-state">暂无 TS 节点</div>';
 }
+
+function renderAuditList(targetId, logs){
+  var el=document.getElementById(targetId);
+  if(!el) return;
+  logs = logs||[];
+  var sig=stableStringify(logs);
+  if(_auditRenderSig[targetId]===sig) return;
+  _auditRenderSig[targetId]=sig;
+  if(!logs.length){
+    el.innerHTML='<div class="empty-state"><i class="ri-history-line"></i>\u6682\u65e0日志信息</div>';
+    return;
+  }
+  el.innerHTML=logs.map(function(x){
+    return '<div class="audit-item">'
+      +'<div class="audit-time">'+escapeHtml(fmtTime(x.created_at))+'</div>'
+      +'<div><div class="audit-detail">'+escapeHtml(x.detail||x.action||'-')+'</div>'
+      +'<div class="audit-meta">'+escapeHtml(x.username||'system')+' · '+escapeHtml(x.resource||'-')+' · '+escapeHtml(x.action||'-')+'</div></div>'
+      +'</div>';
+  }).join('');
+}
+function renderAuditPager(meta){
+  var el=document.getElementById('audit-log-pager');
+  if(!el) return;
+  meta = meta||{};
+  var page=Math.max(1, parseInt(meta.page||_auditPage||1,10));
+  var limit=Math.max(1, parseInt(meta.limit||_auditLimit||50,10));
+  var total=Math.max(0, parseInt(meta.total||0,10));
+  var totalPages=Math.max(1, Math.ceil(total/limit));
+  var prevDisabled=page<=1;
+  var nextDisabled=page>=totalPages;
+  el.innerHTML='<span>共 '+total+' 条 · 第 '+page+' / '+totalPages+' 页 · 每页 '+limit+' 条</span>'
+    +'<div style="display:flex;gap:8px;align-items:center">'
+    +'<button class="btn-xs" onclick="changeAuditPage(-1)" '+(prevDisabled?'disabled style="opacity:.45;cursor:not-allowed"':'')+'>上一页</button>'
+    +'<button class="btn-xs btn-pri" onclick="changeAuditPage(1)" '+(nextDisabled?'disabled style="opacity:.45;cursor:not-allowed"':'')+'>下一页</button>'
+    +'</div>';
+}
+function changeAuditPage(delta){
+  var next=Math.max(1, _auditPage + delta);
+  if(_auditTotal>0){
+    var totalPages=Math.max(1, Math.ceil(_auditTotal/_auditLimit));
+    next=Math.min(next, totalPages);
+  }
+  refreshAuditLogs({full:true,page:next,force:true});
+}
+async function refreshAuditLogs(options){
+  options = options||{};
+  try{
+    if(options.full){
+      var page=Math.max(1, parseInt(options.page||_auditPage||1,10));
+      var limit=Math.max(1, parseInt(options.limit||_auditLimit||50,10));
+      if(options.force){ _auditRenderSig['audit-log-list']=''; }
+      var full=await fetch('/api/audit/logs?days=7&page='+page+'&limit='+limit,{credentials:'same-origin'}).then(function(r){return r.json();});
+      if(full.ok){
+        _auditFullLoaded=true;
+        _auditPage=Math.max(1, parseInt(full.page||page,10));
+        _auditLimit=Math.max(1, parseInt(full.limit||limit,10));
+        _auditTotal=Math.max(0, parseInt(full.total||0,10));
+        renderAuditList('audit-log-list', full.data||[]);
+        renderAuditPager(full);
+      }
+      return;
+    }
+    var recent=await fetch('/api/audit/recent?limit=10',{credentials:'same-origin'}).then(function(r){return r.json();});
+    if(recent.ok) renderAuditList('ov-audit-list', recent.data||[]);
+    if(_activeModule==='audit') refreshAuditLogs({full:true,page:_auditPage});
+  }catch(e){ console.error('Refresh audit logs error:', e); }
+}
+function applyThemeMode(mode){
+  var dark=mode==='dark';
+  document.body.classList.toggle('sm-dark', dark);
+  var state=document.getElementById('theme-toggle-state');
+  if(state) state.textContent=dark?'开启':'关闭';
+}
+function toggleThemeMode(){
+  var next=document.body.classList.contains('sm-dark')?'light':'dark';
+  localStorage.setItem('sm_theme_mode', next);
+  applyThemeMode(next);
+}
+applyThemeMode(localStorage.getItem('sm_theme_mode')||'light');
 
 async function refreshAllOverview(){
   await Promise.all([refreshAccounts(),refreshNodes()]);
@@ -1931,12 +2103,15 @@ async function refreshAllOverview(){
     renderAccounts(_acctCache);
   }
   renderOverview();
+  refreshAuditLogs();
 }
 
 /* 初始加载后渲染总览（等数据回来后由 renderAccounts/renderNodes 触发） */
 var _overviewInited=false;
 function tryRenderOverview(){
-  _overviewInited=true; renderOverview();
+  _overviewInited=true;
+  renderOverview();
+  refreshAuditLogs();
 }
 
 /* 初始化创建表单角色联动 */
@@ -1950,6 +2125,11 @@ refreshNodes().then(function(){
   setTimeout(tryRenderOverview,300);
 });
 
+setInterval(function(){
+  if(document.hidden) return;
+  refreshNodes();
+}, 15000);
+
 /* spin 动画 keyframe */
 var s=document.createElement('style');
 s.textContent='@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
@@ -1958,3 +2138,4 @@ document.head.appendChild(s);
 </script>
 </body>
 </html>
+

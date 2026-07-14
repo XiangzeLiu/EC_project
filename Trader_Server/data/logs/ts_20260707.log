@@ -1,0 +1,493 @@
+2026-07-07 00:19:20 [trader_server] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Trader_Server\data\logs\ts_20260707.log)
+2026-07-07 00:19:20 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-07 00:19:20 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-07 00:19:20 [trader_server.registration] INFO: Restored session: server_id=node_trader-node-01_fc22aeb7
+2026-07-07 00:19:20 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-07 00:19:20 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-07 00:19:20 [trader_server.heartbeat] INFO: Heartbeat started (interval=20s)
+2026-07-07 00:19:21 [trader_server.api.ib] WARNING: ibapi not installed, IBBroker will be non-functional
+2026-07-07 00:19:22 [trader_server.config_sync] INFO: Config event listener started
+2026-07-07 00:19:22 [trader_server.config_sync] INFO: check_andreload: source=heartbeat, version changed 0 → 1, pulling new config...
+2026-07-07 00:19:22 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-07 00:19:24 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-07 00:19:24 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-07 00:19:24 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-07 00:19:24 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-07-07 00:19:31 [trader_server.ws_server] INFO: [sess_ddd9514190d48d38] WS connected from 127.0.0.1:52648
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_ddd9514190d48d38][trc_3961c59d1cd64c2d] Client 已连接 127.0.0.1:52648
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_ddd9514190d48d38][trc_3961c59d1cd64c2d] 认证通过 ✓
+2026-07-07 00:19:31 [trader_server.ws_server] INFO: [sess_ddd9514190d48d38] Auth OK, connection established
+2026-07-07 00:19:31 [trader_server.ws_server] INFO: [sess_ddd9514190d48d38] WS disconnected by client
+2026-07-07 00:19:31 [trader_server.ws_server] INFO: [sess_ddd9514190d48d38] Connection cleaned up (remaining connections: 0)
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_ddd9514190d48d38] Client 断开连接
+2026-07-07 00:19:31 [trader_server.ws_server] INFO: [sess_0905cba1efdaf4f6] WS connected from 127.0.0.1:53985
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_0905cba1efdaf4f6][trc_c616077cdce64253] Client 已连接 127.0.0.1:53985
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_0905cba1efdaf4f6][trc_c616077cdce64253] 认证通过 ✓
+2026-07-07 00:19:31 [trader_server.ws_server] INFO: [sess_0905cba1efdaf4f6] Auth OK, connection established
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_0905cba1efdaf4f6][trc_5f15018a782c43b0] [BROKER_STATUS_QUERY]
+2026-07-07 00:19:31 [trader_server.msg_log] INFO: [sess_0905cba1efdaf4f6][trc_5f15018a782c43b0] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:12:01 [trader_server.ws_server] INFO: [sess_0905cba1efdaf4f6] WS disconnected by client
+2026-07-07 02:12:01 [trader_server.ws_server] INFO: [sess_0905cba1efdaf4f6] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:12:01 [trader_server.msg_log] INFO: [sess_0905cba1efdaf4f6] Client 断开连接
+2026-07-07 02:12:12 [trader_server.ws_server] INFO: [sess_8e87fbd49d7031be] WS connected from 127.0.0.1:60046
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_8e87fbd49d7031be][trc_1781938d9c5245f2] Client 已连接 127.0.0.1:60046
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_8e87fbd49d7031be][trc_1781938d9c5245f2] 认证通过 ✓
+2026-07-07 02:12:12 [trader_server.ws_server] INFO: [sess_8e87fbd49d7031be] Auth OK, connection established
+2026-07-07 02:12:12 [trader_server.ws_server] INFO: [sess_8e87fbd49d7031be] WS disconnected by client
+2026-07-07 02:12:12 [trader_server.ws_server] INFO: [sess_8e87fbd49d7031be] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_8e87fbd49d7031be] Client 断开连接
+2026-07-07 02:12:12 [trader_server.ws_server] INFO: [sess_64affeb4a1a9ca04] WS connected from 127.0.0.1:60050
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_64affeb4a1a9ca04][trc_1ff90151802744c7] Client 已连接 127.0.0.1:60050
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_64affeb4a1a9ca04][trc_1ff90151802744c7] 认证通过 ✓
+2026-07-07 02:12:12 [trader_server.ws_server] INFO: [sess_64affeb4a1a9ca04] Auth OK, connection established
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_64affeb4a1a9ca04][trc_a451cd6d4833420d] [BROKER_STATUS_QUERY]
+2026-07-07 02:12:12 [trader_server.msg_log] INFO: [sess_64affeb4a1a9ca04][trc_a451cd6d4833420d] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:12:15 [trader_server.ws_server] INFO: [sess_64affeb4a1a9ca04] WS disconnected by client
+2026-07-07 02:12:15 [trader_server.ws_server] INFO: [sess_64affeb4a1a9ca04] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:12:15 [trader_server.msg_log] INFO: [sess_64affeb4a1a9ca04] Client 断开连接
+2026-07-07 02:17:51 [trader_server.ws_server] INFO: [sess_68ec9b3fff65b80c] WS connected from 127.0.0.1:50671
+2026-07-07 02:17:51 [trader_server.msg_log] WARNING: [sess_68ec9b3fff65b80c][trc_5b6b5d784d104529] 认证失败: not_occupied_by_user
+2026-07-07 02:17:51 [trader_server.ws_server] WARNING: [sess_68ec9b3fff65b80c] Auth failed: not_occupied_by_user
+2026-07-07 02:17:51 [trader_server.ws_server] INFO: [sess_68ec9b3fff65b80c] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:17:52 [trader_server.ws_server] INFO: [sess_89c98ce7fc29556d] WS connected from 127.0.0.1:50674
+2026-07-07 02:17:52 [trader_server.msg_log] WARNING: [sess_89c98ce7fc29556d][trc_a030fc89eeb44769] 认证失败: not_occupied_by_user
+2026-07-07 02:17:52 [trader_server.ws_server] WARNING: [sess_89c98ce7fc29556d] Auth failed: not_occupied_by_user
+2026-07-07 02:17:52 [trader_server.ws_server] INFO: [sess_89c98ce7fc29556d] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:17:54 [trader_server.ws_server] INFO: [sess_4be234bfaaf5ff4c] WS connected from 127.0.0.1:50677
+2026-07-07 02:17:54 [trader_server.msg_log] WARNING: [sess_4be234bfaaf5ff4c][trc_0e7bc41af0bd4d11] 认证失败: not_occupied_by_user
+2026-07-07 02:17:54 [trader_server.ws_server] WARNING: [sess_4be234bfaaf5ff4c] Auth failed: not_occupied_by_user
+2026-07-07 02:17:54 [trader_server.ws_server] INFO: [sess_4be234bfaaf5ff4c] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:17:55 [trader_server.ws_server] INFO: [sess_d0995efeef2f54d7] WS connected from 127.0.0.1:50681
+2026-07-07 02:17:55 [trader_server.msg_log] WARNING: [sess_d0995efeef2f54d7][trc_1da02d70f2db4a03] 认证失败: not_occupied_by_user
+2026-07-07 02:17:55 [trader_server.ws_server] WARNING: [sess_d0995efeef2f54d7] Auth failed: not_occupied_by_user
+2026-07-07 02:17:55 [trader_server.ws_server] INFO: [sess_d0995efeef2f54d7] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:26:38 [trader_server.ws_server] INFO: [sess_5b69b59c732836fb] WS connected from 127.0.0.1:56382
+2026-07-07 02:26:38 [trader_server.msg_log] INFO: [sess_5b69b59c732836fb][trc_105563c6e1b24933] Client 已连接 127.0.0.1:56382
+2026-07-07 02:26:38 [trader_server.msg_log] INFO: [sess_5b69b59c732836fb][trc_105563c6e1b24933] 认证通过 ✓
+2026-07-07 02:26:38 [trader_server.ws_server] INFO: [sess_5b69b59c732836fb] Auth OK, connection established
+2026-07-07 02:26:39 [trader_server.ws_server] INFO: [sess_5b69b59c732836fb] WS disconnected by client
+2026-07-07 02:26:39 [trader_server.ws_server] INFO: [sess_5b69b59c732836fb] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:26:39 [trader_server.msg_log] INFO: [sess_5b69b59c732836fb] Client 断开连接
+2026-07-07 02:26:39 [trader_server.ws_server] INFO: [sess_bbaab45b08cfc9ba] WS connected from 127.0.0.1:56386
+2026-07-07 02:26:39 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_068c9d497b3549e7] Client 已连接 127.0.0.1:56386
+2026-07-07 02:26:39 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_068c9d497b3549e7] 认证通过 ✓
+2026-07-07 02:26:39 [trader_server.ws_server] INFO: [sess_bbaab45b08cfc9ba] Auth OK, connection established
+2026-07-07 02:26:39 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_bb0099617fd14ba0] [BROKER_STATUS_QUERY]
+2026-07-07 02:26:39 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_bb0099617fd14ba0] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:26:39 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_f2edb9ced03b430e] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 02:26:39 [trader_server.config_sync] INFO: _do_hot_reload: reconnecting TT with latest credentials...
+2026-07-07 02:26:39 [trader_server.api.tastytrade] INFO: TastytradeBroker disconnected
+2026-07-07 02:26:39 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-07 02:26:41 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-07 02:26:41 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-07 02:26:41 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-07 02:26:41 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-07-07 02:26:41 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_f2edb9ced03b430e] 行情操作失败
+2026-07-07 02:26:55 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_6b1c32438dd641f1] [BROKER_LOGIN]
+2026-07-07 02:26:55 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_6b1c32438dd641f1] [BROKER_LOGIN_RESPONSE]
+2026-07-07 02:27:57 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_ea0a7ff4c0bd4023] [BROKER_LOGIN]
+2026-07-07 02:27:57 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_ea0a7ff4c0bd4023] [BROKER_LOGIN_RESPONSE]
+2026-07-07 02:29:53 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_3def242d78634de1] [BROKER_LOGOUT]
+2026-07-07 02:29:53 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba][trc_3def242d78634de1] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 02:29:53 [trader_server.ws_server] INFO: [sess_bbaab45b08cfc9ba] WS disconnected by client
+2026-07-07 02:29:53 [trader_server.ws_server] INFO: [sess_bbaab45b08cfc9ba] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:29:53 [trader_server.msg_log] INFO: [sess_bbaab45b08cfc9ba] Client 断开连接
+2026-07-07 02:30:30 [trader_server.ws_server] INFO: [sess_a2db83bd61724d1a] WS connected from 127.0.0.1:50408
+2026-07-07 02:30:30 [trader_server.msg_log] INFO: [sess_a2db83bd61724d1a][trc_df799a1cbce74bb4] Client 已连接 127.0.0.1:50408
+2026-07-07 02:30:30 [trader_server.msg_log] INFO: [sess_a2db83bd61724d1a][trc_df799a1cbce74bb4] 认证通过 ✓
+2026-07-07 02:30:30 [trader_server.ws_server] INFO: [sess_a2db83bd61724d1a] Auth OK, connection established
+2026-07-07 02:30:30 [trader_server.ws_server] INFO: [sess_a2db83bd61724d1a] WS disconnected by client
+2026-07-07 02:30:30 [trader_server.ws_server] INFO: [sess_a2db83bd61724d1a] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:30:30 [trader_server.msg_log] INFO: [sess_a2db83bd61724d1a] Client 断开连接
+2026-07-07 02:30:30 [trader_server.ws_server] INFO: [sess_cd4c91089e90a0f0] WS connected from 127.0.0.1:50413
+2026-07-07 02:30:30 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_55263f230bf144e5] Client 已连接 127.0.0.1:50413
+2026-07-07 02:30:30 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_55263f230bf144e5] 认证通过 ✓
+2026-07-07 02:30:30 [trader_server.ws_server] INFO: [sess_cd4c91089e90a0f0] Auth OK, connection established
+2026-07-07 02:30:31 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_112b385195344f66] [BROKER_STATUS_QUERY]
+2026-07-07 02:30:31 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_112b385195344f66] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:30:31 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_8bacc431618c45a0] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 02:30:31 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 02:30:31 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_8bacc431618c45a0] 行情操作失败
+2026-07-07 02:30:45 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_d0af8ba91bdb4c7f] [BROKER_LOGOUT]
+2026-07-07 02:30:45 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0][trc_d0af8ba91bdb4c7f] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 02:30:45 [trader_server.ws_server] INFO: [sess_cd4c91089e90a0f0] WS disconnected by client
+2026-07-07 02:30:45 [trader_server.ws_server] INFO: [sess_cd4c91089e90a0f0] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:30:45 [trader_server.msg_log] INFO: [sess_cd4c91089e90a0f0] Client 断开连接
+2026-07-07 02:35:01 [trader_server.ws_server] INFO: [sess_0dee835457d4e358] WS connected from 127.0.0.1:57450
+2026-07-07 02:35:01 [trader_server.msg_log] INFO: [sess_0dee835457d4e358][trc_13c1f58a7a984dd4] Client 已连接 127.0.0.1:57450
+2026-07-07 02:35:01 [trader_server.msg_log] INFO: [sess_0dee835457d4e358][trc_13c1f58a7a984dd4] 认证通过 ✓
+2026-07-07 02:35:01 [trader_server.ws_server] INFO: [sess_0dee835457d4e358] Auth OK, connection established
+2026-07-07 02:35:02 [trader_server.ws_server] INFO: [sess_0dee835457d4e358] WS disconnected by client
+2026-07-07 02:35:02 [trader_server.ws_server] INFO: [sess_0dee835457d4e358] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_0dee835457d4e358] Client 断开连接
+2026-07-07 02:35:02 [trader_server.ws_server] INFO: [sess_10bdde6134f1bc20] WS connected from 127.0.0.1:57454
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_803401f90fef4e5e] Client 已连接 127.0.0.1:57454
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_803401f90fef4e5e] 认证通过 ✓
+2026-07-07 02:35:02 [trader_server.ws_server] INFO: [sess_10bdde6134f1bc20] Auth OK, connection established
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_ab850fec449742be] [BROKER_STATUS_QUERY]
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_ab850fec449742be] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_ea6db19e70474b1f] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 02:35:02 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 02:35:02 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_ea6db19e70474b1f] 行情操作失败
+2026-07-07 02:35:50 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_9b9cc06ce1f4417a] [BROKER_LOGOUT]
+2026-07-07 02:35:50 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20][trc_9b9cc06ce1f4417a] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 02:35:50 [trader_server.ws_server] INFO: [sess_10bdde6134f1bc20] WS disconnected by client
+2026-07-07 02:35:50 [trader_server.ws_server] INFO: [sess_10bdde6134f1bc20] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:35:50 [trader_server.msg_log] INFO: [sess_10bdde6134f1bc20] Client 断开连接
+2026-07-07 02:39:10 [trader_server.ws_server] INFO: [sess_23dbec8f5176e2b3] WS connected from 127.0.0.1:56516
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_23dbec8f5176e2b3][trc_e650d5ec512e4dcd] Client 已连接 127.0.0.1:56516
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_23dbec8f5176e2b3][trc_e650d5ec512e4dcd] 认证通过 ✓
+2026-07-07 02:39:10 [trader_server.ws_server] INFO: [sess_23dbec8f5176e2b3] Auth OK, connection established
+2026-07-07 02:39:10 [trader_server.ws_server] INFO: [sess_23dbec8f5176e2b3] WS disconnected by client
+2026-07-07 02:39:10 [trader_server.ws_server] INFO: [sess_23dbec8f5176e2b3] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_23dbec8f5176e2b3] Client 断开连接
+2026-07-07 02:39:10 [trader_server.ws_server] INFO: [sess_59a3c43c4e25d8d7] WS connected from 127.0.0.1:56521
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_87cb588bbf8e4e92] Client 已连接 127.0.0.1:56521
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_87cb588bbf8e4e92] 认证通过 ✓
+2026-07-07 02:39:10 [trader_server.ws_server] INFO: [sess_59a3c43c4e25d8d7] Auth OK, connection established
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_b9afd69968c34623] [BROKER_STATUS_QUERY]
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_b9afd69968c34623] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_460d1b0dc48442ed] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 02:39:10 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 02:39:10 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_460d1b0dc48442ed] 行情操作失败
+2026-07-07 02:39:18 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_34a603f06c1c434b] [BROKER_LOGOUT]
+2026-07-07 02:39:18 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7][trc_34a603f06c1c434b] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 02:39:18 [trader_server.ws_server] INFO: [sess_59a3c43c4e25d8d7] WS disconnected by client
+2026-07-07 02:39:18 [trader_server.ws_server] INFO: [sess_59a3c43c4e25d8d7] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:39:18 [trader_server.msg_log] INFO: [sess_59a3c43c4e25d8d7] Client 断开连接
+2026-07-07 02:54:47 [trader_server.ws_server] INFO: [sess_3b3a3b60e8002e48] WS connected from 127.0.0.1:51425
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_3b3a3b60e8002e48][trc_efc9a5ef3a094ca5] Client 已连接 127.0.0.1:51425
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_3b3a3b60e8002e48][trc_efc9a5ef3a094ca5] 认证通过 ✓
+2026-07-07 02:54:47 [trader_server.ws_server] INFO: [sess_3b3a3b60e8002e48] Auth OK, connection established
+2026-07-07 02:54:47 [trader_server.ws_server] INFO: [sess_3b3a3b60e8002e48] WS disconnected by client
+2026-07-07 02:54:47 [trader_server.ws_server] INFO: [sess_3b3a3b60e8002e48] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_3b3a3b60e8002e48] Client 断开连接
+2026-07-07 02:54:47 [trader_server.ws_server] INFO: [sess_244a28dffa2db534] WS connected from 127.0.0.1:51429
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_ab642ef83e574098] Client 已连接 127.0.0.1:51429
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_ab642ef83e574098] 认证通过 ✓
+2026-07-07 02:54:47 [trader_server.ws_server] INFO: [sess_244a28dffa2db534] Auth OK, connection established
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_c71be25571ef44aa] [BROKER_STATUS_QUERY]
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_c71be25571ef44aa] [BROKER_STATUS_RESPONSE]
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_30f00b6e44b04db1] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 02:54:47 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 02:54:47 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_30f00b6e44b04db1] 行情操作失败
+2026-07-07 02:55:16 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_fafa53598ae540a2] [BROKER_LOGOUT]
+2026-07-07 02:55:16 [trader_server.msg_log] INFO: [sess_244a28dffa2db534][trc_fafa53598ae540a2] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 02:55:16 [trader_server.ws_server] INFO: [sess_244a28dffa2db534] WS disconnected by client
+2026-07-07 02:55:16 [trader_server.ws_server] INFO: [sess_244a28dffa2db534] Connection cleaned up (remaining connections: 0)
+2026-07-07 02:55:16 [trader_server.msg_log] INFO: [sess_244a28dffa2db534] Client 断开连接
+2026-07-07 03:03:17 [trader_server.ws_server] INFO: [sess_2c4016ded11d7b38] WS connected from 127.0.0.1:54647
+2026-07-07 03:03:17 [trader_server.msg_log] INFO: [sess_2c4016ded11d7b38][trc_3514ed9b96c1475e] Client 已连接 127.0.0.1:54647
+2026-07-07 03:03:17 [trader_server.msg_log] INFO: [sess_2c4016ded11d7b38][trc_3514ed9b96c1475e] 认证通过 ✓
+2026-07-07 03:03:17 [trader_server.ws_server] INFO: [sess_2c4016ded11d7b38] Auth OK, connection established
+2026-07-07 03:03:18 [trader_server.ws_server] INFO: [sess_2c4016ded11d7b38] WS disconnected by client
+2026-07-07 03:03:18 [trader_server.ws_server] INFO: [sess_2c4016ded11d7b38] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_2c4016ded11d7b38] Client 断开连接
+2026-07-07 03:03:18 [trader_server.ws_server] INFO: [sess_c46cbe065edd83ff] WS connected from 127.0.0.1:54651
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_2c06b06e17334685] Client 已连接 127.0.0.1:54651
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_2c06b06e17334685] 认证通过 ✓
+2026-07-07 03:03:18 [trader_server.ws_server] INFO: [sess_c46cbe065edd83ff] Auth OK, connection established
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_92907492d65b4051] [BROKER_STATUS_QUERY]
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_92907492d65b4051] [BROKER_STATUS_RESPONSE]
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_f21592f38d404159] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 03:03:18 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 03:03:18 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_f21592f38d404159] 行情操作失败
+2026-07-07 03:03:33 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_6c06773ce5d1431f] [BROKER_LOGOUT]
+2026-07-07 03:03:33 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff][trc_6c06773ce5d1431f] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 03:03:33 [trader_server.ws_server] INFO: [sess_c46cbe065edd83ff] WS disconnected by client
+2026-07-07 03:03:33 [trader_server.ws_server] INFO: [sess_c46cbe065edd83ff] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:03:33 [trader_server.msg_log] INFO: [sess_c46cbe065edd83ff] Client 断开连接
+2026-07-07 03:27:52 [trader_server.ws_server] INFO: [sess_f4fdf4c490e90e75] WS connected from 127.0.0.1:65268
+2026-07-07 03:27:52 [trader_server.msg_log] INFO: [sess_f4fdf4c490e90e75][trc_fe0af25688b54357] Client 已连接 127.0.0.1:65268
+2026-07-07 03:27:52 [trader_server.msg_log] INFO: [sess_f4fdf4c490e90e75][trc_fe0af25688b54357] 认证通过 ✓
+2026-07-07 03:27:52 [trader_server.ws_server] INFO: [sess_f4fdf4c490e90e75] Auth OK, connection established
+2026-07-07 03:27:52 [trader_server.ws_server] INFO: [sess_f4fdf4c490e90e75] WS disconnected by client
+2026-07-07 03:27:52 [trader_server.ws_server] INFO: [sess_f4fdf4c490e90e75] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:27:52 [trader_server.msg_log] INFO: [sess_f4fdf4c490e90e75] Client 断开连接
+2026-07-07 03:27:52 [trader_server.ws_server] INFO: [sess_76ba22f89c69cca4] WS connected from 127.0.0.1:65273
+2026-07-07 03:27:52 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_e57ceac13c9f4c85] Client 已连接 127.0.0.1:65273
+2026-07-07 03:27:52 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_e57ceac13c9f4c85] 认证通过 ✓
+2026-07-07 03:27:52 [trader_server.ws_server] INFO: [sess_76ba22f89c69cca4] Auth OK, connection established
+2026-07-07 03:27:53 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_2b0a219acde44162] [BROKER_STATUS_QUERY]
+2026-07-07 03:27:53 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_2b0a219acde44162] [BROKER_STATUS_RESPONSE]
+2026-07-07 03:27:53 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_25376f32c6ef455d] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 03:27:53 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 03:27:53 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_25376f32c6ef455d] 行情操作失败
+2026-07-07 03:28:01 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_1e4f242f977c4ea3] [BROKER_LOGOUT]
+2026-07-07 03:28:01 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4][trc_1e4f242f977c4ea3] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 03:28:01 [trader_server.ws_server] INFO: [sess_76ba22f89c69cca4] WS disconnected by client
+2026-07-07 03:28:01 [trader_server.ws_server] INFO: [sess_76ba22f89c69cca4] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:28:01 [trader_server.msg_log] INFO: [sess_76ba22f89c69cca4] Client 断开连接
+2026-07-07 03:39:07 [trader_server.ws_server] INFO: [sess_2f8d3163e697fb44] WS connected from 127.0.0.1:55534
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_2f8d3163e697fb44][trc_976400becced492e] Client 已连接 127.0.0.1:55534
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_2f8d3163e697fb44][trc_976400becced492e] 认证通过 ✓
+2026-07-07 03:39:07 [trader_server.ws_server] INFO: [sess_2f8d3163e697fb44] Auth OK, connection established
+2026-07-07 03:39:07 [trader_server.ws_server] INFO: [sess_2f8d3163e697fb44] WS disconnected by client
+2026-07-07 03:39:07 [trader_server.ws_server] INFO: [sess_2f8d3163e697fb44] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_2f8d3163e697fb44] Client 断开连接
+2026-07-07 03:39:07 [trader_server.ws_server] INFO: [sess_e2667ba6e3517734] WS connected from 127.0.0.1:55539
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_b15c9881e2e64305] Client 已连接 127.0.0.1:55539
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_b15c9881e2e64305] 认证通过 ✓
+2026-07-07 03:39:07 [trader_server.ws_server] INFO: [sess_e2667ba6e3517734] Auth OK, connection established
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_c1c6b64fe57d4206] [BROKER_STATUS_QUERY]
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_c1c6b64fe57d4206] [BROKER_STATUS_RESPONSE]
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_e019ed31530f4e4b] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 03:39:07 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 03:39:07 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_e019ed31530f4e4b] 行情操作失败
+2026-07-07 03:39:10 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_434244a1ddc3490e] [BROKER_LOGOUT]
+2026-07-07 03:39:10 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734][trc_434244a1ddc3490e] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 03:39:10 [trader_server.ws_server] INFO: [sess_e2667ba6e3517734] WS disconnected by client
+2026-07-07 03:39:10 [trader_server.ws_server] INFO: [sess_e2667ba6e3517734] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:39:10 [trader_server.msg_log] INFO: [sess_e2667ba6e3517734] Client 断开连接
+2026-07-07 03:39:17 [trader_server.ws_server] INFO: [sess_af0301d3f1b30f38] WS connected from 127.0.0.1:64669
+2026-07-07 03:39:17 [trader_server.msg_log] INFO: [sess_af0301d3f1b30f38][trc_4e2a4f0ae0704872] Client 已连接 127.0.0.1:64669
+2026-07-07 03:39:17 [trader_server.msg_log] INFO: [sess_af0301d3f1b30f38][trc_4e2a4f0ae0704872] 认证通过 ✓
+2026-07-07 03:39:17 [trader_server.ws_server] INFO: [sess_af0301d3f1b30f38] Auth OK, connection established
+2026-07-07 03:39:17 [trader_server.ws_server] INFO: [sess_af0301d3f1b30f38] WS disconnected by client
+2026-07-07 03:39:17 [trader_server.ws_server] INFO: [sess_af0301d3f1b30f38] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:39:17 [trader_server.msg_log] INFO: [sess_af0301d3f1b30f38] Client 断开连接
+2026-07-07 03:39:17 [trader_server.ws_server] INFO: [sess_b2d03bc7fd108bd5] WS connected from 127.0.0.1:64673
+2026-07-07 03:39:17 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_accafae662264b19] Client 已连接 127.0.0.1:64673
+2026-07-07 03:39:17 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_accafae662264b19] 认证通过 ✓
+2026-07-07 03:39:17 [trader_server.ws_server] INFO: [sess_b2d03bc7fd108bd5] Auth OK, connection established
+2026-07-07 03:39:18 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_43d5750ba4bf4e06] [BROKER_STATUS_QUERY]
+2026-07-07 03:39:18 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_43d5750ba4bf4e06] [BROKER_STATUS_RESPONSE]
+2026-07-07 03:39:18 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_1a7c673e33764c5c] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 03:39:18 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 03:39:18 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_1a7c673e33764c5c] 行情操作失败
+2026-07-07 03:39:19 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_4ee6f03583024892] [BROKER_LOGOUT]
+2026-07-07 03:39:19 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5][trc_4ee6f03583024892] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 03:39:19 [trader_server.ws_server] INFO: [sess_b2d03bc7fd108bd5] WS disconnected by client
+2026-07-07 03:39:19 [trader_server.ws_server] INFO: [sess_b2d03bc7fd108bd5] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:39:19 [trader_server.msg_log] INFO: [sess_b2d03bc7fd108bd5] Client 断开连接
+2026-07-07 03:41:53 [trader_server.ws_server] INFO: [sess_8ea3a5f46e946e5b] WS connected from 127.0.0.1:54037
+2026-07-07 03:41:53 [trader_server.msg_log] INFO: [sess_8ea3a5f46e946e5b][trc_583d7db8e3254641] Client 已连接 127.0.0.1:54037
+2026-07-07 03:41:53 [trader_server.msg_log] INFO: [sess_8ea3a5f46e946e5b][trc_583d7db8e3254641] 认证通过 ✓
+2026-07-07 03:41:53 [trader_server.ws_server] INFO: [sess_8ea3a5f46e946e5b] Auth OK, connection established
+2026-07-07 03:41:53 [trader_server.ws_server] INFO: [sess_8ea3a5f46e946e5b] WS disconnected by client
+2026-07-07 03:41:53 [trader_server.ws_server] INFO: [sess_8ea3a5f46e946e5b] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:41:53 [trader_server.msg_log] INFO: [sess_8ea3a5f46e946e5b] Client 断开连接
+2026-07-07 03:41:53 [trader_server.ws_server] INFO: [sess_fb1f5545f20a5b0c] WS connected from 127.0.0.1:54041
+2026-07-07 03:41:53 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_d1de56d1593e447b] Client 已连接 127.0.0.1:54041
+2026-07-07 03:41:53 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_d1de56d1593e447b] 认证通过 ✓
+2026-07-07 03:41:53 [trader_server.ws_server] INFO: [sess_fb1f5545f20a5b0c] Auth OK, connection established
+2026-07-07 03:41:54 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_8ef1d627ab144f4c] [BROKER_STATUS_QUERY]
+2026-07-07 03:41:54 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_8ef1d627ab144f4c] [BROKER_STATUS_RESPONSE]
+2026-07-07 03:41:54 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_f2046401e8fc4086] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 03:41:54 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 03:41:54 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_f2046401e8fc4086] 行情操作失败
+2026-07-07 03:42:06 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_4d703b8ad1e046a6] [BROKER_LOGIN]
+2026-07-07 03:42:06 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_4d703b8ad1e046a6] [BROKER_LOGIN_RESPONSE]
+2026-07-07 03:49:25 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_8dfd8d04fd5549e7] [BROKER_LOGOUT]
+2026-07-07 03:49:25 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c][trc_8dfd8d04fd5549e7] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 03:49:25 [trader_server.ws_server] INFO: [sess_fb1f5545f20a5b0c] WS disconnected by client
+2026-07-07 03:49:25 [trader_server.ws_server] INFO: [sess_fb1f5545f20a5b0c] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:49:25 [trader_server.msg_log] INFO: [sess_fb1f5545f20a5b0c] Client 断开连接
+2026-07-07 03:49:33 [trader_server.ws_server] INFO: [sess_10463bfafec20675] WS connected from 127.0.0.1:61269
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_10463bfafec20675][trc_62d99a4c9f3a4cb4] Client 已连接 127.0.0.1:61269
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_10463bfafec20675][trc_62d99a4c9f3a4cb4] 认证通过 ✓
+2026-07-07 03:49:33 [trader_server.ws_server] INFO: [sess_10463bfafec20675] Auth OK, connection established
+2026-07-07 03:49:33 [trader_server.ws_server] INFO: [sess_10463bfafec20675] WS disconnected by client
+2026-07-07 03:49:33 [trader_server.ws_server] INFO: [sess_10463bfafec20675] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_10463bfafec20675] Client 断开连接
+2026-07-07 03:49:33 [trader_server.ws_server] INFO: [sess_5f830112cf1ccc5e] WS connected from 127.0.0.1:61274
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_fbc97c87e38b4abe] Client 已连接 127.0.0.1:61274
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_fbc97c87e38b4abe] 认证通过 ✓
+2026-07-07 03:49:33 [trader_server.ws_server] INFO: [sess_5f830112cf1ccc5e] Auth OK, connection established
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_b4ae08fa45014a4b] [BROKER_STATUS_QUERY]
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_b4ae08fa45014a4b] [BROKER_STATUS_RESPONSE]
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_7f0f980f8e87422e] 行情订阅 [AAPL, BTCUSD]
+2026-07-07 03:49:33 [trader_server.config_sync] WARNING: connect attempt skipped: auto retry paused (Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'})
+2026-07-07 03:49:33 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_7f0f980f8e87422e] 行情操作失败
+2026-07-07 03:49:38 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_cf3a3bfc43da48a9] [BROKER_LOGIN]
+2026-07-07 03:49:38 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_cf3a3bfc43da48a9] [BROKER_LOGIN_RESPONSE]
+2026-07-07 03:51:45 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_7d3a96b2a8f1478e] [BROKER_LOGOUT]
+2026-07-07 03:51:45 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e][trc_7d3a96b2a8f1478e] [BROKER_LOGOUT_RESPONSE]
+2026-07-07 03:51:45 [trader_server.ws_server] INFO: [sess_5f830112cf1ccc5e] WS disconnected by client
+2026-07-07 03:51:45 [trader_server.ws_server] INFO: [sess_5f830112cf1ccc5e] Connection cleaned up (remaining connections: 0)
+2026-07-07 03:51:45 [trader_server.msg_log] INFO: [sess_5f830112cf1ccc5e] Client 断开连接
+2026-07-07 23:15:18 [trader_server] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Trader_Server\data\logs\ts_20260707.log)
+2026-07-07 23:15:18 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-07 23:15:18 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-07 23:15:18 [trader_server.registration] INFO: Restored session: server_id=node_trader-node-01_fc22aeb7
+2026-07-07 23:15:18 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-07 23:15:20 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-07 23:15:20 [trader_server.heartbeat] INFO: Heartbeat started (interval=20s)
+2026-07-07 23:15:22 [trader_server.heartbeat] WARNING: [#1] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-07 23:15:23 [trader_server.heartbeat] WARNING: [#2] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-07 23:15:24 [trader_server.api.ib] WARNING: ibapi not installed, IBBroker will be non-functional
+2026-07-07 23:15:24 [trader_server.config_sync] INFO: Config event listener started
+2026-07-07 23:15:27 [trader_server.heartbeat] WARNING: [#3] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-07 23:15:32 [trader_server.heartbeat] WARNING: [#4] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-07 23:15:38 [trader_server.heartbeat] WARNING: [#5] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-07 23:15:38 [trader_server.main] INFO: Credentials cleared: ['config.json']
+2026-07-07 23:15:46 [trader_server.heartbeat] ERROR: [#6] Heartbeat FAIL: No token available
+2026-07-07 23:16:02 [trader_server.heartbeat] ERROR: [#7] Heartbeat FAIL: No token available
+2026-07-07 23:16:34 [trader_server.heartbeat] ERROR: [#8] Heartbeat FAIL: No token available
+2026-07-07 23:17:34 [trader_server.heartbeat] ERROR: [#9] Heartbeat FAIL: No token available
+2026-07-07 23:18:34 [trader_server.heartbeat] ERROR: [#10] Heartbeat FAIL: No token available
+2026-07-07 23:19:34 [trader_server.heartbeat] ERROR: [#11] Heartbeat FAIL: No token available
+2026-07-07 23:20:34 [trader_server.heartbeat] ERROR: [#12] Heartbeat FAIL: No token available
+2026-07-07 23:21:34 [trader_server.heartbeat] ERROR: [#13] Heartbeat FAIL: No token available
+2026-07-07 23:22:34 [trader_server.heartbeat] ERROR: [#14] Heartbeat FAIL: No token available
+2026-07-07 23:23:34 [trader_server.heartbeat] ERROR: [#15] Heartbeat FAIL: No token available
+2026-07-07 23:24:34 [trader_server.heartbeat] ERROR: [#16] Heartbeat FAIL: No token available
+2026-07-07 23:25:34 [trader_server.heartbeat] ERROR: [#17] Heartbeat FAIL: No token available
+2026-07-07 23:26:34 [trader_server.heartbeat] ERROR: [#18] Heartbeat FAIL: No token available
+2026-07-07 23:27:34 [trader_server.heartbeat] ERROR: [#19] Heartbeat FAIL: No token available
+2026-07-07 23:28:34 [trader_server.heartbeat] ERROR: [#20] Heartbeat FAIL: No token available
+2026-07-07 23:29:34 [trader_server.heartbeat] ERROR: [#21] Heartbeat FAIL: No token available
+2026-07-07 23:30:34 [trader_server.heartbeat] ERROR: [#22] Heartbeat FAIL: No token available
+2026-07-07 23:31:34 [trader_server.heartbeat] ERROR: [#23] Heartbeat FAIL: No token available
+2026-07-07 23:32:34 [trader_server.heartbeat] ERROR: [#24] Heartbeat FAIL: No token available
+2026-07-07 23:33:34 [trader_server.heartbeat] ERROR: [#25] Heartbeat FAIL: No token available
+2026-07-07 23:34:34 [trader_server.heartbeat] ERROR: [#26] Heartbeat FAIL: No token available
+2026-07-07 23:35:34 [trader_server.heartbeat] ERROR: [#27] Heartbeat FAIL: No token available
+2026-07-07 23:36:34 [trader_server.heartbeat] ERROR: [#28] Heartbeat FAIL: No token available
+2026-07-07 23:37:34 [trader_server.heartbeat] ERROR: [#29] Heartbeat FAIL: No token available
+2026-07-07 23:38:34 [trader_server.heartbeat] ERROR: [#30] Heartbeat FAIL: No token available
+2026-07-07 23:39:34 [trader_server.heartbeat] ERROR: [#31] Heartbeat FAIL: No token available
+2026-07-07 23:40:34 [trader_server.heartbeat] ERROR: [#32] Heartbeat FAIL: No token available
+2026-07-07 23:41:34 [trader_server.heartbeat] ERROR: [#33] Heartbeat FAIL: No token available
+2026-07-07 23:42:34 [trader_server.heartbeat] ERROR: [#34] Heartbeat FAIL: No token available
+2026-07-07 23:43:34 [trader_server.heartbeat] ERROR: [#35] Heartbeat FAIL: No token available
+2026-07-07 23:44:34 [trader_server.heartbeat] ERROR: [#36] Heartbeat FAIL: No token available
+2026-07-07 23:45:34 [trader_server.heartbeat] ERROR: [#37] Heartbeat FAIL: No token available
+2026-07-07 23:46:34 [trader_server.heartbeat] ERROR: [#38] Heartbeat FAIL: No token available
+2026-07-07 23:47:34 [trader_server.heartbeat] ERROR: [#39] Heartbeat FAIL: No token available
+2026-07-07 23:48:34 [trader_server.heartbeat] ERROR: [#40] Heartbeat FAIL: No token available
+2026-07-07 23:49:34 [trader_server.heartbeat] ERROR: [#41] Heartbeat FAIL: No token available
+2026-07-07 23:50:34 [trader_server.heartbeat] ERROR: [#42] Heartbeat FAIL: No token available
+2026-07-07 23:51:34 [trader_server.heartbeat] ERROR: [#43] Heartbeat FAIL: No token available
+2026-07-07 23:52:34 [trader_server.heartbeat] ERROR: [#44] Heartbeat FAIL: No token available
+2026-07-07 23:53:34 [trader_server.heartbeat] ERROR: [#45] Heartbeat FAIL: No token available
+2026-07-07 23:54:34 [trader_server.heartbeat] ERROR: [#46] Heartbeat FAIL: No token available
+2026-07-07 23:55:34 [trader_server.heartbeat] ERROR: [#47] Heartbeat FAIL: No token available
+2026-07-07 23:56:34 [trader_server.heartbeat] ERROR: [#48] Heartbeat FAIL: No token available
+2026-07-07 23:57:34 [trader_server.heartbeat] ERROR: [#49] Heartbeat FAIL: No token available
+2026-07-07 23:58:34 [trader_server.heartbeat] ERROR: [#50] Heartbeat FAIL: No token available
+2026-07-07 23:59:34 [trader_server.heartbeat] ERROR: [#51] Heartbeat FAIL: No token available
+2026-07-08 00:00:34 [trader_server.heartbeat] ERROR: [#52] Heartbeat FAIL: No token available
+2026-07-08 00:01:34 [trader_server.heartbeat] ERROR: [#53] Heartbeat FAIL: No token available
+2026-07-08 00:02:34 [trader_server.heartbeat] ERROR: [#54] Heartbeat FAIL: No token available
+2026-07-08 00:03:05 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:03:07 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-08 00:03:27 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:03:29 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-08 00:03:34 [trader_server.heartbeat] ERROR: [#55] Heartbeat FAIL: No token available
+2026-07-08 00:04:34 [trader_server.heartbeat] ERROR: [#56] Heartbeat FAIL: No token available
+2026-07-08 00:04:40 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:04:42 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-07-08 00:04:56 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:04:56 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-08 00:04:56 [trader_server.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'trader-node-01', 'region': 'TT', 'host': '192.168.1.129:8900'}
+2026-07-08 00:04:56 [trader_server.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-07-08 00:04:56 [trader_server.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-07-08 00:04:56 [trader_server.registration] INFO: Node info: name=trader-node-01, region=TT
+2026-07-08 00:04:56 [trader_server] INFO: Register state saved: req_ad36260434577fe5330251d0
+2026-07-08 00:04:56 [trader_server.registration] INFO: Registration submitted: req_ad36260434577fe5330251d0, expires at 2026-07-08T16:04:56.631533+00:00
+2026-07-08 00:04:56 [trader_server.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_ad36260434577fe5330251d0', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-07-08T16:04:56.631533+00:00'}
+2026-07-08 00:04:56 [trader_server.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_ad36260434577fe5330251d0
+2026-07-08 00:05:23 [trader_server.main] INFO: [Await Approval] ★ APPROVED! server_id=node_trader-node-01_9502dbb4
+2026-07-08 00:05:23 [trader_server] INFO: Config saved to D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-08 00:05:23 [trader_server] INFO: Register state cleared
+2026-07-08 00:05:24 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-08 00:05:25 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-08 00:05:25 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:05:25 [trader_server.config_sync] ERROR: init_broker: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:05:25 [trader_server.config_sync] INFO: Broker status broadcast: TT → connect_failed
+2026-07-08 00:05:25 [trader_server.main] WARNING: [Await Approval] Broker init failed (will retry via heartbeat)
+2026-07-08 00:20:52 [trader_server.main] INFO: Credentials cleared: ['config.json']
+2026-07-08 00:20:55 [trader_server.heartbeat] ERROR: [#103] Heartbeat FAIL: No token available
+2026-07-08 00:20:56 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:20:56 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-08 00:20:56 [trader_server.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'trader-node-01', 'region': 'TT', 'host': '192.168.1.129:8900'}
+2026-07-08 00:20:56 [trader_server.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-07-08 00:20:56 [trader_server.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-07-08 00:20:56 [trader_server.registration] INFO: Node info: name=trader-node-01, region=TT
+2026-07-08 00:20:56 [trader_server] INFO: Register state saved: req_625302ed836d823f6fb11ae8
+2026-07-08 00:20:56 [trader_server.registration] INFO: Registration submitted: req_625302ed836d823f6fb11ae8, expires at 2026-07-08T16:20:56.346854+00:00
+2026-07-08 00:20:56 [trader_server.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_625302ed836d823f6fb11ae8', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-07-08T16:20:56.346854+00:00'}
+2026-07-08 00:20:56 [trader_server.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_625302ed836d823f6fb11ae8
+2026-07-08 00:20:56 [trader_server.heartbeat] ERROR: [#104] Heartbeat FAIL: No token available
+2026-07-08 00:20:58 [trader_server.heartbeat] ERROR: [#105] Heartbeat FAIL: No token available
+2026-07-08 00:21:02 [trader_server.heartbeat] ERROR: [#106] Heartbeat FAIL: No token available
+2026-07-08 00:21:10 [trader_server.heartbeat] ERROR: [#107] Heartbeat FAIL: No token available
+2026-07-08 00:21:10 [trader_server.main] INFO: [Await Approval] ★ APPROVED! server_id=node_trader-node-01_b2611c85
+2026-07-08 00:21:10 [trader_server] INFO: Config saved to D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-08 00:21:10 [trader_server] INFO: Register state cleared
+2026-07-08 00:21:10 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-08 00:21:12 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-08 00:21:12 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:21:12 [trader_server.config_sync] ERROR: init_broker: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:21:12 [trader_server.config_sync] INFO: Broker status broadcast: TT → connect_failed
+2026-07-08 00:21:12 [trader_server.main] WARNING: [Await Approval] Broker init failed (will retry via heartbeat)
+2026-07-08 00:35:25 [trader_server.main] INFO: Credentials cleared: ['config.json']
+2026-07-08 00:35:27 [trader_server.heartbeat] ERROR: [#150] Heartbeat FAIL: No token available
+2026-07-08 00:35:28 [trader_server.heartbeat] ERROR: [#151] Heartbeat FAIL: No token available
+2026-07-08 00:35:29 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:35:29 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-08 00:35:29 [trader_server.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'trader-node-01', 'region': 'TT', 'host': '192.168.1.129:8900'}
+2026-07-08 00:35:29 [trader_server.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-07-08 00:35:29 [trader_server.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-07-08 00:35:29 [trader_server.registration] INFO: Node info: name=trader-node-01, region=TT
+2026-07-08 00:35:29 [trader_server] INFO: Register state saved: req_66789fa9cfab596a395b7696
+2026-07-08 00:35:29 [trader_server.registration] INFO: Registration submitted: req_66789fa9cfab596a395b7696, expires at 2026-07-08T16:35:29.717459+00:00
+2026-07-08 00:35:29 [trader_server.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_66789fa9cfab596a395b7696', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-07-08T16:35:29.717459+00:00'}
+2026-07-08 00:35:29 [trader_server.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_66789fa9cfab596a395b7696
+2026-07-08 00:35:30 [trader_server.heartbeat] ERROR: [#152] Heartbeat FAIL: No token available
+2026-07-08 00:35:34 [trader_server.heartbeat] ERROR: [#153] Heartbeat FAIL: No token available
+2026-07-08 00:35:41 [trader_server.main] INFO: [Await Approval] ★ APPROVED! server_id=node_trader-node-01_72912928
+2026-07-08 00:35:41 [trader_server] INFO: Config saved to D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-08 00:35:41 [trader_server] INFO: Register state cleared
+2026-07-08 00:35:41 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-08 00:35:43 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-08 00:35:43 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:35:43 [trader_server.config_sync] ERROR: init_broker: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:35:43 [trader_server.config_sync] INFO: Broker status broadcast: TT → connect_failed
+2026-07-08 00:35:43 [trader_server.main] WARNING: [Await Approval] Broker init failed (will retry via heartbeat)
+2026-07-08 00:56:58 [trader_server.main] INFO: Credentials cleared: ['config.json']
+2026-07-08 00:57:02 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 00:57:02 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-08 00:57:02 [trader_server.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'trader-node-01', 'region': 'TT', 'host': '192.168.1.129:8900'}
+2026-07-08 00:57:02 [trader_server.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-07-08 00:57:02 [trader_server.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-07-08 00:57:02 [trader_server.registration] INFO: Node info: name=trader-node-01, region=TT
+2026-07-08 00:57:02 [trader_server] INFO: Register state saved: req_3c2ad85870e73928988a42ae
+2026-07-08 00:57:02 [trader_server.registration] INFO: Registration submitted: req_3c2ad85870e73928988a42ae, expires at 2026-07-08T16:57:02.922154+00:00
+2026-07-08 00:57:02 [trader_server.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_3c2ad85870e73928988a42ae', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-07-08T16:57:02.922154+00:00'}
+2026-07-08 00:57:02 [trader_server.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_3c2ad85870e73928988a42ae
+2026-07-08 00:57:03 [trader_server.heartbeat] ERROR: [#218] Heartbeat FAIL: No token available
+2026-07-08 00:57:04 [trader_server.heartbeat] ERROR: [#219] Heartbeat FAIL: No token available
+2026-07-08 00:57:06 [trader_server.heartbeat] ERROR: [#220] Heartbeat FAIL: No token available
+2026-07-08 00:57:10 [trader_server.heartbeat] ERROR: [#221] Heartbeat FAIL: No token available
+2026-07-08 00:57:11 [trader_server.main] INFO: [Await Approval] ★ APPROVED! server_id=node_trader-node-01_0623818c
+2026-07-08 00:57:11 [trader_server] INFO: Config saved to D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-08 00:57:11 [trader_server] INFO: Register state cleared
+2026-07-08 00:57:11 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-08 00:57:13 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-08 00:57:13 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:57:13 [trader_server.config_sync] ERROR: init_broker: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 00:57:13 [trader_server.config_sync] INFO: Broker status broadcast: TT → connect_failed
+2026-07-08 00:57:13 [trader_server.main] WARNING: [Await Approval] Broker init failed (will retry via heartbeat)
+2026-07-08 01:19:06 [trader_server.main] INFO: Credentials cleared: ['config.json']
+2026-07-08 01:19:10 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-08 01:19:10 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-08 01:19:10 [trader_server.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'trader-node-01', 'region': 'TT', 'host': '192.168.1.129:8900'}
+2026-07-08 01:19:10 [trader_server.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-07-08 01:19:10 [trader_server.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-07-08 01:19:10 [trader_server.registration] INFO: Node info: name=trader-node-01, region=TT
+2026-07-08 01:19:10 [trader_server] INFO: Register state saved: req_9dc2dd1105f636720cdf268b
+2026-07-08 01:19:10 [trader_server.registration] INFO: Registration submitted: req_9dc2dd1105f636720cdf268b, expires at 2026-07-08T17:19:10.185084+00:00
+2026-07-08 01:19:10 [trader_server.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_9dc2dd1105f636720cdf268b', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-07-08T17:19:10.185084+00:00'}
+2026-07-08 01:19:10 [trader_server.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_9dc2dd1105f636720cdf268b
+2026-07-08 01:19:20 [trader_server.heartbeat] ERROR: [#288] Heartbeat FAIL: No token available
+2026-07-08 01:19:21 [trader_server.heartbeat] ERROR: [#289] Heartbeat FAIL: No token available
+2026-07-08 01:19:21 [trader_server.main] INFO: [Await Approval] ★ APPROVED! server_id=node_trader-node-01_115c723f
+2026-07-08 01:19:21 [trader_server] INFO: Config saved to D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-08 01:19:21 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-08 01:19:24 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-08 01:19:24 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 01:19:24 [trader_server.config_sync] ERROR: init_broker: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-08 01:19:24 [trader_server.config_sync] INFO: Broker status broadcast: TT → connect_failed
+2026-07-08 01:19:24 [trader_server.main] WARNING: [Await Approval] Broker init failed (will retry via heartbeat)

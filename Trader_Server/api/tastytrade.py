@@ -1,4 +1,4 @@
-"""
+﻿"""
 Tastytrade 券商适配器
 
 从 origin_demo/server.py 移植核心逻辑:
@@ -78,17 +78,26 @@ class TastytradeBroker(BaseBrokerAPI):
 
     @classmethod
     def credential_profiles(cls) -> list[tuple[str, ...]]:
-        return [
-            ("token", "secret"),
-            ("account_username", "account_password", "token", "secret"),
-        ]
+        return [("token", "secret")]
 
+    @staticmethod
+    def _classify_connect_exception(exc: Exception) -> tuple[str, str, bool]:
+        message = str(exc or "")[:240]
+        lower = message.lower()
+        if any(flag in lower for flag in ("invalid_grant", "invalid jwt", "invalid credentials", "invalid token", "unauthorized", "401")):
+            return "BROKER_AUTH_INVALID", message, False
+        if "forbidden" in lower or "403" in lower:
+            return "BROKER_AUTH_FORBIDDEN", message, False
+        if "no accounts found" in lower:
+            return "BROKER_ACCOUNT_MISSING", message, False
+        return "BROKER_CONNECT_FAILED", message, True
     def __init__(self):
         super().__init__(broker_type="tastytrade")
 
         # Session 缓存（复用 origin_demo 的 session_store 模式）
         self._session: Any | None = None
         self._account: Any | None = None
+        self._equity_cache: dict[str, Any] = {}
 
         # TT DX 行情流状态
         self._quote_streamer: Any | None = None
@@ -100,14 +109,21 @@ class TastytradeBroker(BaseBrokerAPI):
 
 
     async def connect(self, credentials: dict) -> bool:
-        """使用 secret+token 创建 TT Session 并获取 Account"""
+        """浣跨敤 secret+token 鍒涘缓 TT Session 骞惰幏鍙?Account"""
+        self._connected = False
+        self._session = None
+        self._account = None
+        self._equity_cache = {}
+
         if not _SDK_AVAILABLE:
+            self.set_connection_error("BROKER_SDK_MISSING", "Tastytrade SDK not installed", retryable=False)
             log.error("Tastytrade SDK not installed")
             return False
 
         normalized = self.normalize_credentials(credentials)
         valid, reason = self.validate_credentials(normalized)
         if not valid:
+            self.set_connection_error("BROKER_CREDENTIALS_INVALID", reason, retryable=False)
             log.error(f"Tastytrade credentials invalid: {reason}")
             return False
 
@@ -118,7 +134,6 @@ class TastytradeBroker(BaseBrokerAPI):
 
         try:
             self._session = Session(secret, token)
-            # Account.get() 是异步的，需要在事件循环中运行
             accts = await Account.get(self._session)
             if acct_num:
                 self._account = next(
@@ -129,25 +144,29 @@ class TastytradeBroker(BaseBrokerAPI):
                 self._account = accts[0] if accts else None
 
             if not self._account:
+                self.set_connection_error("BROKER_ACCOUNT_MISSING", "No accounts found for this session", retryable=False)
                 log.error("No accounts found for this session")
                 return False
 
             self._connected = True
+            self.clear_connection_error()
             account_num = getattr(self._account, "account_number", "?")
             log.info(f"TastytradeBroker connected, account={account_num}")
             return True
 
         except Exception as e:
-            log.error(f"TastytradeBroker connect failed: {e}")
+            code, message, retryable = self._classify_connect_exception(e)
+            self.set_connection_error(code, message, retryable=retryable)
+            log.error(f"TastytradeBroker connect failed [{code}]: {message}")
             self._session = None
             self._account = None
             return False
-
     async def disconnect(self) -> None:
         """断开连接，清除缓存"""
         await self._stop_quote_stream()
         self._session = None
         self._account = None
+        self._equity_cache.clear()
         self._connected = False
         log.info("TastytradeBroker disconnected")
 
@@ -191,7 +210,7 @@ class TastytradeBroker(BaseBrokerAPI):
         tif_enum = TIF_MAP.get(tif_str, OrderTimeInForce.DAY)
         is_buy = "Buy" in action_str
 
-        equity = await Equity.get(s, symbol)
+        equity = await self._get_equity(s, symbol)
         leg = equity.build_leg(Decimal(str(qty)), act)
 
         if order_type_str == "market":
@@ -484,6 +503,17 @@ class TastytradeBroker(BaseBrokerAPI):
             raise RuntimeError("Failed to refresh Tastytrade session")
         return self._session, self._account
 
+    async def _get_equity(self, session: Any, symbol: str) -> Any:
+        sym = (symbol or "").strip().upper()
+        if not sym:
+            raise ValueError("symbol is required")
+        cached = self._equity_cache.get(sym)
+        if cached is not None:
+            return cached
+        equity = await Equity.get(session, sym)
+        self._equity_cache[sym] = equity
+        return equity
+
     @staticmethod
     def serialize_order(order_obj: Any) -> dict:
         """
@@ -526,3 +556,4 @@ class TastytradeBroker(BaseBrokerAPI):
         except Exception as e:
             log.warning(f"serialize_order error: {e}")
             return {}
+

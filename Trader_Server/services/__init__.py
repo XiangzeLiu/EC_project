@@ -1,5 +1,5 @@
 """
-Services sub-package for Server_economic
+Services sub-package for Trader_Server
 """
 
 # 方便外部直接 from services import xxx 的场景

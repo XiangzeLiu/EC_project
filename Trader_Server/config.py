@@ -9,6 +9,7 @@ Trader_Server Configuration
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import sys
 from datetime import datetime, timezone
@@ -23,31 +24,50 @@ _DATA_DIR = _PKG_DIR / "data"
 CONFIG_FILE = _DATA_DIR / "config.json"
 REGISTER_STATE_FILE = _DATA_DIR / ".register_state.json"
 LOG_DIR = _DATA_DIR / "logs"
+ERROR_LOG_FILE = LOG_DIR / "ts_error.log"
+LOG_MAX_BYTES = int(os.getenv("TS_LOG_MAX_BYTES", str(5 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv("TS_LOG_BACKUP_COUNT", "5"))
 
 log = logging.getLogger("trader_server")
 
 # ── 默认值 ────────────────────────────────────────────────────────────────
 
-DEFAULT_MANAGER_URL = "http://127.0.0.1:8800"
-DEFAULT_NODE_NAME = "trader-node-01"
-DEFAULT_REGION = "TT"  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
+DEFAULT_MANAGER_URL = os.getenv("TS_MANAGER_URL", "http://127.0.0.1:8800")
+DEFAULT_NODE_NAME = os.getenv("TS_NODE_NAME", "trader-node-01")
+DEFAULT_REGION = os.getenv("TS_BROKER_TYPE", "TT")  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
 DEFAULT_HOST = ""
 DEFAULT_CAPABILITIES = ["cpi", "gdp", "interest_rate", "employment", "trade_balance"]
 DEFAULT_CONTACT = ""
 DEFAULT_DESCRIPTION = ""
 
 # 心跳间隔（秒），与 Server_manager 返回的 next_interval 保持一致
-DEFAULT_HEARTBEAT_INTERVAL = 20
+DEFAULT_HEARTBEAT_INTERVAL = int(os.getenv("TS_HEARTBEAT_INTERVAL", "20"))
 
 # WebSocket 服务端口（供 Client 连接）
-DEFAULT_WS_PORT = 8900
+DEFAULT_WS_PORT = int(os.getenv("TS_WS_PORT", "8900"))
+DEFAULT_TS_LOGIN_USERNAME = os.getenv("TS_LOGIN_USERNAME", "")
+DEFAULT_TS_LOGIN_PASSWORD = os.getenv("TS_LOGIN_PASSWORD", "")
+DEFAULT_TS_LOGIN_TEST_USERNAME = "test"
+DEFAULT_TS_LOGIN_TEST_PASSWORD = "test"
+ALLOW_TS_LOGIN_TEST_BACKDOOR = os.getenv("TS_LOGIN_ALLOW_TEST_BACKDOOR", "1").strip().lower() not in {"0", "false", "no"}
 
 
 def ensure_dirs():
-    """确保数据目录和日志目录存在"""
+    """纭繚鏁版嵁鐩綍鍜屾棩蹇楃洰褰曞瓨鍦?"""
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def verify_trade_service_login(username: str, password: str) -> bool:
+    user = (username or "").strip()
+    pwd = password or ""
+    if not user or not pwd:
+        return False
+    if user == DEFAULT_TS_LOGIN_USERNAME and pwd == DEFAULT_TS_LOGIN_PASSWORD:
+        return True
+    if ALLOW_TS_LOGIN_TEST_BACKDOOR and user == DEFAULT_TS_LOGIN_TEST_USERNAME and pwd == DEFAULT_TS_LOGIN_TEST_PASSWORD:
+        return True
+    return False
 
 # ── config.json 操作 ─────────────────────────────────────────────────────
 
@@ -203,17 +223,59 @@ state = RuntimeState()
 
 
 def init_logging(level: str = "INFO"):
-    """初始化日志系统"""
+    """Initialize TS runtime and error log files."""
     ensure_dirs()
 
     log_file = LOG_DIR / f"ts_{datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_file, encoding="utf-8"),
-        ],
     )
+
+    root = logging.getLogger()
+    if getattr(root, "_ts_logging_ready", False):
+        return
+
+    root.setLevel(log_level)
+    root.handlers.clear()
+
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(log_level)
+    console.setFormatter(formatter)
+
+    runtime_file = RotatingFileHandler(
+        log_file,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    runtime_file.setLevel(log_level)
+    runtime_file.setFormatter(formatter)
+
+    error_file = RotatingFileHandler(
+        ERROR_LOG_FILE,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    error_file.setLevel(logging.ERROR)
+    error_file.setFormatter(formatter)
+
+    root.addHandler(console)
+    root.addHandler(runtime_file)
+    root.addHandler(error_file)
+    root._ts_logging_ready = True
     log.info(f"Logging initialized (level={level}, file={log_file})")
+
+
+def read_recent_error_lines(limit: int = 200) -> list[str]:
+    """Read recent TS error log lines for local troubleshooting."""
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    if not ERROR_LOG_FILE.exists():
+        return []
+    try:
+        with open(ERROR_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            return f.readlines()[-safe_limit:]
+    except OSError:
+        return []

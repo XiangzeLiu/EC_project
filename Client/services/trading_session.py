@@ -57,9 +57,9 @@ class TradingSession:
         self.mock_mode = False
         self._ET = ZoneInfo(TZ_ET_NAME)
         self._pos_error = ""
-        # 登录后从 SM 获取的账户信息
+        self.broker_gate = self._default_broker_gate()
+        # 登录后从 SM 获取的 TS 地址
         self.se_address: str = ""
-        self.allowed_brokers: list[str] = []
 
         # TS 直连客户端（由 UI 在连上/断开时绑定）
         self._se_client: TSWebSocketClient | None = None
@@ -79,31 +79,136 @@ class TradingSession:
         except Exception:
             return None
 
+    @staticmethod
+    def _default_broker_gate() -> dict:
+        return {
+            "active": False,
+            "status": "not_logged_in",
+            "username": "",
+            "server_id": "",
+            "account_username": "",
+            "grace_remaining": 0,
+            "updated_at": 0,
+        }
+
+    def _normalize_broker_gate(self, gate: dict | None = None) -> dict:
+        base = self._default_broker_gate()
+        if isinstance(gate, dict):
+            base.update({
+                "active": bool(gate.get("active", False)),
+                "status": gate.get("status", base["status"]),
+                "username": gate.get("username", base["username"]),
+                "server_id": gate.get("server_id", base["server_id"]),
+                "account_username": gate.get("account_username", base["account_username"]),
+                "grace_remaining": gate.get("grace_remaining", 0),
+                "updated_at": gate.get("updated_at", 0),
+            })
+        try:
+            base["grace_remaining"] = max(0, int(base.get("grace_remaining") or 0))
+        except Exception:
+            base["grace_remaining"] = 0
+        try:
+            base["updated_at"] = int(base.get("updated_at") or 0)
+        except Exception:
+            base["updated_at"] = 0
+        base["active"] = bool(base.get("active"))
+        base["status"] = str(base.get("status") or "not_logged_in")
+        base["username"] = str(base.get("username") or "")
+        base["server_id"] = str(base.get("server_id") or "")
+        base["account_username"] = str(base.get("account_username") or "")
+        return base
+
+    def _set_broker_gate(self, gate: dict | None = None) -> dict:
+        self.broker_gate = self._normalize_broker_gate(gate)
+        return self.broker_gate
+
+    @property
+    def broker_gate_active(self) -> bool:
+        return bool(self.broker_gate.get("active"))
+
+    def _broker_gate_message(self) -> str:
+        status = str(self.broker_gate.get("status") or "not_logged_in")
+        if status == "grace_pending":
+            return f"交易服务登录等待重连（剩余{self.broker_gate.get('grace_remaining', 0)}秒）"
+        if status == "expired":
+            return "交易服务登录已过期"
+        return "请先登录交易服务"
+
+    def can_trade(self) -> bool:
+        return bool(self.connected and self._can_use_se() and self.broker_gate_active)
+
+    def broker_login(self, account_username: str, account_password: str) -> tuple[bool, str]:
+        account_username = (account_username or "").strip()
+        account_password = account_password or ""
+        if not account_username or not account_password:
+            return False, "请输入交易服务账号和密码"
+        resp = self._request_se("BROKER_LOGIN", {
+            "account_username": account_username,
+            "account_password": account_password,
+        }, timeout=10.0)
+        if not isinstance(resp, dict):
+            return False, "交易服务登录请求超时"
+        payload = resp.get("payload", {}) if isinstance(resp.get("payload", {}), dict) else {}
+        gate = payload.get("gate")
+        if isinstance(gate, dict):
+            self._set_broker_gate(gate)
+        ok = bool(payload.get("success"))
+        return ok, sanitize(payload.get("message", "ok"))
+
+    def broker_status_query(self) -> tuple[bool, dict, str]:
+        if not self._can_use_se():
+            return False, self.broker_gate, "交易服务器未连接"
+        resp = self._request_se("BROKER_STATUS_QUERY", {}, timeout=8.0)
+        if not isinstance(resp, dict):
+            return False, self.broker_gate, "交易服务状态查询超时"
+        payload = resp.get("payload", {}) if isinstance(resp.get("payload", {}), dict) else {}
+        gate = payload.get("gate")
+        if isinstance(gate, dict):
+            self._set_broker_gate(gate)
+        ok = bool(payload.get("success", True))
+        return ok, self.broker_gate, sanitize(payload.get("message", "ok"))
+
+    def broker_logout(self) -> tuple[bool, str]:
+        if not self._can_use_se():
+            self._set_broker_gate(None)
+            return True, "交易服务登录已清除"
+        resp = self._request_se("BROKER_LOGOUT", {}, timeout=8.0)
+        if not isinstance(resp, dict):
+            return False, "交易服务登出请求超时"
+        payload = resp.get("payload", {}) if isinstance(resp.get("payload", {}), dict) else {}
+        gate = payload.get("gate")
+        if isinstance(gate, dict):
+            self._set_broker_gate(gate)
+        else:
+            self._set_broker_gate(None)
+        ok = bool(payload.get("success", True))
+        return ok, sanitize(payload.get("message", "ok"))
+
     def subscribe_quotes(self, symbols: list[str], timeout: float = 6.0) -> tuple[bool, str]:
         """通过 SE 订阅行情"""
         if not self._can_use_se():
-            return False, "SE not connected"
+            return False, "交易服务器未连接"
         resp = self._request_se("QUOTE_SUBSCRIBE", {
             "action": "subscribe",
             "symbols": symbols,
         }, timeout=timeout)
         payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
         if payload.get("success"):
-            return True, payload.get("message", "Subscribed")
-        return False, sanitize(payload.get("message", "Subscribe failed"))
+            return True, sanitize(payload.get("message", "行情订阅成功"))
+        return False, sanitize(payload.get("message", "行情订阅失败"))
 
     def unsubscribe_quotes(self, symbols: list[str], timeout: float = 6.0) -> tuple[bool, str]:
         """通过 SE 取消行情订阅"""
         if not self._can_use_se():
-            return False, "SE not connected"
+            return False, "交易服务器未连接"
         resp = self._request_se("QUOTE_SUBSCRIBE", {
             "action": "unsubscribe",
             "symbols": symbols,
         }, timeout=timeout)
         payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
         if payload.get("success"):
-            return True, payload.get("message", "Unsubscribed")
-        return False, sanitize(payload.get("message", "Unsubscribe failed"))
+            return True, sanitize(payload.get("message", "行情取消订阅成功"))
+        return False, sanitize(payload.get("message", "行情取消订阅失败"))
 
     # ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -111,10 +216,10 @@ class TradingSession:
 
     def login(self, username: str, password: str, force: bool = False) -> tuple[bool, str]:
         """
-        用户登录认证 — 通过 Server_manager REST 接口验证
+        鐢ㄦ埛鐧诲綍璁よ瘉 鈥?閫氳繃 Server_manager REST 鎺ュ彛楠岃瘉
 
         Returns:
-            (success, message) 元组
+            (success, message) 鍏冪粍
         """
         status, resp = self.http.post("/auth/login", {
             "username": username,
@@ -124,13 +229,12 @@ class TradingSession:
         if status == 200:
             self.http.token = resp.get("token", "")
             self.se_address = resp.get("se_address", "") or ""
-            _ab = resp.get("allowed_brokers") or []
-            self.allowed_brokers = _ab if isinstance(_ab, list) else []
+            self._set_broker_gate(None)
             self.connected = True
             self.mock_mode = False
-            return True, "Connected"
+            return True, "已连接"
         if status == 0:
-            return False, "Server not available, please check server is running"
+            return False, "服务不可用，请检查服务是否已启动"
 
         detail = resp.get("detail", f"Login failed (HTTP {status})")
         if isinstance(detail, dict):
@@ -139,23 +243,21 @@ class TradingSession:
             msg = detail
         return False, sanitize(msg)
 
-
     def logout(self):
-        """登出"""
+        """鐧诲嚭"""
         if self.connected:
             self.http.post("/auth/logout", {})
         self.http.token = ""
+        self._set_broker_gate(None)
         self.connected = False
         self.mock_mode = False
 
-    # ── Positions (Today Activity) ─────────────────────────────────────────────
-
     def get_today_activity(self) -> list[dict]:
         """
-        获取今日活动数据(持仓+已平仓)
+        鑾峰彇浠婃棩娲诲姩鏁版嵁(鎸佷粨+宸插钩浠?
 
         Returns:
-            持仓字典列表，每个包含 symbol, qty, direction, avg_open,
+            鎸佷粨瀛楀吀鍒楄〃锛屾瘡涓寘鍚?symbol, qty, direction, avg_open,
             close_px, unrealized, realized_today, qty_bot, qty_sld, exes
         """
         if self.mock_mode:
@@ -163,30 +265,29 @@ class TradingSession:
         if not self.connected:
             return []
         try:
-            if not self._can_use_se():
-                self._pos_error = "SE not connected"
+            if not self.can_trade():
+                self._pos_error = self._broker_gate_message() if self._can_use_se() else "交易服务器未连接"
                 return []
 
-            # Step 1: 获取持仓数据
             resp_pos = self._request_se("POSITION_QUERY", {}, timeout=12.0)
             if not isinstance(resp_pos, dict):
-                self._pos_error = "SE请求超时或连接异常（可能券商未连接/凭证错误）"
+                self._pos_error = "\u4ea4\u6613\u670d\u52a1\u8bf7\u6c42\u8d85\u65f6\u6216\u5238\u5546\u670d\u52a1\u4e0d\u53ef\u7528"
                 return []
 
             payload_pos = resp_pos.get("payload", {}) or {}
             if not payload_pos.get("success"):
                 err_code = payload_pos.get("code", "") or payload_pos.get("error_code", "")
-                if err_code == "BROKER_OFFLINE":
-                    self._pos_error = "券商未连接（请检查SM中的四要素配置）"
+                if err_code == "BROKER_LOGIN_REQUIRED":
+                    self._pos_error = self._broker_gate_message()
+                elif err_code == "BROKER_OFFLINE":
+                    self._pos_error = "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55"
                 elif err_code == "NO_BROKER":
-                    self._pos_error = "SE未加载可用券商配置"
+                    self._pos_error = "\u672a\u52a0\u8f7d\u5238\u5546\u914d\u7f6e"
                 else:
-                    self._pos_error = sanitize(payload_pos.get("message", "SE持仓查询失败"))
+                    self._pos_error = sanitize(payload_pos.get("message", "持仓查询失败"))
                 return []
 
             pos_rows = payload_pos.get("positions", []) or []
-
-            # Step 2: 获取订单历史（用于计算今日交易统计：qty_bot, qty_sld, exes, realized_today）
             orders_raw = []
             resp_ord = self._request_se("ORDER_QUERY", {"mode": "all"}, timeout=12.0)
             if isinstance(resp_ord, dict):
@@ -194,14 +295,10 @@ class TradingSession:
                 if payload_ord.get("success"):
                     orders_raw = payload_ord.get("orders", []) or []
 
-            # Step 3: 计算今日活动数据（持仓 + 订单历史 → 今日交易统计）
             return self._calc_today_activity(pos_rows, orders_raw)
-        except Exception as e:
-            self._pos_error = sanitize(str(e))
+        except Exception as exc:
+            self._pos_error = sanitize(str(exc))
             return []
-
-
-
 
     def _mock_positions(self) -> list[dict]:
         """模拟模式下的预定义持仓数据"""
@@ -394,18 +491,18 @@ class TradingSession:
 
     def get_orders(self, mode: str = "live") -> list[dict]:
         """
-        获取订单列表
+        鑾峰彇璁㈠崟鍒楄〃
 
         Args:
-            mode: "live" 获取活跃订单 / "all" 获取所有订单
+            mode: "live" 鑾峰彇娲昏穬璁㈠崟 / "all" 鑾峰彇鎵€鏈夎鍗?
 
         Returns:
-            订单字典列表
+            璁㈠崟瀛楀吀鍒楄〃
         """
         if self.mock_mode or not self.connected:
             return []
         try:
-            if not self._can_use_se():
+            if not self.can_trade():
                 return []
 
             se_mode = "live" if mode == "live" else "all"
@@ -416,10 +513,8 @@ class TradingSession:
             raw = payload.get("orders", []) or []
 
             result = []
-
             ET = self._ET
             for o in raw:
-
                 try:
                     if mode == "all":
                         o_ts_str = o.get("updated_at", "")
@@ -434,14 +529,14 @@ class TradingSession:
                             except Exception:
                                 pass
 
-                    sym = o.get("symbol", "—")
+                    sym = o.get("symbol", "鈥?")
                     act = "BUY" if "Buy" in o.get("action", "") else "SELL"
-                    qty = str(o.get("qty", "—"))
+                    qty = str(o.get("qty", "鈥?"))
                     px = o.get("price", "MKT")
-                    rs = o.get("status", "—")
+                    rs = o.get("status", "鈥?")
                     st = STATUS_MAP.get(rs, rs)
-                    ot = o.get("type", "—")
-                    tif = o.get("tif", "—")
+                    ot = o.get("type", "鈥?")
+                    tif = o.get("tif", "鈥?")
 
                     if mode == "live" and rs not in LIVE_STATUSES:
                         continue
@@ -459,48 +554,46 @@ class TradingSession:
             return []
 
     def cancel_order(self, order_id: str) -> tuple[bool, str]:
-        """撤销订单"""
+        """鎾ら攢璁㈠崟"""
         if not self.connected:
-            return False, "Not connected"
+            return False, "未连接"
         try:
-            if not self._can_use_se():
-                return False, "SE not connected"
+            if not self.can_trade():
+                return False, self._broker_gate_message() if self._can_use_se() else "交易服务器未连接"
 
             resp = self._request_se("ORDER_CANCEL", {"order_id": order_id}, timeout=10.0)
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):
-                return True, f"Order {str(order_id)[-6:]} cancelled"
-            return False, sanitize(payload.get("message", "Cancel failed"))
-        except Exception as e:
-            return False, sanitize(f"撤单失败: {e}")
-
-
+                return True, f"订单已撤销：{str(order_id)[-6:]}"
+            return False, sanitize(payload.get("message", "撤单失败"))
+        except Exception as exc:
+            return False, sanitize(f"鎾ゅ崟澶辫触: {exc}")
 
     def place_order(self, symbol: str, qty: int, price: float,
                     action: str, order_type: str = "limit", tif: str = "Day") -> tuple[bool, str]:
         """
-        下单
+        涓嬪崟
 
         Args:
-            symbol: 股票代码
-            qty: 数量
-            price: 价格(Market单为0)
-            action: 动作 (Buy to Open/Sell to Close等)
+            symbol: 鑲＄エ浠ｇ爜
+            qty: 鏁伴噺
+            price: 浠锋牸(Market鍗曚负0)
+            action: 鍔ㄤ綔 (Buy to Open/Sell to Close绛?
             order_type: limit/market
             tif: Time In Force
 
         Returns:
-            (success, message) 元组
+            (success, message) 鍏冪粍
         """
         if self.mock_mode:
             time.sleep(0.3)
-            price_str = "Market" if order_type == "market" else f"${price}"
-            return True, f"[SIM] {action} {qty} {symbol} @ {price_str} | {tif}"
+            price_str = "Market" if order_type == "market" else "$" + str(price)
+            return True, f"[模拟] {action} {qty} {symbol} @ {price_str} | {tif}"
         if not self.connected:
-            return False, "Not connected"
+            return False, "未连接"
         try:
-            if not self._can_use_se():
-                return False, "SE not connected"
+            if not self.can_trade():
+                return False, self._broker_gate_message() if self._can_use_se() else "交易服务器未连接"
 
             resp = self._request_se("ORDER_SUBMIT", {
                 "symbol": symbol,
@@ -513,12 +606,10 @@ class TradingSession:
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):
                 oid = payload.get("order_id", "")
-                return True, f"Order submitted — ID: {str(oid)[-8:]}"
-            return False, sanitize(payload.get("message", "Order failed"))
-        except Exception as e:
-            return False, sanitize(f"Order failed: {e}")
-
-
+                return True, f"下单已提交，订单号：{str(oid)[-8:]}"
+            return False, sanitize(payload.get("message", "下单失败"))
+        except Exception as exc:
+            return False, sanitize(f"下单失败：{exc}")
 
     def enable_mock_mode(self):
         """启用模拟模式"""

@@ -105,23 +105,13 @@ async def login(req: LoginRequest):
 
             token = generate_client_token(req.username)
             brokers = [b["name"] for b in get_broker_list()]
-            # 解析账户绑定的 se_address 和 allowed_brokers
-            import json as _json
-            _se_addr = db_account.get("se_address") or ""
-            _allowed = []
-            try:
-                _ab = db_account.get("allowed_brokers")
-                if _ab:
-                    _allowed = _json.loads(_ab) if isinstance(_ab, str) else (_ab if isinstance(_ab, list) else [])
-            except Exception:
-                pass
+            _se_addr = db_account.get("se_address") or db_account.get("ts_address") or ""
             return LoginResponse(
                 success=True,
                 token=token,
                 broker_list=brokers if brokers else ["default"],
                 expires_in=3600,
                 se_address=_se_addr,
-                allowed_brokers=_allowed,
             )
     except HTTPException:
         raise
@@ -134,7 +124,7 @@ async def login(req: LoginRequest):
 @router.post("/verify-token")
 async def verify_client_token(request: Request):
     """
-    供 SE 调用：验证 Client Token 是否有效，并校验该客户端是否有权限连接当前节点。
+    供 TS 调用：验证 Client Token 是否有效，并校验该客户端是否有权限连接当前节点。
 
     鉴权要求：
       - 调用方必须是已注册节点（Bearer 为节点 token）
@@ -227,4 +217,3 @@ async def logout(request: Request):
         log.info("Client logout requested without bearer token")
 
     return LogoutResponse(success=True)
-

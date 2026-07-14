@@ -45,25 +45,32 @@ except ImportError:
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from config import (
     SERVER_HOST, SERVER_PORT, session_store,
-    quote_clients, subscribed_syms, log,
+    quote_clients, subscribed_syms, log, read_recent_error_lines, read_error_log_text, LOG_FILE, ERROR_LOG_FILE,
 )
 
 import database
 import node_state
 from database import init_db
 from routers.auth_router import router as auth_router
-from routers.order_router import router as order_router
 from routers.position_router import router as position_router
 from services.quote_service import ib_preconnect, quote_stream_loop, broadcast_quote
 
 
 
 # ── FastAPI App ───────────────────────────────────────────────────────────
+
+_cors_origins_env = os.environ.get("SM_CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()] or [
+    "http://127.0.0.1:8800",
+    "http://localhost:8800",
+]
+_cookie_secure = os.environ.get("SM_COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes"}
+_cookie_samesite = os.environ.get("SM_COOKIE_SAMESITE", "lax")
 
 app = FastAPI(
     title="Trading Server Manager",
@@ -85,7 +92,7 @@ app = FastAPI(
 # CORS（开发环境允许跨域）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -93,7 +100,6 @@ app.add_middleware(
 
 # 注册 API 路由
 app.include_router(auth_router)
-app.include_router(order_router)
 app.include_router(position_router)
 
 
@@ -160,6 +166,48 @@ def _is_super_admin(request: Request) -> bool:
     return (s.get("role") or "") == "super_admin"
 
 
+def _request_ip(request: Request) -> str:
+    if request.client:
+        return request.client.host or ""
+    return ""
+
+
+def _record_admin_event(request: Request, action: str, resource: str, detail: str) -> None:
+    sess = _get_admin_session(request) or {}
+    try:
+        database.record_audit_log(
+            username=sess.get("username") or "system",
+            action=action,
+            resource=resource,
+            detail=detail,
+            ip=_request_ip(request),
+        )
+    except Exception as e:
+        log.warning(f"record admin event failed: {e}")
+
+
+def _sync_node_state_to_db(server_id: str | None = None) -> int:
+    states = node_state.manager.prepare_db_sync_data()
+    if server_id:
+        states = [s for s in states if s.get("server_id") == server_id]
+    if not states:
+        return 0
+    return database.sync_node_states_to_db(states)
+
+
+def _get_realtime_nodes_for_display() -> list[dict]:
+    """Return node display rows from the in-memory runtime state."""
+    nodes = node_state.manager.get_all_for_display()
+    server_ids = [(n.get("server_id") or "").strip() for n in nodes]
+    configs = database.get_node_broker_configs(server_ids)
+    for n in nodes:
+        sid = (n.get("server_id") or "").strip()
+        cfg = configs.get(sid)
+        if cfg:
+            n["broker_config"] = cfg.get("_raw_config", {})
+    return nodes
+
+
 
 @app.get("/", response_class=RedirectResponse)
 async def root_redirect():
@@ -207,8 +255,8 @@ async def admin_login_submit(request: Request):
         }
         log.info(f"Admin logged in: {username} role={admin.get('role')}")
         resp = RedirectResponse(url="/admin/dashboard", status_code=302)
-        resp.set_cookie(key="admin_sid", value=sid, max_age=_ADMIN_SESSION_MAX_AGE, httponly=True)
-        resp.set_cookie(key="admin_last_user", value=username, max_age=86400 * 30)
+        resp.set_cookie(key="admin_sid", value=sid, max_age=_ADMIN_SESSION_MAX_AGE, httponly=True, secure=_cookie_secure, samesite=_cookie_samesite)
+        resp.set_cookie(key="admin_last_user", value=username, max_age=86400 * 30, secure=_cookie_secure, samesite=_cookie_samesite)
         return resp
 
     # 登录失败：直接返回登录页并显示错误（不跳转）
@@ -227,7 +275,7 @@ async def admin_logout(request: Request):
     if sid in _admin_sessions:
         del _admin_sessions[sid]
     resp = RedirectResponse(url="/admin/login", status_code=302)
-    resp.delete_cookie("admin_sid")
+    resp.delete_cookie("admin_sid", samesite=_cookie_samesite, secure=_cookie_secure)
     return resp
 
 
@@ -537,7 +585,7 @@ def _discard_pending_request_by_probe(request_id: str, reason: str) -> dict:
     return result
 
 
-def _probe_se_request_alive(req: dict, request_id: str, timeout_s: int = 10) -> tuple[str, str]:
+def _probe_ts_request_alive(req: dict, request_id: str, timeout_s: int = 10) -> tuple[str, str]:
     """审批前向 SE 问询 request 是否仍在等待。
 
     返回:
@@ -578,11 +626,11 @@ def _probe_se_request_alive(req: dict, request_id: str, timeout_s: int = 10) -> 
         return "unknown", f"SE网络异常（{e}）"
 
 
-def _force_disconnect_se_clients(se_host: str, node_token: str, reason: str, timeout_s: int = 8) -> tuple[bool, dict]:
+def _force_disconnect_ts_clients(ts_host: str, node_token: str, reason: str, timeout_s: int = 8) -> tuple[bool, dict]:
     """调用 SE 内部接口，强制断开当前节点上的 Client WS 连接。"""
-    host = (se_host or "").strip()
+    host = (ts_host or "").strip()
     if not host:
-        return False, {"error": "se_host_empty"}
+        return False, {"error": "ts_host_empty"}
     if not node_token:
         return False, {"error": "node_token_empty"}
 
@@ -845,59 +893,27 @@ async def list_all_nodes(request: Request):
     """获取所有已批准节点列表（需管理员登录）"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
-    nodes = database.get_all_nodes()
+    node_state.manager.check_offline_nodes()
+    nodes = _get_realtime_nodes_for_display()
     return {"ok": True, "data": nodes}
 
 
 @app.post("/api/nodes/refresh-status")
 async def refresh_nodes_status(request: Request):
-    """
-    管理员刷新所有节点状态（只读，不写库）
-
-    关键修复：
-      - 先执行一次离线检测（check_offline_nodes），确保内存状态是最新的
-      - 然后对仍显示 online 的节点发起主动 TCP 探活（连接 SE 默认端口 8900）
-        解决 SE 进程崩溃后被动心跳超时检测延迟导致的状态不准问题
-      - 最后从内存读取 + 计算 real_status
-      - 这样即使心跳巡检还没来得及跑（30秒间隔），刷新时也能立即发现离线节点
-    
-    直接从内存读取实时状态 + 计算展示用的 real_status。
-    不修改任何数据库记录。
-    """
+    """Refresh in-memory node status for dashboard display."""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
 
-    # ★ 第一步：执行被动离线检测（心跳超时判断）
     offline_ids = node_state.manager.check_offline_nodes()
     if offline_ids:
         log.info(f"[refresh-status] Passive check detected {len(offline_ids)} offline node(s) before display")
+        _sync_node_state_to_db()
 
-    # ★ 第二步：对仍然显示 online 的节点发起主动 TCP 探活
-    # 这能立即发现已停机的 SE 进程，无需等待心跳超时（90s/15s）
-    import asyncio as _asyncio
-    # 在线程池中执行阻塞式 TCP 探活，避免阻塞事件循环
-    loop = _asyncio.get_event_loop()
-    dead_by_probe = await loop.run_in_executor(None, node_state.manager.probe_nodes_liveliness)
-    if dead_by_probe:
-        log.info(f"[refresh-status] Active probe confirmed {len(dead_by_probe)} dead node(s)")
-
-    nodes = node_state.manager.get_all_for_display()
-
-    # 补齐节点券商配置（详情弹窗展示账户/凭证信息用）
-    for n in nodes:
-        sid = (n.get("server_id") or "").strip()
-        if not sid:
-            continue
-        cfg = database.get_node_broker_config(sid)
-        if cfg:
-            n["broker_config"] = cfg.get("_raw_config", {})
-
-    # 统计各状态数量
+    nodes = _get_realtime_nodes_for_display()
     online = sum(1 for n in nodes if n["real_status"] == "online")
     offline = sum(1 for n in nodes if n["real_status"] == "offline")
     occupied = sum(1 for n in nodes if n["real_status"] == "occupied")
     suspended = sum(1 for n in nodes if n["real_status"] == "suspended")
-
 
     return {
         "ok": True,
@@ -912,20 +928,17 @@ async def refresh_nodes_status(request: Request):
 
 @app.post("/api/nodes/{request_id}/approve")
 async def approve_node(request: Request, request_id: str):
-    """管理员通过节点的注册请求（同时录入账户信息和券商配置）"""
+    """管理员通过节点的注册请求（同时录入券商配置）"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
 
-    # 读取请求体（含账户信息 + 券商配置）
+    # 读取请求体（含券商配置）
     try:
         body = await request.json() if await request.body() else {}
     except Exception:
         body = {}
     broker_type = body.get("broker_type", "TT")
     broker_credentials = body.get("credentials", {})
-    # 新增：账户信息（审批时录入）
-    account_username = body.get("account_username", "").strip()
-    account_password = body.get("account_password", "").strip()
 
     req = database.get_node_request_by_id(request_id)
     if not req:
@@ -937,7 +950,7 @@ async def approve_node(request: Request, request_id: str):
     loop = asyncio.get_event_loop()
     probe_state, probe_msg = await loop.run_in_executor(
         None,
-        lambda: _probe_se_request_alive(req, request_id, 10),
+        lambda: _probe_ts_request_alive(req, request_id, 10),
     )
     if probe_state == "abandoned":
         discard_result = await loop.run_in_executor(
@@ -961,14 +974,12 @@ async def approve_node(request: Request, request_id: str):
         return {"ok": False, "error": "Request not found or already processed"}
 
 
-    # 将券商配置 + 账户信息一并写入 brokers.config
-    if broker_type or broker_credentials or account_username:
+    # 将券商配置写入 brokers.config
+    if broker_type or broker_credentials:
         database.set_node_broker_config(
             server_id=result["server_id"],
             broker_type=broker_type,
             credentials=broker_credentials,
-            account_username=account_username,
-            account_password=account_password,
         )
         cfg = database.get_node_broker_config(result["server_id"])
         if cfg:
@@ -997,6 +1008,7 @@ async def approve_node(request: Request, request_id: str):
         "message": "\u6ce8\u518c\u5df2\u901a\u8fc7",
     })
     _push_sse_result(request_id, data)
+    _record_admin_event(request, "APPROVE_NODE", "node", f"通过节点注册：{result.get('server_id', '')}，请求：{request_id}")
 
     return {
         "ok": True,
@@ -1022,6 +1034,7 @@ async def reject_node(request: Request, request_id: str, reason: str = ""):
         "message": "\u6ce8\u518c\u88ab\u62d2\u7edd",
     })
     _push_sse_result(request_id, data)
+    _record_admin_event(request, "REJECT_NODE", "node", f"拒绝节点注册：{request_id}，原因：{reason or '-'}")
 
     return {"ok": True, "message": "\u5df2\u62d2\u7edd"}
 
@@ -1078,6 +1091,7 @@ async def delete_node(request: Request, server_id: str):
     if not ok:
         return {"ok": False, "error": "Node not found"}
     node_state.manager.set_deleted(server_id)
+    _record_admin_event(request, "DELETE_NODE", "node", f"删除节点：{server_id}")
     return {"ok": True, "message": f"\u5df2\u5220\u9664\uff1a{server_id}"}
 
 
@@ -1091,6 +1105,8 @@ async def suspend_node(request: Request, server_id: str):
         return {"ok": False, "error": msg}
     # 同步到 DB（管理员操作需要持久化）
     database.suspend_node(server_id)
+    _sync_node_state_to_db(server_id)
+    _record_admin_event(request, "SUSPEND_NODE", "node", f"暂停节点：{server_id}")
     return {"ok": True, "message": f"\u5df2\u6682\u505c\uff1a{server_id}"}
 
 
@@ -1104,6 +1120,8 @@ async def resume_node(request: Request, server_id: str):
         return {"ok": False, "error": msg}
     # 同步到 DB
     database.resume_node(server_id)
+    _sync_node_state_to_db(server_id)
+    _record_admin_event(request, "RESUME_NODE", "node", f"恢复节点：{server_id}")
     return {"ok": True, "message": f"\u5df2\u6062\u590d\uff1a{server_id}"}
 
 
@@ -1170,7 +1188,7 @@ async def release_node(request: Request, server_id: str):
 
 @app.post("/api/nodes/{server_id}/force-release")
 async def force_release_node(request: Request, server_id: str):
-    """管理员强制解除占用：先踢掉 SE 上客户端连接，再释放节点占用。"""
+    """管理员强制解除占用：先踢掉 TS 上客户端连接，再释放节点占用。"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
 
@@ -1183,11 +1201,11 @@ async def force_release_node(request: Request, server_id: str):
     if not st:
         return {"ok": False, "error": "node_not_found"}
 
-    se_host = (st._host or st.current_ip or "").strip()
+    ts_host = (st._host or st.current_ip or "").strip()
 
     node_token = (st._token or "").strip()
-    if not se_host or not node_token:
-        return {"ok": False, "error": "se_endpoint_missing", "message": "缺少 SE 地址或节点令牌"}
+    if not ts_host or not node_token:
+        return {"ok": False, "error": "ts_endpoint_missing", "message": "缺少 TS 地址或节点令牌"}
 
     admin = _get_admin_session(request) or {}
     operator = (admin.get("username") or "admin").strip()
@@ -1196,18 +1214,20 @@ async def force_release_node(request: Request, server_id: str):
     loop = asyncio.get_event_loop()
     ok, payload = await loop.run_in_executor(
         None,
-        lambda: _force_disconnect_se_clients(se_host, node_token, reason, 8),
+        lambda: _force_disconnect_ts_clients(ts_host, node_token, reason, 8),
     )
     if not ok:
         return {
             "ok": False,
-            "error": "se_force_disconnect_failed",
+            "error": "ts_force_disconnect_failed",
             "message": "强制断开客户端失败，节点占用未释放",
             "detail": payload,
         }
 
     node_state.manager.release(server_id, check_offline=False)
-    log.warning(f"[force-release] node={server_id}, occupied_by={occupied_by}, operator={operator}, se={se_host}")
+    _sync_node_state_to_db(server_id)
+    _record_admin_event(request, "FORCE_RELEASE_NODE", "node", f"强制释放节点：{server_id}，原占用账户：{occupied_by or '-'}")
+    log.warning(f"[force-release] node={server_id}, occupied_by={occupied_by}, operator={operator}, ts={ts_host}")
     return {
         "ok": True,
         "message": f"已强制解除占用：{server_id}",
@@ -1265,7 +1285,7 @@ async def get_node_config(request: Request, server_id: str = "", token: str = ""
 
 @app.put("/api/nodes/{server_id}/config")
 async def update_node_config(request: Request, server_id: str):
-    """管理员修改节点的券商配置（含账户信息）"""
+    """管理员修改节点的券商配置。"""
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
 
@@ -1273,8 +1293,6 @@ async def update_node_config(request: Request, server_id: str):
     broker_type = body.get("broker_type", "")
     credentials = body.get("credentials", {})
     enabled = body.get("enabled", True)
-    account_username = body.get("account_username", "").strip()
-    account_password = body.get("account_password", "").strip()
 
     if not broker_type:
         return {"ok": False, "error": "broker_type is required"}
@@ -1284,13 +1302,12 @@ async def update_node_config(request: Request, server_id: str):
         broker_type=broker_type,
         credentials=credentials,
         enabled=enabled,
-        account_username=account_username if account_username else None,
-        account_password=account_password if account_password else None,
     )
     if ok:
         cfg = database.get_node_broker_config(server_id)
         if cfg:
             _push_config_change(server_id, int(cfg.get("config_version", 0) or 0))
+        _record_admin_event(request, "UPDATE_NODE_CONFIG", "node", f"修改节点配置：{server_id}，券商：{broker_type}")
         return {"ok": True, "message": f"\u914d\u7f6e\u5df2\u66f4\u65b0 ({server_id})"}
 
     return {"ok": False, "error": "\u66f4\u65b0\u5931\u8d25"}
@@ -1305,6 +1322,7 @@ async def reload_node_config(request: Request, server_id: str):
     new_ver = database.increment_reload_flag(server_id)
     if new_ver > 0:
         _push_config_change(server_id, int(new_ver))
+        _record_admin_event(request, "RELOAD_NODE_CONFIG", "node", f"触发节点配置重载：{server_id}，版本：{new_ver}")
         return {"ok": True, "message": f"\u5df2\u89e6\u53d1\u91cd\u8f7d\uff0c\u7248\u672c={new_ver}", "config_version": new_ver}
 
     return {"ok": False, "error": "\u8282\u70b9\u4e0d\u5b58\u5728"}
@@ -1334,6 +1352,7 @@ async def update_super_admin_name(request: Request):
     if sid in _admin_sessions:
         _admin_sessions[sid]["username"] = new_username
 
+    _record_admin_event(request, "UPDATE_ADMIN_NAME", "account", f"修改超级管理员账户名称：{new_username}")
     return {"ok": True, "message": "超级管理员账户名称已更新", "username": new_username}
 
 
@@ -1362,6 +1381,7 @@ async def update_super_admin_password(request: Request):
     if sid in _admin_sessions:
         del _admin_sessions[sid]
 
+    _record_admin_event(request, "UPDATE_ADMIN_PASSWORD", "account", f"修改超级管理员密码：{sess.get('username', '')}")
     return {
         "ok": True,
         "message": "密码已更新，请重新登录",
@@ -1393,6 +1413,112 @@ async def list_accounts(request: Request):
 
     return {"ok": True, "data": accounts, "viewer": {"username": viewer_name, "role": viewer_role}}
 
+
+
+@app.get("/api/system/health")
+async def get_system_health(request: Request):
+    """Return SM runtime health summary for production monitoring."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+
+    offline_ids = node_state.manager.check_offline_nodes()
+    if offline_ids:
+        _sync_node_state_to_db()
+    nodes = _get_realtime_nodes_for_display()
+    node_counts = {
+        "total": len(nodes),
+        "online": sum(1 for n in nodes if n.get("real_status") == "online"),
+        "occupied": sum(1 for n in nodes if n.get("real_status") == "occupied"),
+        "offline": sum(1 for n in nodes if n.get("real_status") == "offline"),
+        "suspended": sum(1 for n in nodes if n.get("real_status") == "suspended"),
+    }
+    accounts = database.get_all_accounts()
+    error_lines = read_recent_error_lines(1000)
+    return {
+        "ok": True,
+        "service": "server_manager",
+        "nodes": node_counts,
+        "accounts": {
+            "total": len(accounts),
+            "active": sum(1 for a in accounts if (a.get("status") or "active") == "active"),
+            "suspended": sum(1 for a in accounts if (a.get("status") or "") == "suspended"),
+        },
+        "audit": {
+            "recent_7d": database.count_audit_logs(days=7),
+        },
+        "logs": {
+            "runtime_log_exists": LOG_FILE.exists(),
+            "runtime_log_bytes": LOG_FILE.stat().st_size if LOG_FILE.exists() else 0,
+            "error_log_exists": ERROR_LOG_FILE.exists(),
+            "error_log_bytes": ERROR_LOG_FILE.stat().st_size if ERROR_LOG_FILE.exists() else 0,
+            "recent_error_lines": len(error_lines),
+        },
+    }
+
+
+@app.get("/api/system/error-logs")
+async def get_system_error_logs(request: Request, limit: int = 200):
+    """Return recent SM runtime error logs for production troubleshooting."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    return {"ok": True, "lines": read_recent_error_lines(safe_limit)}
+
+
+@app.get("/api/system/error-logs/export")
+async def export_system_error_logs(request: Request, limit: int = 2000):
+    """Export recent SM runtime error logs as plain text."""
+    if not _is_admin_logged_in(request):
+        return PlainTextResponse("Unauthorized", status_code=401)
+    safe_limit = max(1, min(int(limit or 2000), 5000))
+    content = read_error_log_text(safe_limit) or "No SM error logs.\n"
+    return PlainTextResponse(
+        content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=sm_error.log"},
+    )
+
+
+@app.get("/api/audit/recent")
+async def get_recent_audit_events(request: Request, limit: int = 10):
+    """Return the newest SM operation events for overview."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    safe_limit = max(1, min(int(limit or 10), 50))
+    return {"ok": True, "data": database.get_audit_logs(limit=safe_limit, days=7)}
+
+
+@app.get("/api/audit/logs")
+async def get_audit_logs(request: Request, days: int = 7, page: int = 1, limit: int = 50):
+    """Return paged SM operation logs within the recent days window."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    safe_days = max(1, min(int(days or 7), 30))
+    safe_page = max(1, int(page or 1))
+    safe_limit = max(1, min(int(limit or 50), 200))
+    total = database.count_audit_logs(days=safe_days)
+    max_page = max(1, (total + safe_limit - 1) // safe_limit)
+    safe_page = min(safe_page, max_page)
+    offset = (safe_page - 1) * safe_limit
+    data = database.get_audit_logs(limit=safe_limit, days=safe_days, offset=offset)
+    return {
+        "ok": True,
+        "data": data,
+        "page": safe_page,
+        "limit": safe_limit,
+        "total": total,
+        "has_more": offset + len(data) < total,
+    }
+
+
+@app.post("/api/audit/cleanup")
+async def cleanup_audit_logs(request: Request, retention_days: int = 30):
+    """Manually clean old SM operation logs."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    deleted = database.cleanup_audit_logs(retention_days=retention_days)
+    _record_admin_event(request, "CLEAN_AUDIT_LOG", "audit", f"清理 {retention_days} 天前日志，删除 {deleted} 条")
+    return {"ok": True, "deleted": deleted}
 
 
 @app.post("/api/accounts/create")
@@ -1444,6 +1570,7 @@ async def create_account(request: Request):
 
     result.pop("password_hash", None)
     role_text = "管理员" if role == "admin" else "交易员"
+    _record_admin_event(request, "CREATE_ACCOUNT", "account", f"创建{role_text}账户：{username}")
     return {"ok": True, "data": result, "message": f"{role_text}账户 {username} 创建成功"}
 
 
@@ -1470,6 +1597,7 @@ async def delete_account(request: Request, account_id: int):
     ok = database.delete_account(account_id)
     if not ok:
         return {"ok": False, "error": "删除失败（可能不存在或受保护账号）"}
+    _record_admin_event(request, "DELETE_ACCOUNT", "account", f"删除账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户已删除 (id={account_id})"}
 
 
@@ -1496,6 +1624,7 @@ async def suspend_account(request: Request, account_id: int):
     ok = database.suspend_account(account_id)
     if not ok:
         return {"ok": False, "error": "暂停失败（可能已被暂停或不存在）"}
+    _record_admin_event(request, "SUSPEND_ACCOUNT", "account", f"暂停账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户已暂停 (id={account_id})"}
 
 
@@ -1522,6 +1651,7 @@ async def resume_account(request: Request, account_id: int):
     ok = database.resume_account(account_id)
     if not ok:
         return {"ok": False, "error": "恢复失败（可能未被暂停或不存在）"}
+    _record_admin_event(request, "RESUME_ACCOUNT", "account", f"恢复账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户已恢复 (id={account_id})"}
 
 
@@ -1583,35 +1713,52 @@ async def update_account(request: Request, account_id: int):
     )
     if not ok:
         return {"ok": False, "error": "更新失败（可能账户不存在）"}
+    _record_admin_event(request, "UPDATE_ACCOUNT", "account", f"更新账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户信息已更新 (id={account_id})"}
 
 
 
 @app.get("/api/accounts/se-status")
 async def check_se_status(request: Request, address: str = ""):
-    """
-    检查 SE 地址是否有对应的在线子服务器（需登录）
-    从内存状态读取，不查询数据库。
-    """
+    """Return TS online/occupation state for an authenticated Client call."""
     from auth import active_client_tokens
 
-    # 验证请求携带有效 token
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
     if not token or token not in active_client_tokens:
         return {"ok": False, "error": "Unauthorized", "online": False}
 
-    # 从内存中查找匹配地址的在线节点
-    addr_part = address.split(":")[0] if ":" in address else address
+    def _address_candidates(raw: str) -> set[str]:
+        value = (raw or "").strip()
+        if not value:
+            return set()
+        if "://" in value:
+            value = value.split("://", 1)[1]
+        value = value.split("/", 1)[0].strip()
+        candidates = {value}
+        if value.count(":") == 1:
+            host = value.rsplit(":", 1)[0].strip()
+            if host:
+                candidates.add(host)
+        return {c for c in candidates if c}
+
+    requested = _address_candidates(address)
+    if not requested:
+        return {
+            "ok": True,
+            "online": False,
+            "reason": "empty address",
+            "address": address,
+            "occupied_by": "",
+            "occupied_at": "",
+        }
+
     for state in node_state.manager._states.values():
-        # 检查 IP 匹配（current_ip 或 host）
-        ip_match = (state.current_ip == addr_part or
-                   state._host == addr_part or
-                   state.current_ip.startswith(addr_part) or
-                   state._host.startswith(addr_part))
-        if not ip_match:
+        candidates = set()
+        candidates.update(_address_candidates(getattr(state, "current_ip", "")))
+        candidates.update(_address_candidates(getattr(state, "_host", "")))
+        if not (requested & candidates):
             continue
-        # 必须在线且有心跳
         if state.is_online:
             occ_info = node_state.manager.get_occupation_info(state.server_id)
             return {
@@ -1628,12 +1775,11 @@ async def check_se_status(request: Request, address: str = ""):
     return {
         "ok": True,
         "online": False,
-        "reason": f"\u672a\u627e\u5230\u4e0e\u5730\u5740 '{address}' \u5339\u914d\u7684\u5728\u7ebf\u5b50\u670d\u52a1\u5668",
+        "reason": f"未找到与地址 '{address}' 匹配的在线子服务器",
         "address": address,
         "occupied_by": "",
         "occupied_at": "",
     }
-
 
 def _push_sse_result(request_id: str, data_json: str):
     """向指定 request_id 的所有 SSE 连接推送消息"""

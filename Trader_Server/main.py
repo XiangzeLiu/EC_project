@@ -26,6 +26,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 
 # ── 包路径修正（兼容 python main.py 和 python -m 两种启动方式）──
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,6 +55,9 @@ from .config import (
     DEFAULT_WS_PORT,
     DEFAULT_HEARTBEAT_INTERVAL,
     init_logging,
+    read_recent_error_lines,
+    LOG_DIR,
+    ERROR_LOG_FILE,
 )
 from .services.registration import (
     run_full_registration,
@@ -90,6 +94,7 @@ app.add_middleware(
 
 # 全局心跳实例
 _heartbeat: HeartbeatSender | None = None
+_STARTED_AT = time.time()
 
 
 # ── HTTP API 端点 ────────────────────────────────────────────────────────
@@ -234,13 +239,15 @@ async def api_register_pre_approve_check(request_id: str = Query(...)):
     return {"ok": True, "can_approve": True, "reason": "waiting_approval"}
 
 
+
+
 @app.get("/api/register/await-approval")
 async def api_await_approval(request_id: str = Query(...)):
 
 
     """
-    Step C: SSE 等待审核结果
-    代理 SM 的 SSE 流到前端，同时在后端解析 approved 事件并保存凭证/更新状态
+    Step C: SSE ??????
+    ?? SM ? SSE ???????????? approved ???????/????
     """
     from fastapi.responses import StreamingResponse
     import json as _json_mod
@@ -256,87 +263,104 @@ async def api_await_approval(request_id: str = Query(...)):
 
     async def _sse_generator():
         loop = asyncio.get_event_loop()
-        buffer = b""
+        event_lines: list[str] = []
+        resp = None
+
+        async def _apply_terminal_event(result: dict) -> bool:
+            approved = bool(result.get("approved"))
+            if approved:
+                sid = result.get("server_id", "")
+                tok = result.get("token", "")
+                log.info(f"[Await Approval] APPROVED server_id={sid}")
+                save_config({
+                    "server_id": sid,
+                    "token": tok,
+                    "manager_url": state.manager_url,
+                    "node_name": state.node_name,
+                    "region": state.region,
+                })
+                clear_register_state()
+                state.server_id = sid
+                state.token = tok
+                state.status = "approved"
+                global _heartbeat
+                if not _heartbeat:
+                    from .services.heartbeat import HeartbeatSender
+                    _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
+                if not _heartbeat.stats.get("running", False):
+                    await _heartbeat.start()
+                state.status = "running"
+
+                from .services.config_sync import init_broker, start_config_event_listener
+                try:
+                    broker_ok = await init_broker()
+                    if broker_ok:
+                        log.info("[Await Approval] Broker initialized OK")
+                    else:
+                        log.warning("[Await Approval] Broker init failed (will retry via heartbeat)")
+                    start_config_event_listener()
+                except Exception as be:
+                    log.error(f"[Await Approval] Broker init exception: {be}")
+                return True
+
+            reason = result.get("reason", "")
+            log.warning(f"[Await Approval] REJECTED: {reason}")
+            clear_register_state()
+            state.status = "rejected"
+            return True
+
+        async def _handle_event_block(lines: list[str]) -> bool:
+            if not lines:
+                return False
+            data_lines: list[str] = []
+            for raw_line in lines:
+                if raw_line.startswith("data:"):
+                    data_lines.append(raw_line[5:].strip())
+            if not data_lines:
+                return False
+            data_str = "\\n".join(data_lines).strip()
+            if not data_str:
+                return False
+            try:
+                result = _json_mod.loads(data_str)
+            except (ValueError, KeyError):
+                return False
+            if "approved" in result or result.get("reason"):
+                return await _apply_terminal_event(result)
+            return False
+
         try:
             req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
             resp = await loop.run_in_executor(
                 None, lambda: urllib.request.urlopen(req, timeout=3600)
             )
             while True:
-                raw = await loop.run_in_executor(None, resp.read, 4096)
-                if not raw:
+                raw_line = await loop.run_in_executor(None, resp.readline)
+                if not raw_line:
+                    if await _handle_event_block(event_lines):
+                        return
                     break
-                # 先原样转发给前端（保持流式实时性）
-                yield raw
-                # 再加入缓冲区用于后端解析
-                buffer += raw
 
-                # 按双换行分割 SSE 事件，尝试提取 data
-                while b"\n\n" in buffer:
-                    idx = buffer.index(b"\n\n")
-                    event_block = buffer[:idx]
-                    buffer = buffer[idx + 2:]
-
-                    try:
-                        text = event_block.decode("utf-8", errors="replace")
-                        for line in text.split("\n"):
-                            if line.startswith("data:"):
-                                data_str = line[5:].strip()
-                                if data_str:
-                                    result = _json_mod.loads(data_str)
-                                    if result.get("approved"):
-                                        sid = result.get("server_id", "")
-                                        tok = result.get("token", "")
-                                        log.info(f"[Await Approval] ★ APPROVED! server_id={sid}")
-                                        save_config({
-                                            "server_id": sid,
-                                            "token": tok,
-                                            "manager_url": state.manager_url,
-                                            "node_name": state.node_name,
-                                            "region": state.region,
-                                        })
-                                        clear_register_state()
-                                        state.server_id = sid
-                                        state.token = tok
-                                        state.status = "approved"
-                                        # 启动心跳（确保审批后立即进入管理态）
-                                        global _heartbeat
-                                        if not _heartbeat:
-                                            from .services.heartbeat import HeartbeatSender
-                                            _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
-                                        if not _heartbeat.stats.get("running", False):
-                                            await _heartbeat.start()
-                                        state.status = "running"
-
-                                        # ★ 初始化券商连接（从 SM 拉取配置）
-                                        from .services.config_sync import init_broker, start_config_event_listener
-                                        try:
-                                            broker_ok = await init_broker()
-                                            if broker_ok:
-                                                log.info("[Await Approval] Broker initialized OK")
-                                            else:
-                                                log.warning("[Await Approval] Broker init failed (will retry via heartbeat)")
-                                            start_config_event_listener()
-                                        except Exception as be:
-                                            log.error(f"[Await Approval] Broker init exception: {be}")
-
-                                    else:
-                                        reason = result.get("reason", "")
-                                        log.warning(f"[Await Approval] REJECTED: {reason}")
-                                        clear_register_state()
-                                        state.status = "rejected"
-                                break
-                    except (ValueError, KeyError):
-                        pass  # 非 JSON 事件（如心跳注释），忽略
+                yield raw_line
+                text_line = raw_line.decode("utf-8", errors="replace").rstrip("\\r\\n")
+                if text_line == "":
+                    if await _handle_event_block(event_lines):
+                        return
+                    event_lines = []
+                else:
+                    event_lines.append(text_line)
 
         except Exception as e:
             log.error(f"[Await Approval] Stream error: {e}", exc_info=True)
             error_data = _json_mod.dumps({
                 "approved": False,
                 "reason": f"SSE stream error: {e}",
-                "message": "连接中断",
+                "message": "????",
             })
-            yield f"data: {error_data}\n\n".encode()
+            yield f"data: {error_data}\\n\\n".encode()
+        finally:
+            if resp is not None:
+                await loop.run_in_executor(None, resp.close)
 
     return StreamingResponse(
         _sse_generator(),
@@ -405,6 +429,9 @@ async def api_status():
     """节点状态详情（供前端仪表盘轮询）"""
     from .network.ws_server import get_connection_count
 
+    from .services.config_sync import get_broker_status
+    broker_detail = get_broker_status()
+
     hb = _heartbeat.stats if _heartbeat else {}
     # 统一 heartbeat 字段格式，适配前端
     hb_data = {
@@ -416,6 +443,9 @@ async def api_status():
         "running": hb.get("running", False),
         "interval": getattr(_heartbeat, 'interval', DEFAULT_HEARTBEAT_INTERVAL) if _heartbeat else DEFAULT_HEARTBEAT_INTERVAL,
     }
+
+    error_lines = read_recent_error_lines(1000)
+    today_log = LOG_DIR / f"ts_{datetime.now().strftime('%Y%m%d')}.log"
 
     return {
         "service": "trader_server",
@@ -433,6 +463,19 @@ async def api_status():
         "indicators": list(get_all_indicators().keys()),
         "broker_status": ("connected" if state.broker_connected
                            else (f"{state.broker_type}" if state.broker_type else "-")),
+        "broker_detail": broker_detail,
+        "runtime": {
+            "started_at": datetime.fromtimestamp(_STARTED_AT, tz=timezone.utc).isoformat(),
+            "uptime_seconds": int(time.time() - _STARTED_AT),
+            "shutting_down": state.is_shutting_down,
+        },
+        "log_health": {
+            "runtime_log_exists": today_log.exists(),
+            "runtime_log_bytes": today_log.stat().st_size if today_log.exists() else 0,
+            "error_log_exists": ERROR_LOG_FILE.exists(),
+            "error_log_bytes": ERROR_LOG_FILE.stat().st_size if ERROR_LOG_FILE.exists() else 0,
+            "recent_error_lines": len(error_lines),
+        },
     }
 
 
@@ -464,6 +507,12 @@ async def api_logs(limit: int = Query(100, ge=1, le=500)):
         "logs": get_recent(limit),
         "stats": get_stats(),
     }
+
+
+@app.get("/api/logs/errors")
+async def api_error_logs(limit: int = Query(200, ge=1, le=1000)):
+    """Return recent TS runtime error logs for local troubleshooting."""
+    return {"ok": True, "lines": read_recent_error_lines(limit)}
 
 
 @app.post("/api/logs/clear")
@@ -570,7 +619,7 @@ async def on_startup():
     print("  券商类型 : %s" % (state.region or "(未设置)"))
     print("  SM 地址  : %s" % state.manager_url)
     print("")
-    print("  桌面控制台 : 已自动启动 (tkinter GUI)")
+    print("  桌面控制台 : 已自动启动 (PySide6 GUI)")
     print("  WS 端点    : ws://0.0.0.0:%d/ws" % ws_port)
     print("  API 状态   : http://0.0.0.0:%d/api/status" % ws_port)
     print("-" * 60)
@@ -579,27 +628,28 @@ async def on_startup():
 
 @app.on_event("shutdown")
 async def on_shutdown():
-    """应用关闭时清理资源"""
+    """Clean up resources during application shutdown."""
     log = logging.getLogger("trader_server.main")
     log.info("Shutting down...")
+
+    state.request_shutdown()
 
     global _heartbeat
     if _heartbeat:
         _heartbeat.stop()
         await _heartbeat.wait_stopped()
+        _heartbeat = None
 
-    # ★ 关闭券商连接和 config_sync 服务
+    # Stop broker connection and config_sync services.
     try:
         from .services.config_sync import shutdown as shutdown_config
         await shutdown_config()
     except Exception as e:
         log.error(f"Config sync shutdown error: {e}")
 
-    state.request_shutdown()
     log.info("Shutdown complete.")
 
 
-# ── 命令行工具 ────────────────────────────────────────────────────────
 
 def _build_arg_parser():
     """构建命令行参数解析器"""
@@ -670,6 +720,5 @@ if __name__ == "__main__":
     time.sleep(1.5)
 
     # 导入并启动桌面 GUI
-    from .gui.app import TSControlPanel
-    _gui = TSControlPanel()
-    _gui.mainloop()
+    from .ui_qt.main_window import run as run_qt_ui
+    raise SystemExit(run_qt_ui())

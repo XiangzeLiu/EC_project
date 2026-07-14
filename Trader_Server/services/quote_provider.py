@@ -7,7 +7,7 @@ Quote Provider Service — 统一行情入口
   - 维护 per-client 订阅状态（支持多 Client 各自订阅不同标的）
 
 架构:
-  Client A ──► QUOTE_SUBSCRIBE(["AAPL"]) ──► SE
+  Client A ──► QUOTE_SUBSCRIBE(["AAPL"]) ──► Trader_Server
                                             │
                                       ┌─────▼─────┐
                                       │   Broker   │ (IB TWS)
@@ -24,7 +24,7 @@ from collections import defaultdict
 from typing import Set
 
 from ..config import state
-from .config_sync import get_current_broker
+from .config_sync import ensure_broker_connected, get_current_broker
 
 log = logging.getLogger("trader_server.quote_provider")
 
@@ -37,46 +37,33 @@ _aggregated_symbols: Set[str] = set()
 async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
     """
     处理订阅请求
-    
-    Args:
-        symbols: 要订阅的标的列表
-        session_id: 客户端 session_id
-    
-    Returns:
-        {"success": bool, "subscribed": list, "message": str}
     """
-    broker = get_current_broker()
-    if not broker:
-        return {"success": False, "subscribed": [], "message": "No active broker"}
-    
-    # 过滤有效标的
     valid_symbols = [s.strip().upper() for s in symbols if isinstance(s, str) and s.strip()]
-    
-    # 计算 delta: 新增的（本 session 之前没订过的）
     existing = _session_subscriptions[session_id]
     new_syms = [s for s in valid_symbols if s not in existing]
-    
+
     if not new_syms:
         return {"success": True, "subscribed": [], "message": "Already subscribed"}
-    
-    # 更新 session 级订阅
-    existing.update(new_syms)
-    
-    # 计算全局聚合 delta 并同步到 Broker
+
     added_global = [s for s in new_syms if s not in _aggregated_symbols]
-    _aggregated_symbols.update(new_syms)
-    
-    if added_global and await _is_broker_ok(broker):
+    if added_global:
+        ok = await ensure_broker_connected()
+        broker = get_current_broker()
+        if not ok or not broker or not await _is_broker_ok(broker):
+            return {"success": False, "subscribed": [], "message": "Broker not connected"}
+        caps_fn = getattr(broker, "capabilities", None)
+        caps = caps_fn() if callable(caps_fn) else {}
+        if caps and not bool(caps.get("quotes", False)):
+            return {"success": False, "code": "QUOTE_NOT_SUPPORTED", "subscribed": [], "message": "Quote subscription not supported by current broker"}
         try:
             await broker.subscribe_quotes(added_global)
-            log.info(f"[{session_id}] SUBSCRIBED: {new_syms} (global new: {added_global})")
         except Exception as e:
             log.error(f"[{session_id}] SUBSCRIBE error: {e}")
-            # 回滚
-            existing.difference_update(new_syms)
-            _aggregated_symbols.difference_update(new_syms)
             return {"success": False, "subscribed": [], "message": str(e)}
-    
+
+    existing.update(new_syms)
+    _aggregated_symbols.update(new_syms)
+    log.info(f"[{session_id}] SUBSCRIBED: {new_syms} (global new: {added_global})")
     return {
         "success": True,
         "subscribed": new_syms,
@@ -171,6 +158,11 @@ def get_session_subscription_info(session_id: str) -> dict:
         "subscribed_count": len(syms),
         "symbols": sorted(list(syms)),
     }
+
+
+def session_has_subscription(session_id: str, symbol: str) -> bool:
+    sym = (symbol or "").strip().upper()
+    return bool(sym and sym in _session_subscriptions.get(session_id, set()))
 
 
 # ── 内部辅助 ──────────────────────────────────────────────────

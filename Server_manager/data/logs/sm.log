@@ -1,0 +1,211 @@
+2026-07-09 23:20:21,237 ERROR [server_manager.selftest] codex_log_selftest_sm
+2026-07-09 23:39:50,488 WARNING [server_manager] ibapi not installed, IB quotes unavailable
+2026-07-09 23:39:50,621 INFO [server_manager] Database initialized: D:\CodeProject\Python\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-09 23:39:50,627 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-09 23:39:50,629 INFO [node_state] [NodeState] DB load correction: node_trader-node-01_7ae7b2c7 marked OFFLINE (heartbeat age=73019s > 20s threshold, was occupied by '')
+2026-07-09 23:39:50,629 INFO [node_state] [NodeState] loaded 3 nodes from DB into memory
+2026-07-09 23:39:50,629 INFO [server_manager] [Startup] loaded 3 approved nodes into memory state
+2026-07-09 23:39:50,629 INFO [server_manager] ============================================================
+2026-07-09 23:39:50,629 INFO [server_manager] Server Manager started on 0.0.0.0:8800
+2026-07-09 23:39:50,629 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-09 23:39:50,629 INFO [server_manager] IB available: False
+2026-07-09 23:39:50,629 INFO [server_manager] ============================================================
+2026-07-09 23:39:50,629 WARNING [server_manager] IB API not available, skipping preconnect
+2026-07-09 23:40:00,650 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-09 23:40:02,443 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-09 23:40:02,443 INFO [server_manager] Generated client token for user: test
+2026-07-09 23:40:02,450 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-09 23:40:50,653 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-09 23:45:50,660 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-09 23:50:50,661 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-09 23:55:50,651 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:00:50,665 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:05:50,689 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:10:50,717 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:11:15,421 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 00:11:15,421 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 00:11:26,051 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:11:26,052 INFO [server_manager] [Shutdown] synced 3 node states to DB
+2026-07-10 00:11:26,052 INFO [server_manager] Server Manager shut down cleanly
+2026-07-10 00:11:30,522 WARNING [server_manager] ibapi not installed, IB quotes unavailable
+2026-07-10 00:11:30,633 INFO [server_manager] Database initialized: D:\CodeProject\Python\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-10 00:11:30,642 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-10 00:11:30,644 INFO [node_state] [NodeState] loaded 3 nodes from DB into memory
+2026-07-10 00:11:30,644 INFO [server_manager] [Startup] loaded 3 approved nodes into memory state
+2026-07-10 00:11:30,644 INFO [node_state] [NodeState] OFFLINE & RELEASED (occupied): node_trader-node-01_7ae7b2c7 (was occupied by 'test', timeout=15s, elapsed=16.9s)
+2026-07-10 00:11:30,644 INFO [server_manager] [Startup] corrected 1 node(s) to OFFLINE (stale DB data)
+2026-07-10 00:11:30,644 INFO [server_manager] ============================================================
+2026-07-10 00:11:30,644 INFO [server_manager] Server Manager started on 0.0.0.0:8800
+2026-07-10 00:11:30,644 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-10 00:11:30,644 INFO [server_manager] IB available: False
+2026-07-10 00:11:30,644 INFO [server_manager] ============================================================
+2026-07-10 00:11:30,644 WARNING [server_manager] IB API not available, skipping preconnect
+2026-07-10 00:11:40,669 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-10 00:11:41,414 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 00:11:41,415 INFO [server_manager] Generated client token for user: test
+2026-07-10 00:11:41,421 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 00:12:30,669 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:17:30,646 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:22:30,664 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:27:30,680 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:32:30,695 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:37:30,716 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:42:30,707 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:47:30,727 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:52:30,747 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 00:57:30,740 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:02:30,749 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:07:30,736 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:12:30,738 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:17:30,749 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:22:30,777 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:27:30,792 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:32:30,801 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:34:45,168 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 01:34:45,168 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 01:34:57,872 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:34:57,874 INFO [server_manager] [Shutdown] synced 3 node states to DB
+2026-07-10 01:34:57,874 INFO [server_manager] Server Manager shut down cleanly
+2026-07-10 01:36:31,132 WARNING [server_manager] ibapi not installed, IB quotes unavailable
+2026-07-10 01:36:31,226 INFO [server_manager] Database initialized: D:\CodeProject\Python\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-10 01:36:31,232 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-10 01:36:31,234 INFO [node_state] [NodeState] DB load correction: node_trader-node-01_7ae7b2c7 marked OFFLINE (heartbeat age=111s > 20s threshold, was occupied by 'test')
+2026-07-10 01:36:31,234 INFO [node_state] [NodeState] loaded 3 nodes from DB into memory
+2026-07-10 01:36:31,234 INFO [server_manager] [Startup] loaded 3 approved nodes into memory state
+2026-07-10 01:36:31,234 INFO [server_manager] ============================================================
+2026-07-10 01:36:31,234 INFO [server_manager] Server Manager started on 0.0.0.0:8800
+2026-07-10 01:36:31,234 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-10 01:36:31,234 INFO [server_manager] IB available: False
+2026-07-10 01:36:31,234 INFO [server_manager] ============================================================
+2026-07-10 01:36:31,234 WARNING [server_manager] IB API not available, skipping preconnect
+2026-07-10 01:36:41,245 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-10 01:37:04,467 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 01:37:04,467 INFO [server_manager] Generated client token for user: test
+2026-07-10 01:37:04,474 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 01:37:31,227 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:38:11,243 INFO [server_manager] [Probe] Active probing occupied node node_trader-node-01_7ae7b2c7 (occupied by 'test', 2.8s until timeout)
+2026-07-10 01:38:22,377 INFO [server_manager] Admin logged in: admin role=super_admin
+2026-07-10 01:38:41,263 INFO [node_state] [NodeState] OFFLINE & RELEASED (occupied): node_trader-node-01_7ae7b2c7 (was occupied by 'test', timeout=15s, elapsed=42.2s)
+2026-07-10 01:38:41,263 INFO [server_manager] Heartbeat monitor: 1 node(s) marked as OFFLINE
+2026-07-10 01:41:09,646 INFO [node_state] [NodeState] RELEASE & OFFLINE: node_trader-node-01_7ae7b2c7 (was occupied by '', heartbeat stale for 17.6s > 5.0s safe threshold)
+2026-07-10 01:41:09,648 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 01:41:09,648 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 01:42:31,242 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:42:59,864 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 01:42:59,864 INFO [server_manager] Generated client token for user: test
+2026-07-10 01:42:59,870 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 01:43:11,365 INFO [server_manager] [Probe] Active probing occupied node node_trader-node-01_7ae7b2c7 (occupied by 'test', 3.5s until timeout)
+2026-07-10 01:45:38,179 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 01:45:38,179 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 01:45:51,893 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 01:45:51,893 INFO [server_manager] Generated client token for user: test
+2026-07-10 01:45:51,900 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 01:47:31,227 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:52:31,228 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 01:57:31,222 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:02:31,251 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:03:09,332 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 02:03:09,332 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 02:03:41,728 INFO [node_state] [NodeState] OFFLINE & RELEASED (occupied): node_trader-node-01_7ae7b2c7 (was occupied by 'test', timeout=15s, elapsed=36.1s)
+2026-07-10 02:03:41,728 INFO [server_manager] Heartbeat monitor: 1 node(s) marked as OFFLINE
+2026-07-10 02:07:31,270 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:12:31,291 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:17:31,315 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:22:31,347 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:27:31,354 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:31:14,946 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:31:14,947 INFO [server_manager] [Shutdown] synced 3 node states to DB
+2026-07-10 02:31:14,947 INFO [server_manager] Server Manager shut down cleanly
+2026-07-10 02:31:18,920 WARNING [server_manager] ibapi not installed, IB quotes unavailable
+2026-07-10 02:31:18,992 INFO [server_manager] Database initialized: D:\CodeProject\Python\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-10 02:31:18,998 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-10 02:31:18,999 INFO [node_state] [NodeState] loaded 3 nodes from DB into memory
+2026-07-10 02:31:19,000 INFO [server_manager] [Startup] loaded 3 approved nodes into memory state
+2026-07-10 02:31:19,000 INFO [server_manager] ============================================================
+2026-07-10 02:31:19,000 INFO [server_manager] Server Manager started on 0.0.0.0:8800
+2026-07-10 02:31:19,000 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-10 02:31:19,000 INFO [server_manager] IB available: False
+2026-07-10 02:31:19,000 INFO [server_manager] ============================================================
+2026-07-10 02:31:19,000 WARNING [server_manager] IB API not available, skipping preconnect
+2026-07-10 02:31:28,991 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-10 02:31:31,431 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 02:31:31,431 INFO [server_manager] Generated client token for user: test
+2026-07-10 02:31:31,447 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:31:59,000 INFO [server_manager] [Probe] Active probing occupied node node_trader-node-01_7ae7b2c7 (occupied by 'test', 3.6s until timeout)
+2026-07-10 02:32:18,996 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:32:48,648 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:33:19,782 INFO [server_manager] Admin logged in: admin role=super_admin
+2026-07-10 02:34:11,357 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:34:19,397 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:34:28,987 INFO [server_manager] [Probe] Active probing occupied node node_trader-node-01_7ae7b2c7 (occupied by 'test', 5.4s until timeout)
+2026-07-10 02:34:33,447 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:34:49,868 INFO [node_state] [NodeState] OFFLINE & RELEASED (occupied): node_trader-node-01_7ae7b2c7 (was occupied by 'test', timeout=15s, elapsed=16.4s)
+2026-07-10 02:34:49,868 INFO [server_manager] [refresh-status] Passive check detected 1 offline node(s) before display
+2026-07-10 02:34:49,871 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:36:59,553 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 02:36:59,553 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 02:37:06,720 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 02:37:06,720 INFO [server_manager] Generated client token for user: test
+2026-07-10 02:37:18,056 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:37:18,999 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:37:28,997 INFO [server_manager] [Probe] Active probing occupied node node_trader-node-01_7ae7b2c7 (occupied by 'test', 4.1s until timeout)
+2026-07-10 02:41:35,966 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 02:41:35,966 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 02:41:47,531 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-10 02:41:47,531 INFO [server_manager] Generated client token for user: test
+2026-07-10 02:41:47,538 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-10 02:42:19,033 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:47:19,049 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:52:19,065 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 02:57:19,089 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 03:02:19,100 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 03:05:36,961 INFO [server_manager] Invalidated client token for user: test
+2026-07-10 03:05:36,961 INFO [server_manager] Client logged out and token invalidated
+2026-07-10 03:05:55,129 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-10 03:05:55,130 INFO [server_manager] [Shutdown] synced 3 node states to DB
+2026-07-10 03:05:55,130 INFO [server_manager] Server Manager shut down cleanly
+2026-07-13 02:50:12,846 WARNING [server_manager] ibapi not installed, IB quotes unavailable
+2026-07-13 02:50:13,178 INFO [server_manager] Database initialized: D:\CodeProject\Python\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-13 02:50:13,188 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-13 02:50:13,191 INFO [node_state] [NodeState] DB load correction: node_trader-node-01_7ae7b2c7 marked OFFLINE (heartbeat age=258274s > 20s threshold, was occupied by 'test')
+2026-07-13 02:50:13,191 INFO [node_state] [NodeState] loaded 3 nodes from DB into memory
+2026-07-13 02:50:13,191 INFO [server_manager] [Startup] loaded 3 approved nodes into memory state
+2026-07-13 02:50:13,191 INFO [server_manager] ============================================================
+2026-07-13 02:50:13,191 INFO [server_manager] Server Manager started on 0.0.0.0:8800
+2026-07-13 02:50:13,191 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-13 02:50:13,191 INFO [server_manager] IB available: False
+2026-07-13 02:50:13,191 INFO [server_manager] ============================================================
+2026-07-13 02:50:13,191 WARNING [server_manager] IB API not available, skipping preconnect
+2026-07-13 02:50:23,195 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-13 02:51:13,186 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 02:56:13,198 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:01:13,220 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:06:13,223 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:11:13,236 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:16:13,256 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:21:13,249 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:25:35,286 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-13 03:25:35,287 INFO [server_manager] [Shutdown] synced 3 node states to DB
+2026-07-13 03:25:35,287 INFO [server_manager] Server Manager shut down cleanly
+2026-07-14 23:35:15,057 WARNING [server_manager] ibapi not installed, IB quotes unavailable
+2026-07-14 23:35:15,185 INFO [server_manager] Database initialized: D:\CodeProject\Python\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-14 23:35:15,192 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-14 23:35:15,194 INFO [node_state] [NodeState] DB load correction: node_trader-node-01_7ae7b2c7 marked OFFLINE (heartbeat age=158998s > 20s threshold, was occupied by '')
+2026-07-14 23:35:15,194 INFO [node_state] [NodeState] loaded 3 nodes from DB into memory
+2026-07-14 23:35:15,194 INFO [server_manager] [Startup] loaded 3 approved nodes into memory state
+2026-07-14 23:35:15,194 INFO [server_manager] ============================================================
+2026-07-14 23:35:15,194 INFO [server_manager] Server Manager started on 0.0.0.0:8800
+2026-07-14 23:35:15,194 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-14 23:35:15,194 INFO [server_manager] IB available: False
+2026-07-14 23:35:15,194 INFO [server_manager] ============================================================
+2026-07-14 23:35:15,195 WARNING [server_manager] IB API not available, skipping preconnect
+2026-07-14 23:35:25,204 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-14 23:35:37,495 INFO [server_manager] Admin logged in: admin role=super_admin
+2026-07-14 23:36:15,221 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-14 23:38:25,100 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-14 23:38:25,101 INFO [server_manager] Generated client token for user: test
+2026-07-14 23:38:25,109 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-14 23:41:15,238 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-14 23:46:15,249 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-14 23:51:15,240 INFO [server_manager] [DB Sync] synced 3 node states to database
+2026-07-14 23:56:15,251 INFO [server_manager] [DB Sync] synced 3 node states to database

@@ -147,6 +147,21 @@ class IBBroker(BaseBrokerAPI):
       - place_order/cancel_order/get_positions 返回空结果或抛出异常
     """
 
+    @classmethod
+    @classmethod
+    def credential_profiles(cls) -> list[tuple[str, ...]]:
+        return [("host", "port")]
+
+    def capabilities(cls) -> dict[str, bool]:
+        """IB adapter currently exposes quote capability only."""
+        return {
+            "quotes": True,
+            "orders": False,
+            "cancel_order": False,
+            "positions": False,
+            "order_query": False,
+        }
+
     def __init__(self):
         super().__init__(broker_type="interactive_brokers")
         

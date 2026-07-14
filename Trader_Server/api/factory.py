@@ -2,7 +2,7 @@
 券商适配器工厂
 
 根据 broker_type 字符串创建对应的 BaseBrokerAPI 实例。
-所有 SE 内部代码通过此工厂获取券商实例，不直接 import 具体实现。
+所有 Trader_Server 内部代码通过此工厂获取券商实例，不直接 import 具体实现。
 
 使用方式:
     from api.factory import BrokerFactory
@@ -129,7 +129,8 @@ class BrokerFactory:
             "broker_type": instance.broker_type,
             "class": instance.__class__.__name__,
             "credential_profiles": instance.credential_profiles(),
-            "supports_order_query": hasattr(instance, "get_orders"),
+            "capabilities": instance.capabilities(),
+            "supports_order_query": bool(instance.capabilities().get("order_query", False)),
         }
 
     @classmethod

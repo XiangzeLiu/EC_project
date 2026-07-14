@@ -1,0 +1,142 @@
+2026-07-06 01:12:28 [trader_server] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Trader_Server\data\logs\ts_20260706.log)
+2026-07-06 01:12:28 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-06 01:12:28 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-07-06 01:12:28 [trader_server.registration] INFO: Restored session: server_id=node_trader-node-01_fc22aeb7
+2026-07-06 01:12:28 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-07-06 01:12:28 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-07-06 01:12:28 [trader_server.heartbeat] INFO: Heartbeat started (interval=20s)
+2026-07-06 01:12:29 [trader_server.api.ib] WARNING: ibapi not installed, IBBroker will be non-functional
+2026-07-06 01:12:29 [trader_server.config_sync] INFO: Config event listener started
+2026-07-06 01:12:29 [trader_server.config_sync] INFO: check_andreload: source=heartbeat, version changed 0 → 1, pulling new config...
+2026-07-06 01:12:29 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-07-06 01:12:31 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-07-06 01:12:31 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-06 01:12:31 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed [BROKER_AUTH_INVALID]: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-07-06 01:12:31 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-07-06 01:12:41 [trader_server.ws_server] INFO: [sess_52f0e530c21af96b] WS connected from 127.0.0.1:61231
+2026-07-06 01:12:41 [trader_server.msg_log] INFO: [sess_52f0e530c21af96b][trc_3c553b829f954494] Client 已连接 127.0.0.1:61231
+2026-07-06 01:12:41 [trader_server.msg_log] INFO: [sess_52f0e530c21af96b][trc_3c553b829f954494] 认证通过 ✓
+2026-07-06 01:12:41 [trader_server.ws_server] INFO: [sess_52f0e530c21af96b] Auth OK, connection established
+2026-07-06 01:12:41 [trader_server.ws_server] INFO: [sess_52f0e530c21af96b] WS disconnected by client
+2026-07-06 01:12:41 [trader_server.ws_server] INFO: [sess_52f0e530c21af96b] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:12:41 [trader_server.msg_log] INFO: [sess_52f0e530c21af96b] Client 断开连接
+2026-07-06 01:12:41 [trader_server.ws_server] INFO: [sess_b588cab1080b2c92] WS connected from 127.0.0.1:61235
+2026-07-06 01:12:41 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92][trc_cdbb24ee796740b7] Client 已连接 127.0.0.1:61235
+2026-07-06 01:12:41 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92][trc_cdbb24ee796740b7] 认证通过 ✓
+2026-07-06 01:12:41 [trader_server.ws_server] INFO: [sess_b588cab1080b2c92] Auth OK, connection established
+2026-07-06 01:12:42 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92][trc_1a228e3269b84957] [BROKER_STATUS_QUERY]
+2026-07-06 01:12:42 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92][trc_1a228e3269b84957] [BROKER_STATUS_RESPONSE]
+2026-07-06 01:14:12 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92][trc_e600ffbf3dd54388] [BROKER_LOGIN]
+2026-07-06 01:14:12 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92][trc_e600ffbf3dd54388] [BROKER_LOGIN_RESPONSE]
+2026-07-06 01:36:42 [trader_server.ws_server] INFO: [sess_b588cab1080b2c92] WS disconnected by client
+2026-07-06 01:36:42 [trader_server.ws_server] INFO: [sess_b588cab1080b2c92] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:36:42 [trader_server.msg_log] INFO: [sess_b588cab1080b2c92] Client 断开连接
+2026-07-06 01:36:54 [trader_server.ws_server] INFO: [sess_b6d4886ac9f9cc43] WS connected from 127.0.0.1:62035
+2026-07-06 01:36:54 [trader_server.msg_log] INFO: [sess_b6d4886ac9f9cc43][trc_4390226d540345cf] Client 已连接 127.0.0.1:62035
+2026-07-06 01:36:54 [trader_server.msg_log] INFO: [sess_b6d4886ac9f9cc43][trc_4390226d540345cf] 认证通过 ✓
+2026-07-06 01:36:54 [trader_server.ws_server] INFO: [sess_b6d4886ac9f9cc43] Auth OK, connection established
+2026-07-06 01:36:54 [trader_server.ws_server] INFO: [sess_b6d4886ac9f9cc43] WS disconnected by client
+2026-07-06 01:36:54 [trader_server.ws_server] INFO: [sess_b6d4886ac9f9cc43] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:36:54 [trader_server.msg_log] INFO: [sess_b6d4886ac9f9cc43] Client 断开连接
+2026-07-06 01:36:54 [trader_server.ws_server] INFO: [sess_41164f289abdeb03] WS connected from 127.0.0.1:62039
+2026-07-06 01:36:54 [trader_server.msg_log] INFO: [sess_41164f289abdeb03][trc_36be0b67b5ef4848] Client 已连接 127.0.0.1:62039
+2026-07-06 01:36:54 [trader_server.msg_log] INFO: [sess_41164f289abdeb03][trc_36be0b67b5ef4848] 认证通过 ✓
+2026-07-06 01:36:54 [trader_server.ws_server] INFO: [sess_41164f289abdeb03] Auth OK, connection established
+2026-07-06 01:37:04 [trader_server.ws_server] INFO: [sess_41164f289abdeb03] WS disconnected by client
+2026-07-06 01:37:04 [trader_server.ws_server] INFO: [sess_41164f289abdeb03] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:37:04 [trader_server.msg_log] INFO: [sess_41164f289abdeb03] Client 断开连接
+2026-07-06 01:39:14 [trader_server.ws_server] INFO: [sess_0a911eac50f72716] WS connected from 127.0.0.1:59231
+2026-07-06 01:39:14 [trader_server.msg_log] INFO: [sess_0a911eac50f72716][trc_69a457fa865845f9] Client 已连接 127.0.0.1:59231
+2026-07-06 01:39:14 [trader_server.msg_log] INFO: [sess_0a911eac50f72716][trc_69a457fa865845f9] 认证通过 ✓
+2026-07-06 01:39:14 [trader_server.ws_server] INFO: [sess_0a911eac50f72716] Auth OK, connection established
+2026-07-06 01:39:14 [trader_server.ws_server] INFO: [sess_0a911eac50f72716] WS disconnected by client
+2026-07-06 01:39:14 [trader_server.ws_server] INFO: [sess_0a911eac50f72716] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:39:14 [trader_server.msg_log] INFO: [sess_0a911eac50f72716] Client 断开连接
+2026-07-06 01:39:14 [trader_server.ws_server] INFO: [sess_9ef43471d2a31116] WS connected from 127.0.0.1:59246
+2026-07-06 01:39:14 [trader_server.msg_log] INFO: [sess_9ef43471d2a31116][trc_aa575fa1e9264139] Client 已连接 127.0.0.1:59246
+2026-07-06 01:39:14 [trader_server.msg_log] INFO: [sess_9ef43471d2a31116][trc_aa575fa1e9264139] 认证通过 ✓
+2026-07-06 01:39:14 [trader_server.ws_server] INFO: [sess_9ef43471d2a31116] Auth OK, connection established
+2026-07-06 01:40:51 [trader_server.ws_server] INFO: [sess_9ef43471d2a31116] WS disconnected by client
+2026-07-06 01:40:51 [trader_server.ws_server] INFO: [sess_9ef43471d2a31116] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:40:51 [trader_server.msg_log] INFO: [sess_9ef43471d2a31116] Client 断开连接
+2026-07-06 01:40:53 [trader_server.ws_server] INFO: [sess_489b1a9ef9729ef2] WS connected from 127.0.0.1:64582
+2026-07-06 01:40:53 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_d245ce17379f4958] Client 已连接 127.0.0.1:64582
+2026-07-06 01:40:53 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_d245ce17379f4958] 认证通过 ✓
+2026-07-06 01:40:53 [trader_server.ws_server] INFO: [sess_489b1a9ef9729ef2] Auth OK, connection established
+2026-07-06 01:40:53 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_0b1b6805c85b4c5a] [BROKER_STATUS_QUERY]
+2026-07-06 01:40:53 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_0b1b6805c85b4c5a] [BROKER_STATUS_RESPONSE]
+2026-07-06 01:40:58 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_7da65f06c2d94c94] [BROKER_LOGIN]
+2026-07-06 01:40:58 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_7da65f06c2d94c94] [BROKER_LOGIN_RESPONSE]
+2026-07-06 01:41:02 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_9d64321ec210467f] [BROKER_LOGIN]
+2026-07-06 01:41:02 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_9d64321ec210467f] [BROKER_LOGIN_RESPONSE]
+2026-07-06 01:41:02 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_f1144d2ea3c4479d] [BROKER_LOGIN]
+2026-07-06 01:41:02 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_f1144d2ea3c4479d] [BROKER_LOGIN_RESPONSE]
+2026-07-06 01:41:02 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_eb2faafa8fd94ebf] [BROKER_LOGIN]
+2026-07-06 01:41:02 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2][trc_eb2faafa8fd94ebf] [BROKER_LOGIN_RESPONSE]
+2026-07-06 01:41:45 [trader_server.ws_server] INFO: [sess_758be867b0011d35] WS connected from 127.0.0.1:58791
+2026-07-06 01:41:45 [trader_server.msg_log] INFO: [sess_758be867b0011d35][trc_e82f1f4692fd4a6a] Client 已连接 127.0.0.1:58791
+2026-07-06 01:41:45 [trader_server.msg_log] INFO: [sess_758be867b0011d35][trc_e82f1f4692fd4a6a] 认证通过 ✓
+2026-07-06 01:41:45 [trader_server.ws_server] INFO: [sess_758be867b0011d35] Auth OK, connection established
+2026-07-06 01:41:45 [trader_server.ws_server] INFO: [sess_758be867b0011d35] WS disconnected by client
+2026-07-06 01:41:45 [trader_server.ws_server] INFO: [sess_758be867b0011d35] Connection cleaned up (remaining connections: 1)
+2026-07-06 01:41:45 [trader_server.msg_log] INFO: [sess_758be867b0011d35] Client 断开连接
+2026-07-06 01:41:45 [trader_server.ws_server] INFO: [sess_b667792a19b0615e] WS connected from 127.0.0.1:58795
+2026-07-06 01:41:45 [trader_server.msg_log] INFO: [sess_b667792a19b0615e][trc_3438a679dbcf4e5a] Client 已连接 127.0.0.1:58795
+2026-07-06 01:41:45 [trader_server.msg_log] INFO: [sess_b667792a19b0615e][trc_3438a679dbcf4e5a] 认证通过 ✓
+2026-07-06 01:41:45 [trader_server.ws_server] INFO: [sess_b667792a19b0615e] Auth OK, connection established
+2026-07-06 01:41:46 [trader_server.msg_log] INFO: [sess_b667792a19b0615e][trc_6e5040850bbd4765] [BROKER_STATUS_QUERY]
+2026-07-06 01:41:46 [trader_server.msg_log] INFO: [sess_b667792a19b0615e][trc_6e5040850bbd4765] [BROKER_STATUS_RESPONSE]
+2026-07-06 01:42:22 [trader_server.ws_server] INFO: [sess_489b1a9ef9729ef2] WS disconnected by client
+2026-07-06 01:42:22 [trader_server.ws_server] INFO: [sess_489b1a9ef9729ef2] Connection cleaned up (remaining connections: 1)
+2026-07-06 01:42:22 [trader_server.msg_log] INFO: [sess_489b1a9ef9729ef2] Client 断开连接
+2026-07-06 01:42:23 [trader_server.ws_server] INFO: [sess_b667792a19b0615e] WS disconnected by client
+2026-07-06 01:42:23 [trader_server.ws_server] INFO: [sess_b667792a19b0615e] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:42:23 [trader_server.msg_log] INFO: [sess_b667792a19b0615e] Client 断开连接
+2026-07-06 01:42:45 [trader_server.ws_server] INFO: [sess_22227317e2e58562] WS connected from 127.0.0.1:63372
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_22227317e2e58562][trc_3a17d8c7d66a42e6] Client 已连接 127.0.0.1:63372
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_22227317e2e58562][trc_3a17d8c7d66a42e6] 认证通过 ✓
+2026-07-06 01:42:45 [trader_server.ws_server] INFO: [sess_22227317e2e58562] Auth OK, connection established
+2026-07-06 01:42:45 [trader_server.ws_server] INFO: [sess_22227317e2e58562] WS disconnected by client
+2026-07-06 01:42:45 [trader_server.ws_server] INFO: [sess_22227317e2e58562] Connection cleaned up (remaining connections: 0)
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_22227317e2e58562] Client 断开连接
+2026-07-06 01:42:45 [trader_server.ws_server] INFO: [sess_a67b6aae4d2ff230] WS connected from 127.0.0.1:63376
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_a67b6aae4d2ff230][trc_e30ee53183fe40ec] Client 已连接 127.0.0.1:63376
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_a67b6aae4d2ff230][trc_e30ee53183fe40ec] 认证通过 ✓
+2026-07-06 01:42:45 [trader_server.ws_server] INFO: [sess_a67b6aae4d2ff230] Auth OK, connection established
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_a67b6aae4d2ff230][trc_5af7d46328554e28] [BROKER_STATUS_QUERY]
+2026-07-06 01:42:45 [trader_server.msg_log] INFO: [sess_a67b6aae4d2ff230][trc_5af7d46328554e28] [BROKER_STATUS_RESPONSE]
+2026-07-06 02:09:11 [trader_server.ws_server] INFO: [sess_a67b6aae4d2ff230] WS disconnected by client
+2026-07-06 02:09:11 [trader_server.ws_server] INFO: [sess_a67b6aae4d2ff230] Connection cleaned up (remaining connections: 0)
+2026-07-06 02:09:11 [trader_server.msg_log] INFO: [sess_a67b6aae4d2ff230] Client 断开连接
+2026-07-06 02:09:18 [trader_server.ws_server] INFO: [sess_7fa7ea8217a9ba40] WS connected from 127.0.0.1:64891
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_7fa7ea8217a9ba40][trc_844efa78c1244a54] Client 已连接 127.0.0.1:64891
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_7fa7ea8217a9ba40][trc_844efa78c1244a54] 认证通过 ✓
+2026-07-06 02:09:18 [trader_server.ws_server] INFO: [sess_7fa7ea8217a9ba40] Auth OK, connection established
+2026-07-06 02:09:18 [trader_server.ws_server] INFO: [sess_7fa7ea8217a9ba40] WS disconnected by client
+2026-07-06 02:09:18 [trader_server.ws_server] INFO: [sess_7fa7ea8217a9ba40] Connection cleaned up (remaining connections: 0)
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_7fa7ea8217a9ba40] Client 断开连接
+2026-07-06 02:09:18 [trader_server.ws_server] INFO: [sess_93787375998f8414] WS connected from 127.0.0.1:64895
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_93787375998f8414][trc_a62aff9260e84b95] Client 已连接 127.0.0.1:64895
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_93787375998f8414][trc_a62aff9260e84b95] 认证通过 ✓
+2026-07-06 02:09:18 [trader_server.ws_server] INFO: [sess_93787375998f8414] Auth OK, connection established
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_93787375998f8414][trc_5d7e10d5deeb430e] [BROKER_STATUS_QUERY]
+2026-07-06 02:09:18 [trader_server.msg_log] INFO: [sess_93787375998f8414][trc_5d7e10d5deeb430e] [BROKER_STATUS_RESPONSE]
+2026-07-06 02:22:42 [trader_server.ws_server] INFO: [sess_93787375998f8414] WS disconnected by client
+2026-07-06 02:22:42 [trader_server.ws_server] INFO: [sess_93787375998f8414] Connection cleaned up (remaining connections: 0)
+2026-07-06 02:22:42 [trader_server.msg_log] INFO: [sess_93787375998f8414] Client 断开连接
+2026-07-06 02:22:52 [trader_server.ws_server] INFO: [sess_2d492fbe823f7558] WS connected from 127.0.0.1:61997
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_2d492fbe823f7558][trc_5c4c406932cd4ebb] Client 已连接 127.0.0.1:61997
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_2d492fbe823f7558][trc_5c4c406932cd4ebb] 认证通过 ✓
+2026-07-06 02:22:52 [trader_server.ws_server] INFO: [sess_2d492fbe823f7558] Auth OK, connection established
+2026-07-06 02:22:52 [trader_server.ws_server] INFO: [sess_2d492fbe823f7558] WS disconnected by client
+2026-07-06 02:22:52 [trader_server.ws_server] INFO: [sess_2d492fbe823f7558] Connection cleaned up (remaining connections: 0)
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_2d492fbe823f7558] Client 断开连接
+2026-07-06 02:22:52 [trader_server.ws_server] INFO: [sess_38a7fff987f263bc] WS connected from 127.0.0.1:62001
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_38a7fff987f263bc][trc_ed79431449fb4f2c] Client 已连接 127.0.0.1:62001
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_38a7fff987f263bc][trc_ed79431449fb4f2c] 认证通过 ✓
+2026-07-06 02:22:52 [trader_server.ws_server] INFO: [sess_38a7fff987f263bc] Auth OK, connection established
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_38a7fff987f263bc][trc_4095cea766f24f88] [BROKER_STATUS_QUERY]
+2026-07-06 02:22:52 [trader_server.msg_log] INFO: [sess_38a7fff987f263bc][trc_4095cea766f24f88] [BROKER_STATUS_RESPONSE]
+2026-07-06 02:36:00 [trader_server.ws_server] INFO: [sess_38a7fff987f263bc] WS disconnected by client
+2026-07-06 02:36:00 [trader_server.ws_server] INFO: [sess_38a7fff987f263bc] Connection cleaned up (remaining connections: 0)
+2026-07-06 02:36:00 [trader_server.msg_log] INFO: [sess_38a7fff987f263bc] Client 断开连接

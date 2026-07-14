@@ -1,100 +1,95 @@
 """
 Orders Panel
-订单表格，支持 Live/All 模式切换、右键撤单
 """
 
 import tkinter as tk
 from tkinter import ttk
 
-
 from ..constants import (
-    PANEL_BG, BORDER, TEXT_PRIMARY, TEXT_DIM, TEXT_MUTED,
+    PANEL_BG, TEXT_PRIMARY, TEXT_DIM, TEXT_MUTED,
     ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED,
     BUTTON_NEUTRAL_BG, BUTTON_HOVER_BG, BUTTON_ACTIVE_BG,
-    FONT_MONO_SM, FONT_BOLD, FONT_UI_SM,
+    FONT_UI_SM,
     LIVE_STATUSES,
 )
 
 
-
 class OrdersPanel:
-    """订单面板组件"""
-
-    def __init__(self, parent: tk.Widget,
-                 on_refresh_callback=None,
-                 on_cancel_callback=None):
+    def __init__(self, parent: tk.Widget, on_refresh_callback=None, on_cancel_callback=None):
         self.parent = parent
         self.on_refresh = on_refresh_callback
         self.on_cancel_order = on_cancel_callback
-
-        self.frame: tk.Frame = None
-        self.tree: ttk.Treeview = None
-        self.mode_var: tk.StringVar = None
-        self.count_var: tk.StringVar = None
+        self.frame: tk.Frame | None = None
+        self.tree: ttk.Treeview | None = None
+        self.mode_var: tk.StringVar | None = None
+        self.count_var: tk.StringVar | None = None
         self._mode_tab_buttons: dict[str, tk.Button] = {}
-        self._context_menu: tk.Menu = None
+        self._context_menu: tk.Menu | None = None
+        self._refresh_btn: tk.Button | None = None
+        self._enabled = True
 
     def build(self) -> tk.Frame:
-        """构建订单面板"""
         self.frame = tk.Frame(self.parent, bg=PANEL_BG)
-
-        # Header
         hdr = tk.Frame(self.frame, bg=PANEL_BG)
         hdr.pack(fill="x", padx=6, pady=(6, 2))
 
         self.mode_var = tk.StringVar(value="live")
         self._mode_tab_buttons = {}
-
-        for lbl, mode in [("\u25cf Live", "live"), ("All", "all")]:
-            is_live = mode == "live"
+        for label, mode in [("\u6d3b\u52a8", "live"), ("\u5168\u90e8", "all")]:
+            selected = mode == "live"
             btn = tk.Button(
-                hdr, text=lbl,
-                bg=ACCENT_BLUE if is_live else BUTTON_NEUTRAL_BG,
+                hdr,
+                text=label,
+                bg=ACCENT_BLUE if selected else BUTTON_NEUTRAL_BG,
                 fg=TEXT_PRIMARY,
-                font=FONT_UI_SM, relief="flat", bd=0,
-                padx=12, pady=4, cursor="hand2",
-                activebackground=BUTTON_ACTIVE_BG, activeforeground=TEXT_PRIMARY,
+                font=FONT_UI_SM,
+                relief="flat",
+                bd=0,
+                padx=12,
+                pady=4,
+                cursor="hand2",
+                activebackground=BUTTON_ACTIVE_BG,
+                activeforeground=TEXT_PRIMARY,
                 command=lambda m=mode: self.switch_mode(m),
             )
             btn.pack(side="left", padx=2)
-            self._bind_button_hover(btn, ACCENT_BLUE if is_live else BUTTON_NEUTRAL_BG)
+            self._bind_button_hover(btn, ACCENT_BLUE if selected else BUTTON_NEUTRAL_BG)
             self._mode_tab_buttons[mode] = btn
 
+        self.count_var = tk.StringVar(value="\u65e0\u8ba2\u5355")
+        tk.Label(hdr, textvariable=self.count_var, bg=PANEL_BG, fg=TEXT_PRIMARY, font=FONT_UI_SM).pack(side="left", padx=8)
 
-        self.count_var = tk.StringVar(value="No orders")
-        tk.Label(hdr, textvariable=self.count_var, bg=PANEL_BG,
-                 fg=TEXT_PRIMARY, font=FONT_UI_SM).pack(side="left", padx=8)
-
-        refresh_btn = tk.Button(
-            hdr, text="\u27f3", bg=BUTTON_NEUTRAL_BG, fg=ACCENT_BLUE,
-            font=FONT_UI_SM, relief="flat", bd=0, padx=6,
-            activebackground=BUTTON_ACTIVE_BG, activeforeground=ACCENT_BLUE,
-            cursor="hand2", command=self._on_refresh_clicked,
+        self._refresh_btn = tk.Button(
+            hdr,
+            text="⟳",
+            bg=BUTTON_NEUTRAL_BG,
+            fg=ACCENT_BLUE,
+            font=FONT_UI_SM,
+            relief="flat",
+            bd=0,
+            padx=6,
+            activebackground=BUTTON_ACTIVE_BG,
+            activeforeground=ACCENT_BLUE,
+            cursor="hand2",
+            command=self._on_refresh_clicked,
         )
-        self._bind_button_hover(refresh_btn, BUTTON_NEUTRAL_BG)
+        self._bind_button_hover(self._refresh_btn, BUTTON_NEUTRAL_BG)
+        self._refresh_btn.pack(side="right")
 
-        refresh_btn.pack(side="right")
-
-        # Treeview area
         tree_frame = tk.Frame(self.frame, bg=PANEL_BG)
         tree_frame.pack(fill="both", expand=True, padx=6, pady=(0, 6))
-
-        self.tree = ttk.Treeview(tree_frame,
-                                 columns=("sym", "action", "qty", "price", "type", "tif", "status"),
-                                 show="headings", selectmode="browse")
-
-        col_defs = [
-            ("sym", "Symbol", 72, "w"),
-            ("action", "Side", 56, "c"),
-            ("qty", "Qty", 56, "e"),
-            ("price", "Price", 78, "e"),
-            ("type", "Type", 58, "c"),
-            ("tif", "TIF", 48, "c"),
-            ("status", "Status", 100, "c"),
-        ]
-        for cid, label, w, anc in col_defs:
+        self.tree = ttk.Treeview(tree_frame, columns=("sym", "action", "qty", "price", "type", "tif", "status"), show="headings", selectmode="browse")
+        for cid, label, width, anchor in [
+            ("sym", "\u4ee3\u7801", 72, "w"),
+            ("action", "\u65b9\u5411", 56, "c"),
+            ("qty", "\u6570\u91cf", 56, "e"),
+            ("price", "\u4ef7\u683c", 78, "e"),
+            ("type", "\u7c7b\u578b", 58, "c"),
+            ("tif", "\u6709\u6548\u671f", 48, "c"),
+            ("status", "\u72b6\u6001", 100, "c"),
+        ]:
             self.tree.heading(cid, text=label)
-            self.tree.column(cid, width=w, minwidth=28, anchor=anc)
+            self.tree.column(cid, width=width, minwidth=28, anchor=anchor)
 
         self.tree.tag_configure("buy", foreground=ACCENT_GREEN)
         self.tree.tag_configure("sell", foreground=ACCENT_RED)
@@ -105,64 +100,56 @@ class OrdersPanel:
         vsb.pack(side="right", fill="y")
         self.tree.pack(fill="both", expand=True)
 
-        # 右键菜单
-        self._context_menu = tk.Menu(self.frame, tearoff=0,
-                                      bg=PANEL_BG, fg=TEXT_PRIMARY,
-                                      activebackground=ACCENT_RED,
-                                      activeforeground=TEXT_PRIMARY,
-                                      font=FONT_UI_SM)
-
-        self._context_menu.add_command(label="\u2715  Cancel Order",
-                                       command=self._cancel_selected)
+        self._context_menu = tk.Menu(self.frame, tearoff=0, bg=PANEL_BG, fg=TEXT_PRIMARY, activebackground=ACCENT_RED, activeforeground=TEXT_PRIMARY, font=FONT_UI_SM)
+        self._context_menu.add_command(label="\u64a4\u9500\u8ba2\u5355", command=self._cancel_selected)
         self.tree.bind("<Button-3>", self._on_right_click)
-
         return self.frame
 
     @property
     def current_mode(self) -> str:
         return self.mode_var.get()
 
-    def switch_mode(self, mode: str):
-        """切换Live/All模式"""
-        self.mode_var.set(mode)
-        for m, btn in self._mode_tab_buttons.items():
-            selected = m == mode
-            btn.configure(
-                bg=ACCENT_BLUE if selected else BUTTON_NEUTRAL_BG,
-                fg=TEXT_PRIMARY if selected else TEXT_DIM,
-            )
+    def set_enabled(self, enabled: bool):
+        self._enabled = bool(enabled)
+        btn_state = "normal" if enabled else "disabled"
+        for mode, btn in self._mode_tab_buttons.items():
+            selected = self.mode_var.get() == mode
+            btn.configure(state=btn_state, bg=ACCENT_BLUE if selected else BUTTON_NEUTRAL_BG, fg=TEXT_PRIMARY if enabled else TEXT_MUTED)
+        if self._refresh_btn:
+            self._refresh_btn.config(state=btn_state)
 
+    def switch_mode(self, mode: str):
+        if not self._enabled:
+            return
+        self.mode_var.set(mode)
+        for key, btn in self._mode_tab_buttons.items():
+            selected = key == mode
+            btn.configure(bg=ACCENT_BLUE if selected else BUTTON_NEUTRAL_BG, fg=TEXT_PRIMARY if selected else TEXT_DIM)
         if self.on_refresh:
             self.on_refresh()
 
     def update_data(self, orders: list[dict]):
-        """刷新订单数据"""
-        for r in self.tree.get_children():
-            self.tree.delete(r)
+        for row in self.tree.get_children():
+            self.tree.delete(row)
         if not orders:
-            self.count_var.set("No orders")
+            self.count_var.set("\u65e0\u8ba2\u5355")
             return
-        self.count_var.set(f"{len(orders)} order(s)")
-
+        self.count_var.set(f"{len(orders)} \u7b14\u8ba2\u5355")
         mode = self.mode_var.get()
-        for o in orders:
-            rs = o.get("raw_status", o.get("status", ""))
-            is_active = any(s in rs for s in LIVE_STATUSES)
-            is_buy = o.get("action") == "BUY"
+        for order in orders:
+            raw_status = order.get("raw_status", order.get("status", ""))
+            is_active = any(status in raw_status for status in LIVE_STATUSES)
+            is_buy = order.get("action") == "BUY"
             tag = ("buy" if is_buy else "sell") if (mode == "live" or is_active) else "inactive"
-            tif = o.get("tif", "Day")
-            self.tree.insert("", "end", iid=o.get("id", ""), tags=(tag,),
-                             values=(
-                                 o.get("symbol"), o.get("action"),
-                                 o.get("qty"), o.get("price"),
-                                 o.get("otype"), tif, o.get("status"),
-                             ))
+            self.tree.insert("", "end", iid=order.get("id", ""), tags=(tag,), values=(order.get("symbol"), order.get("action"), order.get("qty"), order.get("price"), order.get("otype"), order.get("tif", "Day"), order.get("status")))
 
     def _on_refresh_clicked(self):
-        if self.on_refresh:
+        if self._enabled and self.on_refresh:
             self.on_refresh()
 
     def _on_right_click(self, event):
+        if not self._enabled:
+            return
         row = self.tree.identify_row(event.y)
         if row:
             self.tree.selection_set(row)
@@ -170,21 +157,21 @@ class OrdersPanel:
                 self._context_menu.post(event.x_root, event.y_root)
 
     def _cancel_selected(self):
-        sel = self.tree.selection()
-        if sel and self.on_cancel_order:
-            self.on_cancel_order(sel[0])
+        if not self._enabled:
+            return
+        selection = self.tree.selection()
+        if selection and self.on_cancel_order:
+            self.on_cancel_order(selection[0])
 
     def get_selected_live_orders_for_symbol(self, symbol: str) -> list:
-        """获取指定symbol的所有活跃订单ID"""
         result = []
-        for r in self.tree.get_children():
-            v = self.tree.item(r, "values")
-            if v and len(v) >= 1 and v[0] == symbol:
-                result.append(r)  # iid = order id
+        for row in self.tree.get_children():
+            values = self.tree.item(row, "values")
+            if values and len(values) >= 1 and values[0] == symbol:
+                result.append(row)
         return result
 
     @staticmethod
     def _bind_button_hover(btn: tk.Button, normal_bg: str):
-        btn.bind("<Enter>", lambda e: btn.config(bg=BUTTON_HOVER_BG))
-        btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
-
+        btn.bind("<Enter>", lambda _e: btn.config(bg=BUTTON_HOVER_BG))
+        btn.bind("<Leave>", lambda _e: btn.config(bg=normal_bg))

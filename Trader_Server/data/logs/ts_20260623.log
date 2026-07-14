@@ -1,0 +1,113 @@
+2026-06-23 00:48:23 [trader_server] INFO: Logging initialized (level=INFO, file=D:\CodeProject\Python\EC_project\Trader_Server\data\logs\ts_20260623.log)
+2026-06-23 00:48:23 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-06-23 00:48:23 [trader_server] INFO: Config loaded from D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-06-23 00:48:23 [trader_server.registration] INFO: Restored session: server_id=node_trader-node-01_ff997307
+2026-06-23 00:48:23 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-06-23 00:48:25 [trader_server.registration] ERROR: Ping failed: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-06-23 00:48:25 [trader_server.heartbeat] INFO: Heartbeat started (interval=20s)
+2026-06-23 00:48:27 [trader_server.heartbeat] WARNING: [#1] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-06-23 00:48:29 [trader_server.heartbeat] WARNING: [#2] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-06-23 00:48:30 [trader_server.api.ib] WARNING: ibapi not installed, IBBroker will be non-functional
+2026-06-23 00:48:30 [trader_server.config_sync] INFO: Config event listener started
+2026-06-23 00:48:33 [trader_server.heartbeat] WARNING: [#3] Heartbeat exception: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>
+2026-06-23 00:48:41 [trader_server.main] INFO: Credentials cleared: ['config.json']
+2026-06-23 00:48:56 [trader_server.heartbeat] ERROR: [#5] Heartbeat FAIL: No token available
+2026-06-23 00:48:57 [trader_server.heartbeat] ERROR: [#6] Heartbeat FAIL: No token available
+2026-06-23 00:48:59 [trader_server.heartbeat] ERROR: [#7] Heartbeat FAIL: No token available
+2026-06-23 00:49:03 [trader_server.heartbeat] ERROR: [#8] Heartbeat FAIL: No token available
+2026-06-23 00:49:07 [trader_server.registration] INFO: Testing connection: http://127.0.0.1:8800/ping
+2026-06-23 00:49:07 [trader_server.registration] INFO: Connection OK: {'status': 'pong'}
+2026-06-23 00:49:07 [trader_server.main] INFO: [Register Submit] Received body: {'manager_url': 'http://127.0.0.1:8800', 'node_name': 'trader-node-01', 'region': 'TT', 'host': '192.168.1.129:8900'}
+2026-06-23 00:49:07 [trader_server.main] INFO: [Register Submit] Current state.manager_url = http://127.0.0.1:8800
+2026-06-23 00:49:07 [trader_server.registration] INFO: Submitting registration to http://127.0.0.1:8800/nodes/register-request
+2026-06-23 00:49:07 [trader_server.registration] INFO: Node info: name=trader-node-01, region=TT
+2026-06-23 00:49:07 [trader_server] INFO: Register state saved: req_fb7e4e6a86999a2e8b356ca0
+2026-06-23 00:49:07 [trader_server.registration] INFO: Registration submitted: req_fb7e4e6a86999a2e8b356ca0, expires at 2026-06-23T16:49:07.543974+00:00
+2026-06-23 00:49:07 [trader_server.main] INFO: [Register Submit] submit_registration returned: {'ok': True, 'request_id': 'req_fb7e4e6a86999a2e8b356ca0', 'message': '提交成功，请等待管理员审核', 'expire_at': '2026-06-23T16:49:07.543974+00:00'}
+2026-06-23 00:49:07 [trader_server.main] INFO: [Await Approval] Connecting to SM: http://127.0.0.1:8800/nodes/await-approval?request_id=req_fb7e4e6a86999a2e8b356ca0
+2026-06-23 00:49:11 [trader_server.heartbeat] ERROR: [#9] Heartbeat FAIL: No token available
+2026-06-23 00:49:17 [trader_server.main] INFO: [Await Approval] ★ APPROVED! server_id=node_trader-node-01_3a497375
+2026-06-23 00:49:17 [trader_server] INFO: Config saved to D:\CodeProject\Python\EC_project\Trader_Server\data\config.json
+2026-06-23 00:49:17 [trader_server] INFO: Register state cleared
+2026-06-23 00:49:17 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 00:49:19 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 00:49:19 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 00:49:19 [trader_server.config_sync] ERROR: init_broker: TT connect failed
+2026-06-23 00:49:19 [trader_server.config_sync] INFO: Broker status broadcast: TT → connect_failed
+2026-06-23 00:49:19 [trader_server.main] WARNING: [Await Approval] Broker init failed (will retry via heartbeat)
+2026-06-23 00:49:49 [trader_server.ws_server] INFO: [sess_b2a8aa1b29a777e6] WS connected from 127.0.0.1:64928
+2026-06-23 00:49:49 [trader_server.msg_log] INFO: [sess_b2a8aa1b29a777e6][trc_2f7b07b75da747b2] Client 已连接 127.0.0.1:64928
+2026-06-23 00:49:49 [trader_server.msg_log] INFO: [sess_b2a8aa1b29a777e6][trc_2f7b07b75da747b2] 认证通过 ✓
+2026-06-23 00:49:49 [trader_server.ws_server] INFO: [sess_b2a8aa1b29a777e6] Auth OK, connection established
+2026-06-23 00:49:49 [trader_server.ws_server] INFO: [sess_b2a8aa1b29a777e6] WS disconnected by client
+2026-06-23 00:49:49 [trader_server.ws_server] INFO: [sess_b2a8aa1b29a777e6] Connection cleaned up (remaining connections: 0)
+2026-06-23 00:49:49 [trader_server.msg_log] INFO: [sess_b2a8aa1b29a777e6] Client 断开连接
+2026-06-23 00:49:49 [trader_server.ws_server] INFO: [sess_9845c5dc99f4816e] WS connected from 127.0.0.1:64932
+2026-06-23 00:49:49 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_726ada49cb5c4bc6] Client 已连接 127.0.0.1:64932
+2026-06-23 00:49:49 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_726ada49cb5c4bc6] 认证通过 ✓
+2026-06-23 00:49:49 [trader_server.ws_server] INFO: [sess_9845c5dc99f4816e] Auth OK, connection established
+2026-06-23 00:49:50 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_1e592e27972d462a] [BROKER_STATUS_QUERY]
+2026-06-23 00:49:50 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_1e592e27972d462a] [BROKER_STATUS_RESPONSE]
+2026-06-23 01:05:25 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_2383e2a2151e447d] [BROKER_LOGIN]
+2026-06-23 01:05:25 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_2383e2a2151e447d] [BROKER_LOGIN_RESPONSE]
+2026-06-23 01:05:25 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_b34e970dbed5476f] 持仓查询
+2026-06-23 01:05:25 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:27 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:27 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:27 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:27 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:27 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_b34e970dbed5476f] 持仓查询失败
+2026-06-23 01:05:27 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_d1c4f11c3a2d4ee9] [ORDER_QUERY]
+2026-06-23 01:05:27 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:29 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:29 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:29 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:29 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:29 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_d1c4f11c3a2d4ee9] [ORDER_LIST_RESPONSE]
+2026-06-23 01:05:29 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_8371e9efd8c84f38] 持仓查询
+2026-06-23 01:05:29 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:31 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:31 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:31 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:31 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:31 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_8371e9efd8c84f38] 持仓查询失败
+2026-06-23 01:05:31 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_55fc0e22f435420e] 持仓查询
+2026-06-23 01:05:31 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:33 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:33 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:33 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:33 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:33 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_55fc0e22f435420e] 持仓查询失败
+2026-06-23 01:05:33 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_e04ab4afd3bc4437] [ORDER_QUERY]
+2026-06-23 01:05:33 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:36 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:37 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:37 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:37 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:37 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_e04ab4afd3bc4437] [ORDER_LIST_RESPONSE]
+2026-06-23 01:05:37 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_5f00b562c705484a] [ORDER_QUERY]
+2026-06-23 01:05:37 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:39 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:39 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:39 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:39 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:39 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_5f00b562c705484a] [ORDER_LIST_RESPONSE]
+2026-06-23 01:05:39 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_a10fd4ac50184a49] 行情订阅 [MU]
+2026-06-23 01:05:39 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_a10fd4ac50184a49] 行情操作失败
+2026-06-23 01:05:55 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_1d2203f3a47943d3] 持仓查询
+2026-06-23 01:05:55 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:57 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:58 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:58 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:58 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:58 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_1d2203f3a47943d3] 持仓查询失败
+2026-06-23 01:05:58 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_a3ed77ff2a814671] [ORDER_QUERY]
+2026-06-23 01:05:58 [trader_server.api.factory] INFO: [BrokerFactory] created TastytradeBroker (type=tt)
+2026-06-23 01:05:59 [httpx] INFO: HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 400 Bad Request"
+2026-06-23 01:05:59 [trader_server.api.tastytrade] ERROR: TastytradeBroker connect failed: Couldn't parse response: {'error_code': 'invalid_grant', 'error_description': 'Invalid JWT'}
+2026-06-23 01:05:59 [trader_server.config_sync] ERROR: _do_hot_reload: TT connect failed after reload
+2026-06-23 01:05:59 [trader_server.config_sync] INFO: Broker status broadcast: TT → reload_failed
+2026-06-23 01:05:59 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e][trc_a3ed77ff2a814671] [ORDER_LIST_RESPONSE]
+2026-06-23 01:06:12 [trader_server.ws_server] INFO: [sess_9845c5dc99f4816e] WS disconnected by client
+2026-06-23 01:06:12 [trader_server.ws_server] INFO: [sess_9845c5dc99f4816e] Connection cleaned up (remaining connections: 0)
+2026-06-23 01:06:12 [trader_server.msg_log] INFO: [sess_9845c5dc99f4816e] Client 断开连接

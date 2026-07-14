@@ -1,6 +1,6 @@
 """
 SC - Main Window
-主窗口：组装所有子组件，管理全局状态、快捷键、轮询、行情流
+涓荤獥鍙ｏ細缁勮鎵鏈夊瓙缁勪欢锛岀鐞嗗叏灞鐘舵併佸揩鎹烽敭銆佽疆璇佽鎯呮祦
 """
 
 import datetime
@@ -11,20 +11,20 @@ import re
 import threading
 import time
 
-# 时区支持（Python 3.9+ 使用 zoneinfo，更低版本回退到 pytz）
+# 鏃跺尯鏀寔锛圥ython 3.9+ 浣跨敤 zoneinfo锛屾洿浣庣増鏈洖閫鍒?pytz锛?
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
     try:
         from pytz import timezone as ZoneTimezone
-        # 为 pytz 创建兼容接口
+        # 涓?pytz 鍒涘缓鍏煎鎺ュ彛
         class ZoneInfo:
             def __init__(self, key):
                 self._tz = ZoneTimezone(key)
             def localize(self, dt):
                 return self._tz.localize(dt)
     except ImportError:
-        # 如果都没有，使用简化版（无 DST 支持）
+        # 濡傛灉閮芥病鏈夛紝浣跨敤绠鍖栫増锛堟棤 DST 鏀寔锛?
         ZoneInfo = None
 
 import tkinter as tk
@@ -33,7 +33,6 @@ from tkinter import messagebox, ttk
 from ..constants import *
 from ..config import load_credentials, save_credentials
 from ..network.http_client import HttpClient
-from ..network.ws_client import QuoteStream
 from ..network.ts_websocket import TSWebSocketClient
 from ..services.trading_session import TradingSession, sanitize
 from .trading_panel import TradingPanel
@@ -42,15 +41,169 @@ from .orders_panel import OrdersPanel
 from .log_area import LogArea
 from .login_dialog import LoginDialog
 
+SEWebSocketClient = TSWebSocketClient
+DEFAULT_SE_HOST = DEFAULT_TS_HOST
+DEFAULT_SE_PORT = DEFAULT_TS_PORT
+SE_RECONNECT_ENABLED = TS_RECONNECT_ENABLED
+
+
+_ACTION_LABELS = {
+    "Buy to Open": "买开",
+    "Buy to Close": "买平",
+    "Sell to Open": "卖开",
+    "Sell to Close": "卖平",
+}
+
+_TIF_LABELS = {
+    "Day": "当日有效",
+    "GTC": "撤单前有效",
+}
+
+
+def _format_order_action(action: str) -> str:
+    return _ACTION_LABELS.get(str(action or "").strip(), str(action or "").strip())
+
+
+def _format_tif_label(tif: str) -> str:
+    return _TIF_LABELS.get(str(tif or "").strip(), str(tif or "").strip())
+
+
+def _localize_user_message(msg: str) -> str:
+    text = sanitize(msg).strip()
+    if not text:
+        return ""
+
+    replacements = {
+        "Trade service login succeeded": "\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u6210\u529f",
+        "Trade service login required": "\u8bf7\u5148\u767b\u5f55\u4ea4\u6613\u670d\u52a1",
+        "Trade service login expired": "\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u5df2\u8fc7\u671f",
+        "Trade service login cleared": "\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u5df2\u6e05\u9664",
+        "Trade service username and password are required": "\u8bf7\u8f93\u5165\u4ea4\u6613\u670d\u52a1\u8d26\u53f7\u548c\u5bc6\u7801",
+        "Trade service login request timed out": "\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u8bf7\u6c42\u8d85\u65f6",
+        "Trade service status query timed out": "\u4ea4\u6613\u670d\u52a1\u72b6\u6001\u67e5\u8be2\u8d85\u65f6",
+        "Trade service logout request timed out": "\u4ea4\u6613\u670d\u52a1\u767b\u51fa\u8bf7\u6c42\u8d85\u65f6",
+        "Trade service broker not connected": "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55",
+        "Quote subscribe failed": "\u884c\u60c5\u8ba2\u9605\u5931\u8d25",
+        "Quote unsubscribe failed": "\u884c\u60c5\u53d6\u6d88\u8ba2\u9605\u5931\u8d25",
+        "Position fetch failed": "\u6301\u4ed3\u83b7\u53d6\u5931\u8d25",
+        "Server disconnected": "\u7ba1\u7406\u670d\u52a1\u8fde\u63a5\u5df2\u65ad\u5f00",
+        "Trade server connected": "\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5",
+        "Trade server disconnected": "\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u65ad\u5f00",
+        "Trade server reconnect cancelled": "\u5df2\u53d6\u6d88\u4ea4\u6613\u670d\u52a1\u5668\u91cd\u8fde",
+        "Trade server connect failed": "\u4ea4\u6613\u670d\u52a1\u5668\u8fde\u63a5\u5931\u8d25",
+        "Trade server is offline": "\u4ea4\u6613\u670d\u52a1\u5668\u5f53\u524d\u79bb\u7ebf",
+        "Trade server validation failed": "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25",
+        "Trade server lock failed; connection aborted": "\u4ea4\u6613\u670d\u52a1\u5668\u9501\u5b9a\u5931\u8d25\uff0c\u8fde\u63a5\u5df2\u4e2d\u6b62",
+        "Trade server login pending reconnect": "\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u7b49\u5f85\u91cd\u8fde",
+        "System ready": "\u7cfb\u7edf\u5df2\u5c31\u7eea",
+        "Connected, sending auth...": "\u5df2\u8fde\u63a5\uff0c\u6b63\u5728\u53d1\u9001\u9274\u6743\u2026",
+        "Logged out": "\u5df2\u9000\u51fa\u767b\u5f55",
+        "Connected": "\u5df2\u8fde\u63a5",
+        "Not connected": "\u672a\u8fde\u63a5",
+        "Subscribed": "\u884c\u60c5\u8ba2\u9605\u6210\u529f",
+        "Unsubscribed": "\u884c\u60c5\u53d6\u6d88\u8ba2\u9605\u6210\u529f",
+        "Subscribe failed": "\u884c\u60c5\u8ba2\u9605\u5931\u8d25",
+        "Unsubscribe failed": "\u884c\u60c5\u53d6\u6d88\u8ba2\u9605\u5931\u8d25",
+        "Order failed": "\u4e0b\u5355\u5931\u8d25",
+        "Cancel failed": "\u64a4\u5355\u5931\u8d25",
+    }
+    if text in replacements:
+        return replacements[text]
+
+    reconnect_match = re.fullmatch(r"Reconnecting \((\d+)\)\.\.\.(.*)", text)
+    if reconnect_match:
+        suffix = reconnect_match.group(2).strip()
+        if suffix.startswith("|"):
+            suffix = f" | {suffix[1:].strip()}"
+        elif suffix:
+            suffix = f" {suffix}"
+        return f"\u91cd\u8fde\u4e2d\uff08{reconnect_match.group(1)}\uff09\u2026{suffix}"
+
+    reconnect_failed_match = re.fullmatch(r"Reconnect failed after (\d+) attempts: (.+)", text)
+    if reconnect_failed_match:
+        return (
+            f"\u91cd\u8fde\u5931\u8d25\uff0c\u5df2\u5c1d\u8bd5 {reconnect_failed_match.group(1)} "
+            f"\u6b21\uff1a{reconnect_failed_match.group(2)}"
+        )
+
+    connect_target_match = re.fullmatch(r"Connecting to (.+)\.\.\.", text)
+    if connect_target_match:
+        return f"\u6b63\u5728\u8fde\u63a5\uff1a{connect_target_match.group(1)}"
+
+    authenticated_match = re.fullmatch(r"Authenticated! Session: (.+)", text)
+    if authenticated_match:
+        return f"\u9274\u6743\u6210\u529f\uff0c\u4f1a\u8bdd\uff1a{authenticated_match.group(1)}"
+
+    startswith_replacements = (
+        ("Trade service login failed:", "\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u5931\u8d25\uff1a"),
+        ("Trade service error [", "\u4ea4\u6613\u670d\u52a1\u5668\u9519\u8bef["),
+        ("Trade server error [", "\u4ea4\u6613\u670d\u52a1\u5668\u9519\u8bef["),
+        ("Trade server connection released by manager (", "\u4ea4\u6613\u670d\u52a1\u5668\u8fde\u63a5\u5df2\u88ab\u7ba1\u7406\u7aef\u91ca\u653e\uff08"),
+        ("Trade server is occupied by ", "\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u88ab\u5360\u7528\uff1a"),
+        ("Trade server validation failed:", "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25\uff1a"),
+        ("Trade server connect failed:", "\u4ea4\u6613\u670d\u52a1\u5668\u8fde\u63a5\u5931\u8d25\uff1a"),
+        ("Quote subscribe failed:", "\u884c\u60c5\u8ba2\u9605\u5931\u8d25\uff1a"),
+        ("Quote unsubscribe failed:", "\u884c\u60c5\u53d6\u6d88\u8ba2\u9605\u5931\u8d25\uff1a"),
+        ("Position fetch failed:", "\u6301\u4ed3\u83b7\u53d6\u5931\u8d25\uff1a"),
+        ("Login failed (HTTP ", "\u767b\u5f55\u5931\u8d25\uff08HTTP "),
+        ("Order failed:", "\u4e0b\u5355\u5931\u8d25\uff1a"),
+        ("Order submitted", "\u4e0b\u5355\u5df2\u63d0\u4ea4"),
+        ("Order ", "\u8ba2\u5355 "),
+        ("Disconnected:", "\u8fde\u63a5\u65ad\u5f00\uff1a"),
+        ("Connection error", "\u8fde\u63a5\u9519\u8bef"),
+        ("Error [", "\u4ea4\u6613\u670d\u52a1\u5668\u9519\u8bef["),
+        ("Auth failed", "\u9274\u6743\u5931\u8d25"),
+    )
+    for prefix, repl in startswith_replacements:
+        if text.startswith(prefix):
+            if prefix == "Trade server connection released by manager (" and text.endswith(")"):
+                inner = text[len(prefix):-1]
+                return f"\u4ea4\u6613\u670d\u52a1\u5668\u8fde\u63a5\u5df2\u88ab\u7ba1\u7406\u7aef\u91ca\u653e\uff08{inner}\uff09"
+            return repl + text[len(prefix):]
+
+    text = text.replace("TS not connected", "\u4ea4\u6613\u670d\u52a1\u5668\u672a\u8fde\u63a5")
+    text = text.replace("SE not connected", "\u4ea4\u6613\u670d\u52a1\u5668\u672a\u8fde\u63a5")
+    text = text.replace("remote host refused connection (port may not be ready)", "\u8fdc\u7a0b\u4e3b\u673a\u62d2\u7edd\u8fde\u63a5\uff08\u7aef\u53e3\u53ef\u80fd\u5c1a\u672a\u5c31\u7eea\uff09")
+    text = text.replace("broker", "\u5238\u5546")
+    return text
+
+
+def _localize_step_status(status: str) -> str:
+    text = str(status or "").strip()
+    if not text:
+        return ""
+
+    replacements = {
+        "Waiting": "\u7b49\u5f85\u4e2d",
+        "Connecting...": "\u8fde\u63a5\u4e2d\u2026",
+        "Connected": "\u5df2\u8fde\u63a5",
+        "Failed": "\u5931\u8d25",
+        "Retrying...": "\u91cd\u8bd5\u4e2d\u2026",
+        "Validating SE...": "\u6821\u9a8c\u4ea4\u6613\u670d\u52a1\u5668\u2026",
+        "Validating...": "\u6821\u9a8c\u4e2d\u2026",
+    }
+    if text in replacements:
+        return replacements[text]
+
+    connect_match = re.fullmatch(r"Connecting \((\d+)/(\d+)\)\.\.\.", text)
+    if connect_match:
+        return f"\u8fde\u63a5\u4e2d\uff08{connect_match.group(1)}/{connect_match.group(2)}\uff09\u2026"
+
+    se_ok_match = re.fullmatch(r"SE OK \((.+)\)", text)
+    if se_ok_match:
+        return f"\u4ea4\u6613\u670d\u52a1\u5668\u5c31\u7eea\uff08{se_ok_match.group(1)}\uff09"
+
+    return _localize_user_message(text)
+
 
 class TradingTerminal(tk.Tk):
-    """交易终端主窗口"""
+    """UI helper."""
 
     def __init__(self):
         super().__init__()
         self.title("SC")
 
-        # 窗口尺寸与居中
+        # 绐楀彛灏哄涓庡眳涓?
         self.update_idletasks()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
@@ -62,7 +215,7 @@ class TradingTerminal(tk.Tk):
         self.minsize(1400, 750)
         self.configure(bg=DARK_BG)
 
-        # ── 预初始化引用（避免属性错误）───────────────────────────────
+        # 鈹鈹 棰勫垵濮嬪寲寮曠敤锛堥伩鍏嶅睘鎬ч敊璇級鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
         self.http = HttpClient()
         self.session = None
         self.panels: dict[int, TradingPanel] = {}
@@ -70,10 +223,11 @@ class TradingTerminal(tk.Tk):
         self.quote_queue = queue.Queue()
         self.sub_queue = queue.Queue()
         self.current_quote: dict[str, dict] = {}
+        self._quote_ui_pending: dict[str, tuple[dict, dict | None]] = {}
+        self._quote_ui_flush_job: str | None = None
         self.mock_base: dict[str, float] = {}
         self._stream_active: bool = False
         self._mock_active: bool = False
-        self._ws_stream: QuoteStream | None = None
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
         self._last_pos_time: float = 0
@@ -85,14 +239,16 @@ class TradingTerminal(tk.Tk):
         self.status_var: tk.StringVar = None
         self.status_lbl: tk.Label = None
         self.time_var: tk.StringVar = None
-        self._time_zone_cn: bool = True  # True=中国时间, False=美国时间
+        self._time_zone_cn: bool = True  # True=涓浗鏃堕棿, False=缇庡浗鏃堕棿
         self.log_area: LogArea | None = None
+        self._last_ui_error_message = ""
+        self._last_ui_error_at = 0.0
         
-        # 时区对象（用于 DST 支持）
+        # 鏃跺尯瀵硅薄锛堢敤浜?DST 鏀寔锛?
         if ZoneInfo is not None:
             try:
-                self._tz_cn = ZoneInfo("Asia/Shanghai")  # 中国时区
-                self._tz_us = ZoneInfo(TZ_ET_NAME)        # 美国东部时区
+                self._tz_cn = ZoneInfo("Asia/Shanghai")  # 涓浗鏃跺尯
+                self._tz_us = ZoneInfo(TZ_ET_NAME)        # 缇庡浗涓滈儴鏃跺尯
             except Exception:
                 self._tz_cn = None
                 self._tz_us = None
@@ -100,13 +256,18 @@ class TradingTerminal(tk.Tk):
             self._tz_cn = None
             self._tz_us = None
 
-        # SE 直连组件
+        # SE 鐩磋繛缁勪欢
         self._se_client: SEWebSocketClient | None = None
         self._se_connected: bool = False
         self._se_status_var: tk.StringVar = None
         self._se_status_lbl: tk.Label | None = None
         self._se_btn: tk.Button | None = None
         self._logout_btn: tk.Button | None = None
+        self._broker_status_var: tk.StringVar = tk.StringVar(value="\u4ea4\u6613\u670d\u52a1\uff1a\u672a\u767b\u5f55")
+        self._broker_status_lbl: tk.Label | None = None
+        self._broker_user_entry: tk.Entry | None = None
+        self._broker_pass_entry: tk.Entry | None = None
+        self._broker_login_btn: tk.Button | None = None
         self._session_id: str = ""
         self._se_status_connected: bool = False
         self._se_dot_phase: int = 0
@@ -114,36 +275,36 @@ class TradingTerminal(tk.Tk):
 
 
         self._node_info: dict = {}
-        self._se_target_address: str = ""  # 登录后动态获取的 SE 地址
-        self._se_server_id: str = ""       # 当前 SE 对应的 server_id（用于占用/释放）
-        self._last_connected_se: str = ""   # 最近一次连接的 SE 地址
-        self._login_username: str = ""      # 当前登录用户名
-        self._login_password: str = ""      # 当前登录密码（取消返回时回填）
+        self._se_target_address: str = ""  # 鐧诲綍鍚庡姩鎬佽幏鍙栫殑 SE 鍦板潃
+        self._se_server_id: str = ""       # 褰撳墠 SE 瀵瑰簲鐨?server_id锛堢敤浜庡崰鐢?閲婃斁锛?
+        self._last_connected_se: str = ""   # 鏈杩戜竴娆¤繛鎺ョ殑 SE 鍦板潃
+        self._login_username: str = ""      # 褰撳墠鐧诲綍鐢ㄦ埛鍚?
+        self._login_password: str = ""      # 褰撳墠鐧诲綍瀵嗙爜锛堝彇娑堣繑鍥炴椂鍥炲～锛?
 
-        # 初始化界面容器（占满窗口，后续销毁后替换为主界面）
+        # 鍒濆鍖栫晫闈㈠鍣紙鍗犳弧绐楀彛锛屽悗缁攢姣佸悗鏇挎崲涓轰富鐣岄潰锛?
         self._init_frame: tk.Frame | None = None
-        self._init_ready = False   # 标记：全部连接成功后才构建主界面
+        self._init_ready = False   # 鏍囪锛氬叏閮ㄨ繛鎺ユ垚鍔熷悗鎵嶆瀯寤轰富鐣岄潰
 
-        # ── SE 重连相关状态 ──
-        self._reconnecting: bool = False          # 是否正在自动重连中
-        self._reconnect_dialog: tk.Toplevel | None = None  # 重连弹窗引用
-        self._reconnect_cancelled: bool = False   # 用户是否取消了重连
-        self._reconnect_var: tk.StringVar = tk.StringVar(value="")  # 重连状态文本
+        # 鈹鈹 SE 閲嶈繛鐩稿叧鐘舵?鈹鈹
+        self._reconnecting: bool = False          # 鏄惁姝ｅ湪鑷姩閲嶈繛涓?
+        self._reconnect_dialog: tk.Toplevel | None = None  # 閲嶈繛寮圭獥寮曠敤
+        self._reconnect_cancelled: bool = False   # 鐢ㄦ埛鏄惁鍙栨秷浜嗛噸杩?
+        self._reconnect_var: tk.StringVar = tk.StringVar(value="")  # 閲嶈繛鐘舵佹枃鏈?
 
-        # 显示初始化连接界面
+        # 鏄剧ず鍒濆鍖栬繛鎺ョ晫闈?
         self._show_init_screen()
 
-        # 启动时先弹出登录界面，用户点击登录后才进行连接验证
+        # 鍚姩鏃跺厛寮瑰嚭鐧诲綍鐣岄潰锛岀敤鎴风偣鍑荤櫥褰曞悗鎵嶈繘琛岃繛鎺ラ獙璇?
         self.after(200, self._show_login_first)
 
-    # ── Init Screen & Connection Flow ─────────────────────────────────────
+    # 鈹鈹 Init Screen & Connection Flow 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _show_init_screen(self):
-        """显示初始化连接界面（占满窗口，连接成功后销毁）"""
+        """UI helper."""
         self._init_frame = tk.Frame(self, bg=DARK_BG)
         self._init_frame.pack(fill="both", expand=True)
 
-        # 居中容器
+        # 灞呬腑瀹瑰櫒
         center = tk.Frame(self._init_frame, bg=DARK_BG)
         center.place(relx=0.5, rely=0.45, anchor="center")
 
@@ -153,36 +314,36 @@ class TradingTerminal(tk.Tk):
         tk.Label(center, text="\u8fde\u63a5\u4e2d\u2026",
                  bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM).pack(pady=(0, 28))
 
-        # 步骤状态标签（显示在 UI 上，便于交易员快速判断连接阶段）
+        # 姝ラ鐘舵佹爣绛撅紙鏄剧ず鍦?UI 涓婏紝渚夸簬浜ゆ槗鍛樺揩閫熷垽鏂繛鎺ラ樁娈碉級
         steps = tk.Frame(center, bg=DARK_BG)
         steps.pack(fill="x", pady=(0, 12))
         self._init_steps: dict[str, tuple[tk.Label, tk.StringVar]] = {}
         for key, title, default in (
-            ("auth", "账户认证", "Waiting"),
-            ("sm", "服务管理器", "Connecting..."),
-            ("se", "子服务器(SE)", "Waiting"),
+            ("auth", "\u8d26\u53f7\u767b\u5f55", "Waiting"),
+            ("sm", "\u7ba1\u7406\u670d\u52a1", "Connecting..."),
+            ("se", "\u4ea4\u6613\u670d\u52a1", "Waiting"),
         ):
             row = tk.Frame(steps, bg=DARK_BG)
             row.pack(fill="x", pady=1)
             tk.Label(row, text=f"{title}", bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM, width=12, anchor="w").pack(side="left")
-            var = tk.StringVar(value=default)
+            var = tk.StringVar(value=_localize_step_status(default))
             lbl = tk.Label(row, textvariable=var, bg=DARK_BG,
                            fg=ACCENT_YELLOW if key == "sm" else TEXT_MUTED,
                            font=FONT_MONO_SM, anchor="w")
             lbl.pack(side="left", padx=(6, 0))
             self._init_steps[key] = (lbl, var)
 
-        # 底部提示信息（字体加大）
+        # 搴曢儴鎻愮ず淇℃伅锛堝瓧浣撳姞澶э級
         self._init_hint_var = tk.StringVar(value="")
         tk.Label(center, textvariable=self._init_hint_var, bg=DARK_BG,
                  fg=ACCENT_RED, font=FONT_UI, wraplength=500,
                  justify="center").pack(pady=(16, 0))
 
 
-        # 按钮容器（重试 + 取消）
+        # 鎸夐挳瀹瑰櫒锛堥噸璇?+ 鍙栨秷锛?
         btn_container = tk.Frame(center, bg=DARK_BG)
         btn_container.pack(pady=(16, 0))
-        # 重试按钮（初始隐藏）
+        # 閲嶈瘯鎸夐挳锛堝垵濮嬮殣钘忥級
         self._retry_btn = tk.Button(
             btn_container, text="\u91cd\u8bd5", font=FONT_UI_SM,
             bg=BUTTON_NEUTRAL_BG, fg=ACCENT_BLUE, activebackground=BUTTON_ACTIVE_BG,
@@ -191,7 +352,7 @@ class TradingTerminal(tk.Tk):
         )
         self._bind_button_hover(self._retry_btn, BUTTON_NEUTRAL_BG)
 
-        # 取消按钮（初始隐藏，点击返回登录界面）
+        # 鍙栨秷鎸夐挳锛堝垵濮嬮殣钘忥紝鐐瑰嚮杩斿洖鐧诲綍鐣岄潰锛?
         self._cancel_btn = tk.Button(
             btn_container, text="\u53d6\u6d88", font=FONT_UI_SM,
             bg=BUTTON_NEUTRAL_BG, fg=ACCENT_RED, activebackground=BUTTON_ACTIVE_BG,
@@ -202,11 +363,11 @@ class TradingTerminal(tk.Tk):
 
 
     def _update_init_step(self, step_key: str, status: str, color: str = None):
-        """更新初始化步骤的状态文本和颜色"""
+        """UI helper."""
         if step_key not in self._init_steps:
             return
         lbl, var = self._init_steps[step_key]
-        var.set(status)
+        var.set(_localize_step_status(status))
         if color:
             lbl.config(fg=color)
         self.update_idletasks()
@@ -217,12 +378,12 @@ class TradingTerminal(tk.Tk):
         btn.bind("<Leave>", lambda e: btn.config(bg=normal_bg))
 
     def _start_se_status_dot_animation(self):
-        """启动 SE 状态小点动画（仅启动一次定时器）"""
+        """UI helper."""
         if self._se_dot_job is None:
             self._tick_se_status_dot()
 
     def _tick_se_status_dot(self):
-        """SE 状态小点动画帧更新"""
+        """UI helper."""
         self._se_dot_job = None
 
         if not self.winfo_exists():
@@ -231,14 +392,14 @@ class TradingTerminal(tk.Tk):
         if self._se_status_var and self._se_status_lbl and self._se_status_lbl.winfo_exists():
             phase = self._se_dot_phase % 4
             if self._se_status_connected:
-                dot = "●"
+                marker = '[+]'
                 colors = ["#2fcf7b", "#66e6a1", ACCENT_GREEN, "#66e6a1"]
-                self._se_status_var.set(f"{dot} Connect")
+                self._se_status_var.set(f"{marker} \u5df2\u8fde\u63a5")
                 self._se_status_lbl.config(fg=colors[phase])
             else:
-                dots = ["●", "◉", "◎", "◉"]
+                dots = ['.', '..', '...', '....']
                 colors = ["#ff5c5c", "#ff7b7b", ACCENT_RED, "#ff7b7b"]
-                self._se_status_var.set(f"{dots[phase]} Disconnect")
+                self._se_status_var.set(f"{dots[phase]} \u672a\u8fde\u63a5")
                 self._se_status_lbl.config(fg=colors[phase])
 
             self._se_dot_phase = (self._se_dot_phase + 1) % 4
@@ -246,7 +407,7 @@ class TradingTerminal(tk.Tk):
         self._se_dot_job = self.after(430, self._tick_se_status_dot)
 
     def _set_se_connection_ui(self, connected: bool):
-        """统一更新 SE 状态文案/颜色与按钮文案"""
+        """UI helper."""
         self._se_status_connected = bool(connected)
         self._se_dot_phase = 0
 
@@ -254,13 +415,13 @@ class TradingTerminal(tk.Tk):
             self._start_se_status_dot_animation()
 
         if self._se_btn:
-            self._se_btn.config(text="Disconnect" if connected else "Connect", state="normal")
+            self._se_btn.config(text="\u65ad\u5f00\u8fde\u63a5" if connected else "\u8fde\u63a5\u4ea4\u6613\u670d\u52a1", state="normal")
 
 
     def _show_login_first(self):
-        """启动时首先弹出登录对话框（用户输入账户密码后才启动连接流程）"""
+        """UI helper."""
         self.session = TradingSession(self.http)
-        # 首次打开不填充，取消返回时填充上次输入的凭据
+        # 棣栨鎵撳紑涓嶅～鍏咃紝鍙栨秷杩斿洖鏃跺～鍏呬笂娆¤緭鍏ョ殑鍑嵁
         login = LoginDialog(
             self, auth_fn=self.session.login,
             default_user=self._login_username,
@@ -268,13 +429,13 @@ class TradingTerminal(tk.Tk):
         )
         creds = login.credentials
         if not creds:
-            # 用户关闭了登录窗口
+            # 鐢ㄦ埛鍏抽棴浜嗙櫥褰曠獥鍙?
             self.quit()
             return
 
         username, password = creds
         if not self.session.connected:
-            # 登录认证失败，重新弹出登录框让用户重试（保留已输入的账号密码）
+            # 鐧诲綍璁よ瘉澶辫触锛岄噸鏂板脊鍑虹櫥褰曟璁╃敤鎴烽噸璇曪紙淇濈暀宸茶緭鍏ョ殑璐﹀彿瀵嗙爜锛?
             self._login_username = username
             self._login_password = password
             self.after(0, lambda: self._show_login_first())
@@ -282,26 +443,24 @@ class TradingTerminal(tk.Tk):
 
         self._login_username = username
         self._login_password = password
-        self._update_init_step("auth", f"OK ({username})", ACCENT_GREEN)
         save_credentials(username, password)
 
-        # 登录成功 → 启动 SM 检查 + SE 验证流程
+        # 鐧诲綍鎴愬姛 鈫?鍚姩 SM 妫鏌?+ SE 楠岃瘉娴佺▼
         self.after(0, self._start_connection_flow)
 
     def _start_connection_flow(self):
         """
-        登录成功后的连接流程（SM检查 → SE在线验证 → SE直连）
-        全部成功 → 销毁初始化界面，构建主交易界面
-        失败时提供 重试/取消 按钮
+        鐧诲綍鎴愬姛鍚庣殑杩炴帴娴佺▼锛圫M妫鏌?鈫?SE鍦ㄧ嚎楠岃瘉 鈫?SE鐩磋繛锛?
+        鍏ㄩ儴鎴愬姛 鈫?閿姣佸垵濮嬪寲鐣岄潰锛屾瀯寤轰富浜ゆ槗鐣岄潰
+        澶辫触鏃舵彁渚?閲嶈瘯/鍙栨秷 鎸夐挳
         """
-        self._update_init_step("sm", "Connecting...", ACCENT_YELLOW)
         self._init_hint_var.set("")
         self._retry_btn.pack_forget()
         if hasattr(self, '_cancel_btn'):
             self._cancel_btn.pack_forget()
 
         def _check_sm():
-            """Step 1: 检查 SM 是否可达"""
+            """UI helper."""
             ok = self.http.health_check()
             if ok:
                 self.after(0, lambda: self._update_init_step("sm", "Connected", ACCENT_GREEN))
@@ -314,16 +473,16 @@ class TradingTerminal(tk.Tk):
                 ))
 
         def _validate_and_connect_se():
-            """Step 2: 验证 SE 在线状态 + 连接 SE"""
+            """UI helper."""
             se_addr = getattr(self.session, 'se_address', '') or ''
             if se_addr:
                 _validate_se(se_addr)
             else:
-                # 即使是默认地址，也必须先通过 SM 验证节点在线
+                # 鍗充娇鏄粯璁ゅ湴鍧锛屼篃蹇呴』鍏堥氳繃 SM 楠岃瘉鑺傜偣鍦ㄧ嚎
                 _validate_se(DEFAULT_TS_HOST)
 
         def _validate_se(se_address: str):
-            """验证 SE 地址对应的子服务器是否在线（含占用检查）"""
+            """UI helper."""
             self._update_init_step("se", "Validating SE...", ACCENT_YELLOW)
 
             def _check():
@@ -333,7 +492,7 @@ class TradingTerminal(tk.Tk):
                     )
                     if status_code == 200 and resp_data.get("ok"):
                         if resp_data.get("online"):
-                            # 检查是否被其他账户占用
+                            # 妫鏌ユ槸鍚﹁鍏朵粬璐︽埛鍗犵敤
                             occupied_by = (resp_data.get("occupied_by") or "").strip()
                             if occupied_by and occupied_by != self._login_username:
                                 self.after(0, lambda ob=occupied_by: self._on_init_failed(
@@ -342,18 +501,15 @@ class TradingTerminal(tk.Tk):
                                     f"\u5f53\u524d\u5b50\u670d\u52a1\u5668\u5df2\u88ab\u8d26\u6237 \u201c{ob}\u201d \u5360\u7528\uff0c\u65e0\u6cd5\u8fde\u63a5\u3002",
                                 ))
                                 return
-                            # 在线且未被占用（或被自己占用）→ 立即注册占用 + 记录信息 + 连接
+                            # 鍦ㄧ嚎涓旀湭琚崰鐢紙鎴栬鑷繁鍗犵敤锛夆啋 绔嬪嵆娉ㄥ唽鍗犵敤 + 璁板綍淇℃伅 + 杩炴帴
                             node_name = resp_data.get("node_name", "")
                             self._se_target_address = se_address
                             self._se_server_id = resp_data.get("server_id", "")
-                            # 诊断：记录 server_id，便于排查占用注册失败
-                            _log = getattr(self, 'log_area', None)
-                            if _log:
-                                _log.log(f"[SE] se-status 返回: server_id={self._se_server_id}, node={node_name}, occupied_by={resp_data.get('occupied_by', '')}", "inf")
-                            # ⚡ 同步注册节点占用（阻塞等待成功，消除竞态窗口）
+                            # 璇婃柇锛氳褰?server_id锛屼究浜庢帓鏌ュ崰鐢ㄦ敞鍐屽け璐?
+                            # 鈿?鍚屾娉ㄥ唽鑺傜偣鍗犵敤锛堥樆濉炵瓑寰呮垚鍔燂紝娑堥櫎绔炴佺獥鍙ｏ級
                             occ_ok = self._occupy_se_node(sync=True)
                             if not occ_ok:
-                                # 占用失败，不继续连接（_occupy_se_node 内部已记录详细日志）
+                                # 鍗犵敤澶辫触锛屼笉缁х画杩炴帴锛坃occupy_se_node 鍐呴儴宸茶褰曡缁嗘棩蹇楋級
                                 self.after(0, lambda: self._on_init_failed(
                                     "se",
                                     "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
@@ -362,8 +518,8 @@ class TradingTerminal(tk.Tk):
                                 return
                             self.after(0, lambda: self._update_init_step(
                                 "se", f"SE OK ({node_name})", ACCENT_GREEN))
-                            # ★ 必须在后台线程中执行 WS 连接（含重试），
-                            #   绝不能通过 after() 投递到 UI 线程，否则重试循环会冻结界面
+                            # 鈽?蹇呴』鍦ㄥ悗鍙扮嚎绋嬩腑鎵ц WS 杩炴帴锛堝惈閲嶈瘯锛夛紝
+                            #   缁濅笉鑳介氳繃 after() 鎶曢掑埌 UI 绾跨▼锛屽惁鍒欓噸璇曞惊鐜細鍐荤粨鐣岄潰
                             threading.Thread(target=lambda: _connect_se(se_address), daemon=True).start()
                         else:
                             self.after(0, lambda: self._on_init_failed(
@@ -383,7 +539,7 @@ class TradingTerminal(tk.Tk):
 
         def _connect_se(target_addr: str):
             """
-            建立 SE WebSocket 直连（带重试，解决端口未就绪的 Error 1225 问题）
+            寤虹珛 SE WebSocket 鐩磋繛锛堝甫閲嶈瘯锛岃В鍐崇鍙ｆ湭灏辩华鐨?Error 1225 闂锛?
             """
             self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
             token = self.http.token
@@ -409,7 +565,7 @@ class TradingTerminal(tk.Tk):
                 self._se_client = ts_client
                 ts_client.start()
 
-                # 等待连接结果（最多 10 秒）
+                # 绛夊緟杩炴帴缁撴灉锛堟渶澶?10 绉掞級
                 connected = False
                 for _ in range(100):
                     import time as _time
@@ -421,7 +577,7 @@ class TradingTerminal(tk.Tk):
                         break
 
                 if connected:
-                    # 连接成功！停止旧客户端,创建启用重连的新客户端
+                    # 杩炴帴鎴愬姛锛佸仠姝㈡棫瀹㈡埛绔?鍒涘缓鍚敤閲嶈繛鐨勬柊瀹㈡埛绔?
                     ts_client.stop()
                     ts_client = TSWebSocketClient(
                         host=host, port=port, token=token, server_id=self._se_server_id,
@@ -431,20 +587,20 @@ class TradingTerminal(tk.Tk):
                     )
                     self._se_client = ts_client
                     ts_client.start()
-                    # 等待新客户端连接就绪
+                    # 绛夊緟鏂板鎴风杩炴帴灏辩华
                     for _ in range(50):
                         _time.sleep(0.1)
                         if ts_client.is_connected:
                             break
                     return
 
-                # 失败清理
+                # 澶辫触娓呯悊
                 self._se_client = None
                 if attempt < max_retries:
                     import time as _time
                     _time.sleep(min(2 * attempt, 8))
 
-            # 全部重试耗尽
+            # 鍏ㄩ儴閲嶈瘯鑰楀敖
             self.after(0, lambda: (
                 self._release_se_occupation(),
                 self._on_init_failed(
@@ -457,7 +613,7 @@ class TradingTerminal(tk.Tk):
         threading.Thread(target=_check_sm, daemon=True).start()
 
     def _on_init_se_status(self, msg: str):
-        """SE 连接状态回调（来自后台线程）"""
+        """UI helper."""
         def _ui():
             if "Auth failed" in msg or "error" in msg.lower() or "Connection error" in msg:
                 self._release_se_occupation()
@@ -465,18 +621,18 @@ class TradingTerminal(tk.Tk):
                     "\u8bf7\u786e\u4fdd\u5b50\u670d\u52a1\u5668\u5df2\u542f\u52a8\u5e76\u91cd\u8bd5\u3002")
                 return
             if "Authenticated" in msg:
-                # 占用已在 _validate_se / _retry_se_connect 验证通过时注册，此处无需重复
+                # 鍗犵敤宸插湪 _validate_se / _retry_se_connect 楠岃瘉閫氳繃鏃舵敞鍐岋紝姝ゅ鏃犻渶閲嶅
                 self._update_init_step("se", "Connected", ACCENT_GREEN)
                 self._se_connected = True
                 if self.session:
                     self.session.bind_se_client(self._se_client)
-                # 全部步骤完成，延迟一小段时间后进入主界面
+                # 鍏ㄩ儴姝ラ瀹屾垚锛屽欢杩熶竴灏忔鏃堕棿鍚庤繘鍏ヤ富鐣岄潰
                 self.after(400, self._enter_main_interface)
 
         self.after(0, _ui)
 
     def _on_init_se_msg(self, msg: dict):
-        """SE 消息回调（连接建立后的首条消息）"""
+        """UI helper."""
         def _ui():
             msg_type = msg.get("type", "")
             if msg_type == "CONNECT_ACK":
@@ -484,30 +640,33 @@ class TradingTerminal(tk.Tk):
                 node = payload.get("node_info", {})
                 self._session_id = payload.get("session_id", "")
                 self._node_info = node
-                # 日志稍后在主界面中记录
+                gate = payload.get("broker_gate")
+                if self.session and isinstance(gate, dict):
+                    self.session._set_broker_gate(gate)
+                # 鏃ュ織绋嶅悗鍦ㄤ富鐣岄潰涓褰?
         self.after(0, _ui)
 
     def _on_init_failed(self, step_key: str, reason: str, hint: str = ""):
-        """某一步骤失败，停止流程并显示重试/取消按钮"""
-        # 防止 init 界面已销毁后的延迟回调导致 TclError
+        """UI helper."""
+        # 闃叉 init 鐣岄潰宸查攢姣佸悗鐨勫欢杩熷洖璋冨鑷?TclError
         if self._init_ready or not self._init_frame or not self.tk.call('winfo', 'exists', str(self._retry_btn)):
             return
-        # 释放节点占用（同步，确保释放请求先于后续流程）
+        # 閲婃斁鑺傜偣鍗犵敤锛堝悓姝ワ紝纭繚閲婃斁璇锋眰鍏堜簬鍚庣画娴佺▼锛?
         self._release_se_occupation(sync=True)
         self._update_init_step(step_key, "Failed", ACCENT_RED)
-        display_msg = reason
+        display_msg = _localize_user_message(reason)
         if hint:
-            display_msg += f"\n{hint}"
+            display_msg += f"\n{_localize_user_message(hint)}"
         self._init_hint_var.set(display_msg)
-        # 显示重试 + 取消按钮（左右分布）
+        # 鏄剧ず閲嶈瘯 + 鍙栨秷鎸夐挳锛堝乏鍙冲垎甯冿級
         try:
             self._retry_btn.pack(side="left", expand=True)
             if hasattr(self, '_cancel_btn'):
                 self._cancel_btn.pack(side="right", expand=True)
         except tk.TclError:
-            pass  # 窗口已被关闭，忽略
+            pass  # 绐楀彛宸茶鍏抽棴锛屽拷鐣?
 
-        # 清理可能的部分连接
+        # 娓呯悊鍙兘鐨勯儴鍒嗚繛鎺?
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
@@ -517,14 +676,14 @@ class TradingTerminal(tk.Tk):
 
 
     def _on_init_retry(self):
-        """用户点击重试：重新尝试 SE 验证+连接（不重新输入账号密码）"""
+        """UI helper."""
         self._retry_btn.pack_forget()
         if hasattr(self, '_cancel_btn'):
             self._cancel_btn.pack_forget()
         self._init_hint_var.set("")
-        # 只重置 SE 步骤（SM 和 Auth 已通过，不需要重做）
+        # 鍙噸缃?SE 姝ラ锛圫M 鍜?Auth 宸查氳繃锛屼笉闇瑕侀噸鍋氾級
         self._update_init_step("se", "Retrying...", ACCENT_YELLOW)
-        # 重新走 SE 验证 + 连接（复用 _start_connection_flow 中的内部逻辑）
+        # 閲嶆柊璧?SE 楠岃瘉 + 杩炴帴锛堝鐢?_start_connection_flow 涓殑鍐呴儴閫昏緫锛?
         se_addr = getattr(self.session, 'se_address', '') or ''
         if se_addr:
             self.after(200, lambda: self._retry_se_connect(se_addr))
@@ -532,8 +691,8 @@ class TradingTerminal(tk.Tk):
             self.after(200, lambda: self._retry_se_connect(DEFAULT_SE_HOST))
 
     def _retry_se_connect(self, target_addr: str):
-        """重试 SE 连接（从验证开始）"""
-        # 始终先验证 SE 节点在线状态，不允许绕过 SM 验证直接连接
+        """UI helper."""
+        # 濮嬬粓鍏堥獙璇?SE 鑺傜偣鍦ㄧ嚎鐘舵侊紝涓嶅厑璁哥粫杩?SM 楠岃瘉鐩存帴杩炴帴
         self._update_init_step("se", "Validating SE...", ACCENT_YELLOW)
 
         def _check():
@@ -542,7 +701,7 @@ class TradingTerminal(tk.Tk):
                     f"/api/accounts/se-status?address={target_addr}",
                 )
                 if status_code == 200 and resp_data.get("ok") and resp_data.get("online"):
-                    # 检查是否被其他账户占用
+                    # 妫鏌ユ槸鍚﹁鍏朵粬璐︽埛鍗犵敤
                     occupied_by = (resp_data.get("occupied_by") or "").strip()
                     if occupied_by and occupied_by != self._login_username:
                         self.after(0, lambda ob=occupied_by: self._on_init_failed(
@@ -551,14 +710,11 @@ class TradingTerminal(tk.Tk):
                             f"\u5f53\u524d\u5b50\u670d\u52a1\u5668\u5df2\u88ab\u8d26\u6237 \u201c{ob}\u201d \u5360\u7528\uff0c\u65e0\u6cd5\u8fde\u63a5\u3002",
                         ))
                         return
-                    # 在线且未被占用 → 立即注册占用 + 继续连接
+                    # 鍦ㄧ嚎涓旀湭琚崰鐢?鈫?绔嬪嵆娉ㄥ唽鍗犵敤 + 缁х画杩炴帴
                     node_name = resp_data.get("node_name", "")
                     self._se_target_address = target_addr
                     self._se_server_id = resp_data.get("server_id", "")
-                    _log2 = getattr(self, 'log_area', None)
-                    if _log2:
-                        _log2.log(f"[SE] se-status 返回: server_id={self._se_server_id}, node={node_name}, occupied_by={resp_data.get('occupied_by', '')}", "inf")
-                    # ⚡ 同步注册节点占用（阻塞等待成功，消除竞态窗口）
+                    # 鈿?鍚屾娉ㄥ唽鑺傜偣鍗犵敤锛堥樆濉炵瓑寰呮垚鍔燂紝娑堥櫎绔炴佺獥鍙ｏ級
                     occ_ok = self._occupy_se_node(sync=True)
                     if not occ_ok:
                         self.after(0, lambda: self._on_init_failed(
@@ -569,7 +725,7 @@ class TradingTerminal(tk.Tk):
                         return
                     self.after(0, lambda: self._update_init_step(
                         "se", f"SE OK ({node_name})", ACCENT_GREEN))
-                    # ★ 在后台线程执行 WS 连接（含重试），避免冻结 UI
+                    # 鈽?鍦ㄥ悗鍙扮嚎绋嬫墽琛?WS 杩炴帴锛堝惈閲嶈瘯锛夛紝閬垮厤鍐荤粨 UI
                     threading.Thread(target=lambda: self._do_ws_connect(target_addr), daemon=True).start()
                 else:
                     self.after(0, lambda: self._on_init_failed(
@@ -584,7 +740,7 @@ class TradingTerminal(tk.Tk):
 
     def _do_ws_connect(self, target_addr: str):
         """
-        执行 WebSocket 连接（带重试，解决端口未就绪的 Error 1225 问题）
+        鎵ц WebSocket 杩炴帴锛堝甫閲嶈瘯锛岃В鍐崇鍙ｆ湭灏辩华鐨?Error 1225 闂锛?
         """
         self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
         token = self.http.token
@@ -609,7 +765,7 @@ class TradingTerminal(tk.Tk):
             self._se_client = se_client
             se_client.start()
 
-            # 等待连接结果（最多 10 秒）
+            # 绛夊緟杩炴帴缁撴灉锛堟渶澶?10 绉掞級
             connected = False
             for _ in range(100):
                 import time as _time
@@ -621,7 +777,7 @@ class TradingTerminal(tk.Tk):
                     break
 
             if connected:
-                # 连接成功！停止旧客户端,创建启用重连的新客户端
+                # 杩炴帴鎴愬姛锛佸仠姝㈡棫瀹㈡埛绔?鍒涘缓鍚敤閲嶈繛鐨勬柊瀹㈡埛绔?
                 se_client.stop()
                 se_client = SEWebSocketClient(
                     host=host, port=port, token=token, server_id=self._se_server_id,
@@ -631,7 +787,7 @@ class TradingTerminal(tk.Tk):
                 )
                 self._se_client = se_client
                 se_client.start()
-                # 等待新客户端连接就绪
+                # 绛夊緟鏂板鎴风杩炴帴灏辩华
                 for _ in range(50):
                     _time.sleep(0.1)
                     if se_client.is_connected:
@@ -643,7 +799,7 @@ class TradingTerminal(tk.Tk):
                 import time as _time
                 _time.sleep(min(2 * attempt, 8))
 
-        # 全部重试耗尽
+        # 鍏ㄩ儴閲嶈瘯鑰楀敖
         self.after(0, lambda: (
             self._release_se_occupation(),
             self._on_init_failed(
@@ -654,10 +810,10 @@ class TradingTerminal(tk.Tk):
         ))
 
     def _on_init_cancel(self):
-        """用户点击取消：返回登录界面，可修改账户密码重新登录"""
-        # 释放节点占用（同步，确保释放请求先于后续流程）
+        """UI helper."""
+        # 閲婃斁鑺傜偣鍗犵敤锛堝悓姝ワ紝纭繚閲婃斁璇锋眰鍏堜簬鍚庣画娴佺▼锛?
         self._release_se_occupation(sync=True)
-        # 清理当前连接状态
+        # 娓呯悊褰撳墠杩炴帴鐘舵?
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
@@ -668,7 +824,7 @@ class TradingTerminal(tk.Tk):
         self.http.token = ""
         self.session = None
 
-        # 重置 init screen 步骤显示
+        # 閲嶇疆 init screen 姝ラ鏄剧ず
         for key in ("sm", "auth", "se"):
             default = "Waiting" if key != "sm" else "Connecting..."
             color = TEXT_MUTED if key != "sm" else ACCENT_YELLOW
@@ -678,32 +834,17 @@ class TradingTerminal(tk.Tk):
         if hasattr(self, '_cancel_btn'):
             self._cancel_btn.pack_forget()
 
-        # 重新弹出登录对话框
+        # 閲嶆柊寮瑰嚭鐧诲綍瀵硅瘽妗?
         self.after(0, self._show_login_first)
 
     def _occupy_se_node(self, max_retries: int = 3, sync: bool = True):
-        """
-        向 SM 注册节点占用。
-
-        Args:
-            max_retries: 最大重试次数（默认3次）
-            sync: 是否同步阻塞等待结果（默认True）
-                 True  → 阻塞当前线程直到成功或全部重试耗尽（推荐用于初始化流程）
-                 False → 异步发射，不等待结果（仅用于后台保活场景）
-
-        Returns:
-            bool: 占用是否成功（sync=False 时恒返回 False 表示未知）
-        """
+        """Register node occupation in SM."""
         sid = getattr(self, '_se_server_id', '')
         if not sid:
-            log_area = getattr(self, 'log_area', None)
-            if log_area:
-                log_area.log("[SE] 占用注册失败: server_id 为空（se-status 可能未返回有效节点）", "err")
             return False
         username = self._login_username
 
         def _do_with_retry():
-            """带重试的同步占用逻辑"""
             last_err = ""
             for attempt in range(1, max_retries + 1):
                 try:
@@ -711,76 +852,40 @@ class TradingTerminal(tk.Tk):
                         f"/api/nodes/{sid}/occupy",
                         {"username": username},
                     )
-                    log_area = getattr(self, 'log_area', None)
-
                     if code == 200 and (resp or {}).get("ok"):
-                        if log_area:
-                            log_area.log(f"[SE] ✓ 节点占用成功: {username} → {sid}" +
-                                        (f" (第{attempt}次尝试)" if attempt > 1 else ""), "ok")
                         return True
 
-                    # 分析失败原因，决定是否值得重试
                     err_msg = (resp or {}).get("error", "") or (resp or {}).get("message", "") or f"HTTP {code}"
                     last_err = err_msg
-
-                    # 不值得重试的情况（直接放弃）
-                    if "occupied" in err_msg.lower():
-                        if log_area:
-                            log_area.log(f"[SE] 节点已被占用，无法抢占: {err_msg}", "warn")
+                    lower_msg = err_msg.lower()
+                    if "occupied" in lower_msg or "not found" in lower_msg:
                         return False
-                    if "not found" in err_msg.lower():
-                        if log_area:
-                            log_area.log(f"[SE] 节点不存在于SM: {err_msg}", "err")
+                    if "unauthorized" in lower_msg or code in (401, 403):
                         return False
-                    if "Unauthorized" in err_msg or code == 401 or code == 403:
-                        if log_area:
-                            log_area.log(f"[SE] 认证失效: {err_msg}", "err")
-                        return False
+                except Exception as exc:
+                    last_err = str(exc)
 
-                    # 值得重试的情况：临时状态问题（offline/approved 等）
-                    if log_area and attempt < max_retries:
-                        log_area.log(f"[SE] 占用注册暂未成功 ({attempt}/{max_retries}): {err_msg}, 重试中...", "warn")
-
-                except Exception as e:
-                    last_err = str(e)
-                    log_area = getattr(self, 'log_area', None)
-                    if log_area and attempt < max_retries:
-                        log_area.log(f"[SE] 占用请求异常 ({attempt}/{max_retries}): {e}, 重试中...", "warn")
-
-                # 等待后重试（指数退避：1s, 2s, 4s）
                 if attempt < max_retries:
                     import time as _time
                     _time.sleep(min(1.0 * (2 ** (attempt - 1)), 5))
 
-            # 全部重试耗尽
-            log_area = getattr(self, 'log_area', None)
-            if log_area:
-                log_area.log(f"[SE] ✗ 节点占用最终失败（{max_retries}次均失败）: {last_err}", "err")
             return False
 
         if sync:
-            # 同步模式：在当前线程执行并等待结果
             return _do_with_retry()
-        else:
-            # 异步模式：发射到后台线程
-            threading.Thread(target=_do_with_retry, daemon=True).start()
-            return False
+
+        threading.Thread(target=_do_with_retry, daemon=True).start()
+        return False
 
     def _release_se_occupation(self, sync: bool = False) -> bool:
-        """断开/取消时，释放节点占用。sync=True 时阻塞等待结果。"""
+        """Release the occupied node in SM."""
         sid = getattr(self, '_se_server_id', '')
         if not sid:
             return True
 
         def _do() -> bool:
             try:
-                code, resp = self.http.post(f"/api/nodes/{sid}/release", {})
-                log_area = getattr(self, 'log_area', None)
-                if log_area:
-                    if code == 200:
-                        log_area.log(f"[SE] 节点占用已释放: {sid}", "ok")
-                    else:
-                        log_area.log(f"[SE] 节点占用释放失败(HTTP {code}): {sid}", "warn")
+                code, _resp = self.http.post(f"/api/nodes/{sid}/release", {})
                 if code == 200:
                     self._se_server_id = ""
                     return True
@@ -795,12 +900,12 @@ class TradingTerminal(tk.Tk):
         return False
 
     def _enter_main_interface(self):
-        """所有连接成功 → 销毁初始化界面，构建完整主界面"""
+        """UI helper."""
         if self._init_ready:
             return
         self._init_ready = True
 
-        # ── 将 SE 客户端回调切换为主界面版本（支持断线检测+自动重连）──
+        # 鈹鈹 灏?SE 瀹㈡埛绔洖璋冨垏鎹负涓荤晫闈㈢増鏈紙鏀寔鏂嚎妫娴?鑷姩閲嶈繛锛夆攢鈹
         if self._se_client:
             self._se_client.on_message = self._on_se_message
             self._se_client.on_status = self._on_se_status
@@ -808,29 +913,31 @@ class TradingTerminal(tk.Tk):
                 self.session.bind_se_client(self._se_client)
 
 
-        # 销毁初始化界面
+        # 閿姣佸垵濮嬪寲鐣岄潰
         if self._init_frame:
             self._init_frame.destroy()
             self._init_frame = None
 
-        # 构建完整的交易主界面
+        # 鏋勫缓瀹屾暣鐨勪氦鏄撲富鐣岄潰
         self._apply_style()
         self._build_ui_no_login()
-        self.log_area = LogArea(self)
+        self.log_area = LogArea(self, filter_func=self._should_display_log, max_lines=160, dedupe_window_seconds=2.5)
         self._build_log_bar()
         self._setup_hotkeys()
 
-        # 设置状态栏
-        self.status_var.set("\u25cf Connected")
+        # 璁剧疆鐘舵佹爮
+        self.status_var.set("\u25cf \u5df2\u8fde\u63a5")
         self.status_lbl.config(fg=ACCENT_GREEN)
         self._set_se_connection_ui(self._se_connected)
+        self._apply_broker_gate_ui()
+        self._refresh_broker_gate_async(log_errors=False)
 
-        # 启动各子系统
+        # 鍚姩鍚勫瓙绯荤粺
         node_name = self._node_info.get("node_name", "SE") if self._node_info else "SE"
         region = self._node_info.get("region", "") if self._node_info else ""
-        self.log_area.log(f"[System] All systems ready | SM={self.http.base_url} | SE={node_name}({region})", "ok")
+        self.log_area.log("\u7cfb\u7edf\u5df2\u5c31\u7eea", "ok")
         if self._se_connected:
-            self.log_area.log("[SE] Direct connection established", "ok")
+            self.log_area.log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
 
         self._mock_active = False
         self._stream_active = True
@@ -890,16 +997,16 @@ class TradingTerminal(tk.Tk):
         )
 
 
-    # ── UI Build ───────────────────────────────────────────────────────────
+    # 鈹鈹 UI Build 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _build_ui_no_login(self):
-        """构建完整UI（登录已通过，不含登录表单）"""
+        """UI helper."""
         self._build_top_bar()
         self._build_trading_panels()
         self._build_body()
 
     def _build_top_bar(self):
-        """顶部栏：标题 + 状态 + 时间（登录已完成）"""
+        """UI helper."""
         top = tk.Frame(self, bg=TOP_BAR_BG, height=56)
         top.pack(fill="x")
         top.pack_propagate(False)
@@ -908,8 +1015,8 @@ class TradingTerminal(tk.Tk):
                  bg=TOP_BAR_BG, fg="#4ea1ff",
                  font=FONT_TITLE).pack(side="left", padx=14)
 
-        # 连接状态
-        self.status_var = tk.StringVar(value="\u25cf Connecting\u2026")
+        # 杩炴帴鐘舵?
+        self.status_var = tk.StringVar(value="\u25cf \u8fde\u63a5\u4e2d\u2026")
         self.status_lbl = tk.Label(
             top,
             textvariable=self.status_var,
@@ -920,11 +1027,11 @@ class TradingTerminal(tk.Tk):
 
 
 
-        # ── SE (Server_economic) 直连控制区 ───────────────────────────
+        # 鈹鈹 SE (Trade_Server) 鐩磋繛鎺у埗鍖?鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
         sep = tk.Frame(top, bg=BORDER, width=1)
         sep.pack(side="left", padx=8, fill="y", pady=6)
 
-        self._se_status_var = tk.StringVar(value="SE Disconnect")
+        self._se_status_var = tk.StringVar(value="\u4ea4\u6613\u670d\u52a1\u672a\u8fde\u63a5")
         self._se_status_lbl = tk.Label(
             top,
             textvariable=self._se_status_var,
@@ -936,7 +1043,7 @@ class TradingTerminal(tk.Tk):
 
         self._se_btn = tk.Button(
             top,
-            text="Connect",
+            text="\u8fde\u63a5\u4ea4\u6613\u670d\u52a1",
             font=FONT_UI_SM,
             bg=BUTTON_NEUTRAL_BG,
             fg=ACCENT_BLUE,
@@ -953,7 +1060,7 @@ class TradingTerminal(tk.Tk):
 
         self._logout_btn = tk.Button(
             top,
-            text="退出登录",
+            text="\u9000\u51fa\u767b\u5f55",
             font=FONT_UI_SM,
             bg=BUTTON_NEUTRAL_BG,
             fg=ACCENT_RED,
@@ -968,20 +1075,78 @@ class TradingTerminal(tk.Tk):
         self._logout_btn.pack(side="left", padx=(6, 2))
         self._bind_button_hover(self._logout_btn, BUTTON_NEUTRAL_BG)
 
+        broker_frame = tk.Frame(top, bg=TOP_BAR_BG)
+        broker_frame.pack(side="left", padx=(10, 6))
+        tk.Label(
+            broker_frame,
+            text="\u4ea4\u6613\u670d\u52a1\u767b\u5f55\uff1a",
+            bg=TOP_BAR_BG,
+            fg=TEXT_DIM,
+            font=FONT_UI_SM,
+        ).pack(side="left", padx=(0, 6))
+        self._broker_status_lbl = tk.Label(
+            broker_frame,
+            textvariable=self._broker_status_var,
+            bg=TOP_BAR_BG,
+            fg=ACCENT_RED,
+            font=FONT_BOLD,
+        )
+        self._broker_status_lbl.pack(side="left", padx=(0, 8))
+        self._broker_user_entry = tk.Entry(
+            broker_frame,
+            width=12,
+            bg=INPUT_BG,
+            fg=TEXT_PRIMARY,
+            insertbackground=TEXT_PRIMARY,
+            font=FONT_UI_SM,
+            relief="flat",
+            bd=0,
+        )
+        self._broker_user_entry.pack(side="left", padx=(0, 4), ipady=2)
+        self._broker_pass_entry = tk.Entry(
+            broker_frame,
+            width=12,
+            bg=INPUT_BG,
+            fg=TEXT_PRIMARY,
+            insertbackground=TEXT_PRIMARY,
+            font=FONT_UI_SM,
+            relief="flat",
+            bd=0,
+            show="*",
+        )
+        self._broker_pass_entry.pack(side="left", padx=(0, 6), ipady=2)
+        self._broker_pass_entry.bind("<Return>", lambda _e: self._broker_login())
+        self._broker_login_btn = tk.Button(
+            broker_frame,
+            text="\u767b\u5f55",
+            font=FONT_UI_SM,
+            bg=BUTTON_NEUTRAL_BG,
+            fg=ACCENT_BLUE,
+            activebackground=BUTTON_ACTIVE_BG,
+            activeforeground=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            padx=10,
+            pady=2,
+            command=self._broker_login,
+        )
+        self._broker_login_btn.pack(side="left")
+        self._bind_button_hover(self._broker_login_btn, BUTTON_NEUTRAL_BG)
+
         self._set_se_connection_ui(self._se_connected)
 
 
 
-        # 时间
+        # 鏃堕棿
 
         self.time_var = tk.StringVar()
         tk.Label(top, textvariable=self.time_var, bg=TOP_BAR_BG,
                  fg=TEXT_DIM, font=FONT_MONO).pack(side="right", padx=(12, 4))
 
-        # 时区切换按钮
+        # 鏃跺尯鍒囨崲鎸夐挳
         self._time_zone_btn = tk.Button(
             top,
-            text="CN Time",
+            text="\u5317\u4eac\u65f6\u95f4",
             font=("Segoe UI", 9),
             bg=BUTTON_NEUTRAL_BG,
             fg=ACCENT_BLUE,
@@ -999,7 +1164,7 @@ class TradingTerminal(tk.Tk):
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
     def _build_trading_panels(self):
-        """双交易面板区域"""
+        """UI helper."""
         panels_outer = tk.Frame(self, bg=DARK_BG)
         panels_outer.pack(fill="x")
 
@@ -1015,11 +1180,11 @@ class TradingTerminal(tk.Tk):
             pf.pack(side="left", fill="both", expand=True,
                     padx=(0 if pid == 0 else 1, 0))
 
-            # 绑定按钮事件和方向键
+            # 缁戝畾鎸夐挳浜嬩欢鍜屾柟鍚戦敭
             panel.buy_btn.config(command=lambda i=pid: self._place_order("Buy to Open", i))
             panel.sell_btn.config(command=lambda i=pid: self._place_order("Sell to Close", i))
 
-            # 方向键绑定
+            # 鏂瑰悜閿粦瀹?
             panel.qty_entry.bind("<Up>", lambda e, i=pid: self._adj_qty(+500, i))
             panel.qty_entry.bind("<Down>", lambda e, i=pid: self._adj_qty(-500, i))
             panel.qty_entry.bind("<Right>", lambda e, i=pid: self._adj_qty(+100, i))
@@ -1029,13 +1194,13 @@ class TradingTerminal(tk.Tk):
             panel.price_entry.bind("<Right>", lambda e, i=pid: self._adj_price(+0.01, i))
             panel.price_entry.bind("<Left>", lambda e, i=pid: self._adj_price(-0.01, i))
 
-            # Esc 撤单
+            # Esc 鎾ゅ崟
             for ew in (panel.sym_entry, panel.qty_entry):
                 ew.bind("<Escape>", lambda e, i=pid: self._esc_cancel_orders(i))
 
             self.panels[pid] = panel
 
-        # 兼容旧代码引用（面板0的快捷方式）
+        # 鍏煎鏃т唬鐮佸紩鐢紙闈㈡澘0鐨勫揩鎹锋柟寮忥級
         p0 = self.panels[0]
         self.sym_var = p0.sym_var
         self.sym_entry = p0.sym_entry
@@ -1053,21 +1218,21 @@ class TradingTerminal(tk.Tk):
         self.order_last_var = p0.order_last_var
 
     def _build_body(self):
-        """主体区域：订单面板 + 持仓面板"""
+        """UI helper."""
         body = tk.Frame(self, bg=DARK_BG)
         body.pack(fill="both", expand=True)
 
         pw = ttk.PanedWindow(body, orient="horizontal")
         pw.pack(fill="both", expand=True, padx=6, pady=(6, 0))
 
-        # Orders (左)
+        # Orders (宸?
         self.orders_panel = OrdersPanel(pw, on_refresh_callback=self._refresh_orders,
                                         on_cancel_callback=self._cancel_selected_order)
         of = self.orders_panel.build()
         pw.add(of, weight=1)
         self.ord_tree = self.orders_panel.tree
 
-        # Positions (右)
+        # Positions (鍙?
         self.positions_panel = PositionsPanel(pw, on_refresh_callback=self._refresh_positions,
                                               on_select_callback=self._on_pos_row_click)
         pos_f = self.positions_panel.build()
@@ -1076,53 +1241,94 @@ class TradingTerminal(tk.Tk):
 
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
+    def _should_display_log(self, msg: str, tag: str) -> bool:
+        text = (msg or "").strip()
+        if not text:
+            return False
+
+
+        if text.startswith("[SE]") or text.startswith("[System]"):
+            return False
+
+        if tag == "inf":
+            return text.startswith((
+                "买",
+                "卖",
+                "撤单",
+                "[F]",
+                "F键",
+                "交易服务",
+            ))
+
+        return True
+
+    def _log_user_error_once(self, msg: str, tag: str = "err", window_seconds: float = 3.0):
+        text = _localize_user_message(msg)
+        if not text or not self.log_area:
+            return
+        now = time.time()
+        if text == self._last_ui_error_message and (now - self._last_ui_error_at) < window_seconds:
+            return
+        self._last_ui_error_message = text
+        self._last_ui_error_at = now
+        self.log_area.log(text, tag)
+
+    def _log_result_message(self, ok: bool, msg: str):
+        text = _localize_user_message(msg)
+        if not text or not self.log_area:
+            return
+        if ok:
+            self.log_area.log(text, "ok")
+        else:
+            self._log_user_error_once(text)
+
     def _build_log_bar(self):
-        """底部日志栏"""
+        """UI helper."""
         log_frame = tk.Frame(self, bg=PANEL_BG, height=96)
         log_frame.pack(fill="x")
         log_frame.pack_propagate(False)
         self.log_area.frame = log_frame
         self.log_area.build()
 
-    # ── Clock & Poll ────────────────────────────────────────────────────────
+    # 鈹鈹 Clock & Poll 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _tick_clock(self):
-        """更新时间显示（支持中国/美国时区切换，包含夏令时）"""
+        """UI helper."""
         try:
             if self._time_zone_cn:
-                # 中国时间
+                # 涓浗鏃堕棿
                 if self._tz_cn is not None:
-                    # 使用时区对象（支持 DST）
+                    # 浣跨敤鏃跺尯瀵硅薄锛堟敮鎸?DST锛?
                     now = datetime.datetime.now(self._tz_cn)
                 else:
-                    # 回退：UTC+8
+                    # 鍥為锛歎TC+8
                     now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
             else:
-                # 美国东部时间
+                # 缇庡浗涓滈儴鏃堕棿
                 if self._tz_us is not None:
-                    # 使用时区对象（自动处理 DST）
+                    # 浣跨敤鏃跺尯瀵硅薄锛堣嚜鍔ㄥ鐞?DST锛?
                     now = datetime.datetime.now(self._tz_us)
                 else:
-                    # 回退：UTC-5（不考虑 DST）
+                    # 鍥為锛歎TC-5锛堜笉鑰冭檻 DST锛?
                     now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
             
             time_str = now.strftime("%Y-%m-%d  %H:%M:%S")
             self.time_var.set(f"{time_str}")
         except Exception:
-            # 发生异常时使用本地时间
+            # 鍙戠敓寮傚父鏃朵娇鐢ㄦ湰鍦版椂闂?
             self.time_var.set(datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S"))
         
         self.after(1000, self._tick_clock)
 
     def _toggle_time_zone(self):
-        """切换中国/美国时间显示"""
+        """UI helper."""
         self._time_zone_cn = not self._time_zone_cn
-        # 更新按钮文本
-        self._time_zone_btn.config(text="CN Time" if self._time_zone_cn else "US Time")
+        # 鏇存柊鎸夐挳鏂囨湰
+        self._time_zone_btn.config(text="\u5317\u4eac\u65f6\u95f4" if self._time_zone_cn else "\u7f8e\u4e1c\u65f6\u95f4")
 
     def _poll(self):
-        """150ms 主轮询循环"""
-        # 消费模拟行情队列
+        """UI helper."""
+        # 娑堣垂妯℃嫙琛屾儏闃熷垪
         if self.session.mock_mode:
             try:
                 while True:
@@ -1136,19 +1342,19 @@ class TradingTerminal(tk.Tk):
 
         now = time.time()
 
-        # 每3秒更新持仓P&L（用本地行情缓存）
+        # 姣?绉掓洿鏂版寔浠揚&L锛堢敤鏈湴琛屾儏缂撳瓨锛?
         if now - self._last_pos_time > POSITIONS_INTERVAL / 1000 and self.pos_tree.get_children():
             self.positions_panel.live_update_pnl(self.current_quote)
             self._last_pos_time = now
 
-        # 每30秒从服务器刷新持仓+订单
-        if self.session.connected and not self.session.mock_mode:
+        # 姣?0绉掍粠鏈嶅姟鍣ㄥ埛鏂版寔浠?璁㈠崟
+        if self._trade_controls_enabled() and not self.session.mock_mode:
             if now - self._last_orders_time > ORDERS_INTERVAL / 1000:
                 self._refresh_positions()
                 self._refresh_orders()
                 self._last_orders_time = now
 
-        # 心跳检测（每10秒ping服务器）
+        # 蹇冭烦妫娴嬶紙姣?0绉抪ing鏈嶅姟鍣級
         if self.session.connected and not self.session.mock_mode:
             if now - self._last_heartbeat > HEARTBEAT_INTERVAL / 1000:
                 self._last_heartbeat = now
@@ -1160,10 +1366,10 @@ class TradingTerminal(tk.Tk):
 
         self.after(POLL_INTERVAL, self._poll)
 
-    # ── Symbol Handling ────────────────────────────────────────────────────
+    # 鈹鈹 Symbol Handling 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _on_symbol_enter(self, pid: int, _=None):
-        """输入股票代码回车处理"""
+        """UI helper."""
         p = self.panels[pid]
         sym = p.sym_var.get().strip().upper()
         if not sym:
@@ -1173,11 +1379,11 @@ class TradingTerminal(tk.Tk):
         if sym in self.current_quote:
             self._refresh_strip(self.current_quote[sym], None, pid)
 
-        # 实时同步订阅集合（目标：symbol 回车后立即显示行情）
+        # 瀹炴椂鍚屾璁㈤槄闆嗗悎锛堢洰鏍囷細symbol 鍥炶溅鍚庣珛鍗虫樉绀鸿鎯咃級
         self._sync_quote_subscriptions_async()
 
     def _sync_quote_subscriptions_async(self):
-        """在后台线程同步当前 UI 需要的订阅集合到 SE"""
+        """UI helper."""
         def _bg():
             if not self.session:
                 return
@@ -1198,22 +1404,22 @@ class TradingTerminal(tk.Tk):
                     if ok:
                         self._quote_subscribed_symbols.difference_update(to_unsub)
                     else:
-                        self.after(0, lambda m=msg: self.log_area.log(f"[SE] Unsubscribe failed: {m}", "warn"))
+                        self.after(0, lambda m=msg: self._log_user_error_once(f"行情取消订阅失败：{_localize_user_message(m)}", "warn"))
 
                 if to_sub:
                     ok, msg = self.session.subscribe_quotes(to_sub, timeout=6.0)
                     if ok:
                         self._quote_subscribed_symbols.update(to_sub)
                     else:
-                        self.after(0, lambda m=msg: self.log_area.log(f"[SE] Subscribe failed: {m}", "warn"))
+                        self.after(0, lambda m=msg: self._log_user_error_once(f"行情订阅失败：{_localize_user_message(m)}", "warn"))
 
         threading.Thread(target=_bg, daemon=True).start()
 
     def _sym_key_filter(self, event, pid: int = 0):
 
         """
-        sym_entry 键盘过滤器：
-        只允许字母、导航键；小键盘数字设置数量；F键触发下单
+        sym_entry 閿洏杩囨护鍣細
+        鍙厑璁稿瓧姣嶃佸鑸敭锛涘皬閿洏鏁板瓧璁剧疆鏁伴噺锛汧閿Е鍙戜笅鍗?
         """
         nav_keys = {
             "BackSpace", "Delete", "Left", "Right", "Home", "End",
@@ -1230,36 +1436,36 @@ class TradingTerminal(tk.Tk):
         ctrl_map = {"1": "100", "2": "200", "3": "300", "4": "400", "5": "500",
                      "6": "600", "7": "700", "8": "800", "9": "900"}
 
-        # Ctrl+1-9 → 100-900股
+        # Ctrl+1-9 鈫?100-900鑲?
         if state & 0x4 and ks in ctrl_map:
             self._set_qty(ctrl_map[ks], pid)
             return "break"
 
-        # 小键盘数字 → 1000-9000股
+        # 灏忛敭鐩樻暟瀛?鈫?1000-9000鑲?
         if ks in numpad_map and not (state & 0x4):
             self._set_qty(numpad_map[ks], pid)
             return "break"
 
-        # 导航键放行
+        # 瀵艰埅閿斁琛?
         if ks in nav_keys:
             return
 
-        # 字母放行
+        # 瀛楁瘝鏀捐
         if event.char and event.char.isalpha():
             return
 
         return "break"
 
-    # ── Panel Activation ───────────────────────────────────────────────────
+    # 鈹鈹 Panel Activation 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _activate_panel(self, pid: int):
-        """高亮激活面板，其他恢复暗色边框"""
+        """UI helper."""
         for i, p in self.panels.items():
             p.set_active(i == pid)
         self.active_panel_id = pid
 
     def _get_active_panel_id(self) -> int:
-        """获取当前焦点所在的面板ID"""
+        """UI helper."""
         focused = self.focus_get()
         for pid, p in self.panels.items():
             if focused in (p.sym_entry, p.qty_entry, p.price_entry):
@@ -1267,7 +1473,7 @@ class TradingTerminal(tk.Tk):
         return self.active_panel_id
 
     def _get_pos_direction(self, symbol: str) -> str:
-        """查询指定标的持仓方向: long/short/none"""
+        """UI helper."""
         if not hasattr(self, 'pos_tree') or not self.pos_tree:
             return "none"
         for row in self.pos_tree.get_children():
@@ -1284,10 +1490,10 @@ class TradingTerminal(tk.Tk):
                 pass
         return "none"
 
-    # ── Hotkeys ────────────────────────────────────────────────────────────
+    # 鈹鈹 Hotkeys 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _setup_hotkeys(self):
-        """绑定F1-F4快捷键到各面板控件"""
+        """UI helper."""
         def _bind_f(widget):
             widget.bind("<F1>", lambda e: self._f_key_order("sell"))
             widget.bind("<F2>", lambda e: self._f_key_limit("sell"))
@@ -1295,7 +1501,7 @@ class TradingTerminal(tk.Tk):
             widget.bind("<F4>", lambda e: self._f_key_limit("buy"))
 
         def _bind_f_sym(widget):
-            """sym框F键需要过滤字母输入冲突"""
+            """UI helper."""
             def _guard(fn):
                 def _cb(e):
                     if e.keysym in ("F1", "F2", "F3", "F4"):
@@ -1311,12 +1517,12 @@ class TradingTerminal(tk.Tk):
             _bind_f(p.price_entry)
             _bind_f_sym(p.sym_entry)
 
-        # 将sym_key_filter绑定到sym_entry
+        # 灏唖ym_key_filter缁戝畾鍒皊ym_entry
         for pid, p in self.panels.items():
             p.sym_entry.bind("<Key>", lambda e, i=pid: self._sym_key_filter(e, i))
 
     def _f_key_order(self, side: str):
-        """F1=市价卖出 F3=市价买入 — 根据持仓智能选择action"""
+        """UI helper."""
         pid = self._get_active_panel_id()
         p = self.panels[pid]
         sym = p.order_sym_var.get()
@@ -1326,9 +1532,9 @@ class TradingTerminal(tk.Tk):
         try:
             qty = int(p.qty_entry.get())
         except Exception:
-            self.log_area.log("F\u952e\u4e0b\u5355\uff1aqty \u65e0\u6548", "err"); return
+            self.log_area.log("\u0046\u952e\u4e0b\u5355\uff1a\u6570\u91cf\u65e0\u6548", "err"); return
         if qty <= 0:
-            self.log_area.log("F\u952e\u4e0b\u5355\uff1aqty \u5fc5\u987b\u5927\u4e8e0", "err"); return
+            self.log_area.log("\u0046\u952e\u4e0b\u5355\uff1a\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0", "err"); return
 
         direction = self._get_pos_direction(sym)
         if side == "buy":
@@ -1337,11 +1543,11 @@ class TradingTerminal(tk.Tk):
             action = "Sell to Close" if direction == "long" else "Sell to Open"
 
         tif = p.tif_var.get()
-        self.log_area.log(f"[F] {action} {qty} {sym} @ MKT | {tif}", "inf")
+        self.log_area.log(f"[F] {_format_order_action(action)} {qty}\u80a1 {sym} @ MKT | {_format_tif_label(tif)}", "inf")
         self._submit_order_bg(sym, qty, 0, action, "market", tif)
 
     def _f_key_limit(self, side: str):
-        """F2=Limit卖就绪 F4=Limit买就绪 — 填入默认价格，焦点到price框"""
+        """UI helper."""
         pid = self._get_active_panel_id()
         p = self.panels[pid]
         sym = p.order_sym_var.get()
@@ -1356,11 +1562,11 @@ class TradingTerminal(tk.Tk):
             action = "Sell to Close" if direction == "long" else "Sell to Open"
             default_px = self.current_quote.get(sym, {}).get("bid", 0)
 
-        # 切换为Limit模式
+        # 鍒囨崲涓篖imit妯″紡
         p.order_type_var.set("Limit")
         self._on_order_type_change(pid)
 
-        # 填入默认价格
+        # 濉叆榛樿浠锋牸
         p.price_entry.config(state="normal")
         p.price_entry.delete(0, "end")
         if default_px:
@@ -1368,7 +1574,7 @@ class TradingTerminal(tk.Tk):
 
         p._pending_action = action
 
-        # 高亮price框并聚焦
+        # 楂樹寒price妗嗗苟鑱氱劍
         hl_color = ACCENT_GREEN if side == "buy" else ACCENT_RED
         p.price_entry.focus_set()
         p.price_entry.config(highlightthickness=2,
@@ -1378,7 +1584,7 @@ class TradingTerminal(tk.Tk):
         p.price_entry.bind("<Escape>", lambda e, i=pid: self._f_limit_cancel(i))
 
     def _f_limit_submit(self, pid: int):
-        """price框回车：提交Limit单"""
+        """UI helper."""
         p = self.panels[pid]
         sym = p.order_sym_var.get()
         action = p._pending_action
@@ -1387,18 +1593,18 @@ class TradingTerminal(tk.Tk):
         try:
             qty = int(p.qty_entry.get())
         except Exception:
-            self.log_area.log("F\u952e\u4e0b\u5355\uff1aqty \u65e8\u6548", "err"); return
+            self.log_area.log("\u0046\u952e\u4e0b\u5355\uff1a\u6570\u91cf\u65e0\u6548", "err"); return
         try:
             price = round(float(p.price_entry.get().strip()), 2)
         except Exception:
-            self.log_area.log("F\u952e\u4e0b\u5355\uff1aprice \u65e8\u6548", "err"); return
+            self.log_area.log("\u0046\u952e\u4e0b\u5355\uff1a\u4ef7\u683c\u65e0\u6548", "err"); return
         if price <= 0:
-            self.log_area.log("F\u952e\u4e0b\u5355\uff1aprice \u5fc5\u987b\u5927\u4e8e0", "err"); return
+            self.log_area.log("\u0046\u952e\u4e0b\u5355\uff1a\u4ef7\u683c\u5fc5\u987b\u5927\u4e8e 0", "err"); return
 
         tif = p.tif_var.get()
-        self.log_area.log(f"[F] {action} {qty} ${price:.2f} | {tif}", "inf")
+        self.log_area.log(f"[F] {_format_order_action(action)} {qty}\u80a1 {sym} @ ${price:.2f} | {_format_tif_label(tif)}", "inf")
 
-        # 解绑回车/Esc，恢复状态
+        # 瑙ｇ粦鍥炶溅/Esc锛屾仮澶嶇姸鎬?
         p.price_entry.unbind("<Return>")
         p.price_entry.unbind("<Escape>")
         p.price_entry.config(highlightthickness=0)
@@ -1407,14 +1613,14 @@ class TradingTerminal(tk.Tk):
         self._submit_order_bg(sym, qty, price, action, "limit", tif)
 
     def _f_limit_cancel(self, pid: int):
-        """Esc取消F2/F4待下单状态"""
+        """UI helper."""
         p = self.panels[pid]
         p.price_entry.unbind("<Return>")
         p.price_entry.unbind("<Escape>")
         p.price_entry.config(highlightthickness=0)
         p._pending_action = None
 
-    # ── Qty / Price Adjustment ────────────────────────────────────────────
+    # 鈹鈹 Qty / Price Adjustment 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _set_qty(self, val: str, pid: int = 0):
         p = self.panels.get(pid, self.panels[0])
@@ -1443,30 +1649,153 @@ class TradingTerminal(tk.Tk):
         p.price_entry.insert(0, f"{new:.2f}")
         return "break"
 
-    # ── Order Type Toggle ─────────────────────────────────────────────────
+    # 鈹鈹 Order Type Toggle 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _on_order_type_change(self, pid: int, _=None):
-        """切换Market/Limit时控制price框可用性"""
+        """UI helper."""
         p = self.panels[pid]
         is_mkt = p.order_type_var.get() == "Market"
         p.price_entry.configure(state="disabled" if is_mkt else "normal",
                                bg=DARK_BG if is_mkt else INPUT_BG)
         p.price_lbl.configure(fg=TEXT_MUTED if is_mkt else TEXT_DIM)
 
-    # ── Login ──────────────────────────────────────────────────────────────
+    # 鈹鈹 Login 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
-    # ── Place Order ────────────────────────────────────────────────────────
+    def _broker_gate_state(self) -> dict:
+        gate = {
+            "active": False,
+            "status": "not_logged_in",
+            "username": "",
+            "server_id": "",
+            "account_username": "",
+            "grace_remaining": 0,
+            "updated_at": 0,
+        }
+        raw = getattr(self.session, "broker_gate", None) if self.session else None
+        if isinstance(raw, dict):
+            try:
+                gate.update({
+                    "active": bool(raw.get("active", False)),
+                    "status": str(raw.get("status") or gate["status"]),
+                    "username": str(raw.get("username") or ""),
+                    "server_id": str(raw.get("server_id") or ""),
+                    "account_username": str(raw.get("account_username") or ""),
+                    "grace_remaining": max(0, int(raw.get("grace_remaining") or 0)),
+                    "updated_at": max(0, int(raw.get("updated_at") or 0)),
+                })
+            except Exception:
+                pass
+        if self.session and getattr(self.session, "mock_mode", False):
+            gate["active"] = True
+            gate["status"] = "mock_mode"
+            gate["account_username"] = gate["account_username"] or "SIM"
+        return gate
+
+    def _trade_controls_enabled(self) -> bool:
+        if not self.session:
+            return False
+        if getattr(self.session, "mock_mode", False):
+            return True
+        return bool(self.session.connected and self._se_connected and getattr(self.session, "broker_gate_active", False))
+
+    def _apply_broker_gate_ui(self):
+        gate = self._broker_gate_state()
+        enabled = self._trade_controls_enabled()
+
+        if self._broker_status_var:
+            if getattr(self.session, "mock_mode", False):
+                text = "\u4ea4\u6613\u670d\u52a1\uff1a\u6a21\u62df\u6a21\u5f0f"
+                color = ACCENT_BLUE
+            elif gate["status"] == "grace_pending":
+                text = f"\u4ea4\u6613\u670d\u52a1\uff1a\u91cd\u8fde\u7b49\u5f85\u4e2d\uff08{gate['grace_remaining']}秒）"
+                color = ACCENT_YELLOW
+            elif gate["active"]:
+                account_name = gate["account_username"] or "\u5df2\u767b\u5f55"
+                text = f"\u4ea4\u6613\u670d\u52a1\uff1a{account_name}"
+                color = ACCENT_GREEN
+            elif gate["status"] == "expired":
+                text = "\u4ea4\u6613\u670d\u52a1\uff1a\u767b\u5f55\u5df2\u8fc7\u671f"
+                color = ACCENT_RED
+            else:
+                text = "\u4ea4\u6613\u670d\u52a1\uff1a\u672a\u767b\u5f55"
+                color = ACCENT_RED
+            self._broker_status_var.set(text)
+            if self._broker_status_lbl:
+                self._broker_status_lbl.config(fg=color)
+
+        if self._broker_login_btn:
+            self._broker_login_btn.config(state="normal", text="\u767b\u5f55")
+
+        for panel in self.panels.values():
+            panel.set_trade_enabled(enabled)
+        if self.orders_panel:
+            self.orders_panel.set_enabled(enabled)
+        if self.positions_panel:
+            self.positions_panel.set_enabled(enabled)
+
+    def _refresh_broker_gate_async(self, log_errors: bool = False):
+        if not self.session or getattr(self.session, "mock_mode", False):
+            self._apply_broker_gate_ui()
+            return
+        if not self.session.connected or not self._se_connected or not self._se_client or not self._se_client.is_connected:
+            self._apply_broker_gate_ui()
+            return
+
+        def _bg():
+            ok, _gate, msg = self.session.broker_status_query()
+
+            def _ui():
+                self._apply_broker_gate_ui()
+                if (not ok) and log_errors and msg:
+                    self._log_user_error_once(msg, "warn")
+
+            self.after(0, _ui)
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _broker_login(self):
+        if not self.session or not self.session.connected or not self._se_connected:
+            messagebox.showwarning("\u63d0\u793a", "\u8bf7\u5148\u5b8c\u6210\u7ba1\u7406\u670d\u52a1\u4e0e\u4ea4\u6613\u670d\u52a1\u8fde\u63a5")
+            return
+        username = self._broker_user_entry.get().strip() if self._broker_user_entry else ""
+        password = self._broker_pass_entry.get() if self._broker_pass_entry else ""
+        if not username or not password:
+            messagebox.showwarning("\u63d0\u793a", "\u8bf7\u8f93\u5165\u4ea4\u6613\u670d\u52a1\u8d26\u53f7\u548c\u5bc6\u7801")
+            return
+        if self._broker_login_btn:
+            self._broker_login_btn.config(state="disabled", text="\u767b\u5f55\u4e2d\u2026")
+
+        def _bg():
+            ok, msg = self.session.broker_login(username, password)
+            self.after(0, lambda: self._handle_broker_login_result(ok, msg, username))
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _handle_broker_login_result(self, ok: bool, msg: str, username: str):
+        if self._broker_login_btn:
+            self._broker_login_btn.config(state="normal", text="\u767b\u5f55")
+        self._apply_broker_gate_ui()
+        if ok:
+            if self.log_area:
+                self.log_area.log("交易服务登录成功", "ok")
+            self.after(120, self._refresh_positions)
+            self.after(220, self._refresh_orders)
+        else:
+            if self.log_area:
+                self._log_user_error_once(f"交易服务登录失败：{_localize_user_message(msg)}")
+
+    # 鈹鈹 Place Order 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _place_order(self, action: str, pid: int = 0):
         p = self.panels[pid]
         sym = p.order_sym_var.get()
         if sym == "\u2014":
-            messagebox.showwarning("Warning", "Please select a symbol first")
+            messagebox.showwarning("\u63d0\u793a", "\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u4ea4\u6613\u6807\u7684")
             return
         try:
             qty = int(p.qty_entry.get())
         except ValueError:
-            messagebox.showerror("Error", "Please enter a valid quantity")
+            messagebox.showerror("\u8f93\u5165\u9519\u8bef", "\u8bf7\u8f93\u5165\u6709\u6548\u7684\u6570\u91cf")
             return
         is_mkt = p.order_type_var.get() == "Market"
         price = 0.0
@@ -1474,32 +1803,36 @@ class TradingTerminal(tk.Tk):
             try:
                 price = round(float(p.price_entry.get().strip()), 2)
             except ValueError:
-                messagebox.showerror("Error", "Please enter a valid price")
+                messagebox.showerror("\u8f93\u5165\u9519\u8bef", "\u8bf7\u8f93\u5165\u6709\u6548\u7684\u4ef7\u683c")
                 return
             if price <= 0:
-                messagebox.showerror("Error", "Price must be greater than 0")
+                messagebox.showerror("\u8f93\u5165\u9519\u8bef", "\u4ef7\u683c\u5fc5\u987b\u5927\u4e8e 0")
                 return
         tif = p.tif_var.get()
         price_str = "MKT" if is_mkt else f"${price:.2f}"
-        self.log_area.log(f"{action} {qty} {sym} @ {price_str} | {tif}", "inf")
+        self.log_area.log(f"{_format_order_action(action)} {qty}\u80a1 {sym} @ {price_str} | {_format_tif_label(tif)}", "inf")
         self._submit_order_bg(sym, qty, price, action,
                               "market" if is_mkt else "limit", tif)
 
     def _submit_order_bg(self, symbol: str, qty: int, price: float,
                          action: str, order_type: str, tif: str):
-        """在后台线程中提交订单"""
+        """UI helper."""
+        if not self._trade_controls_enabled():
+            if self.log_area:
+                self._log_user_error_once("请先登录交易服务", "warn")
+            return
         def _bg():
             ok, msg = self.session.place_order(symbol, qty, price, action, order_type, tif=tif)
-            self.after(0, lambda: self.log_area.log(sanitize(msg), "ok" if ok else "err"))
+            self.after(0, lambda: self._log_result_message(ok, msg))
             if ok:
-                self.after(1500, self._refresh_positions)
-                self.after(1500, self._refresh_orders)
+                self.after(250, self._refresh_orders)
+                self.after(1200, self._refresh_positions)
         threading.Thread(target=_bg, daemon=True).start()
 
-    # ── Esc Cancel ─────────────────────────────────────────────────────────
+    # 鈹鈹 Esc Cancel 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _esc_cancel_orders(self, pid: int):
-        """Esc：先取消待下单状态，否则撤当前symbol所有live订单"""
+        """UI helper."""
         p = self.panels[pid]
         if p._pending_action:
             self._f_limit_cancel(pid)
@@ -1521,13 +1854,15 @@ class TradingTerminal(tk.Tk):
         def _bg():
             for oid in live_ids:
                 ok, msg = self.session.cancel_order(oid)
-                self.after(0, lambda m=msg, o=ok: self.log_area.log(sanitize(m), "ok" if o else "err"))
+                self.after(0, lambda m=msg, o=ok: self._log_result_message(o, m))
             self.after(1500, self._refresh_orders)
         threading.Thread(target=_bg, daemon=True).start()
 
-    # ── Positions ──────────────────────────────────────────────────────────
+    # 鈹鈹 Positions 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _refresh_positions(self):
+        if not self._trade_controls_enabled() and not getattr(self.session, "mock_mode", False):
+            return
         def _bg():
             positions = self.session.get_today_activity()
             err = getattr(self.session, "_pos_error", "")
@@ -1536,18 +1871,20 @@ class TradingTerminal(tk.Tk):
 
     def _update_positions(self, positions: list[dict], err: str = ""):
         if err:
-            self.log_area.log(sanitize(f"Position fetch failed: {err}"), "err")
+            self._log_user_error_once(f"Position fetch failed: {err}")
         if self.positions_panel:
             self.positions_panel.update_data(positions, self.current_quote)
 
     def _on_pos_row_click(self, symbol: str):
-        """点击持仓行，将symbol填入面板0"""
+        """UI helper."""
         self.panels[0].sym_var.set(symbol)
         self._on_symbol_enter(0)
 
-    # ── Orders ─────────────────────────────────────────────────────────────
+    # 鈹鈹 Orders 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _refresh_orders(self):
+        if not self._trade_controls_enabled() and not getattr(self.session, "mock_mode", False):
+            return
         mode = self.orders_panel.current_mode if self.orders_panel else "live"
         def _bg():
             orders = self.session.get_orders(mode)
@@ -1560,17 +1897,21 @@ class TradingTerminal(tk.Tk):
             self.orders_panel.update_data(orders)
 
     def _cancel_selected_order(self, order_id: str):
+        if not self._trade_controls_enabled():
+            if self.log_area:
+                self._log_user_error_once("请先登录交易服务", "warn")
+            return
         def _bg():
             ok, msg = self.session.cancel_order(order_id)
-            self.after(0, lambda: self.log_area.log(sanitize(msg), "ok" if ok else "err"))
+            self.after(0, lambda: self._log_result_message(ok, msg))
             if ok:
                 self.after(1000, self._refresh_orders)
         threading.Thread(target=_bg, daemon=True).start()
 
-    # ── Quote Stream ───────────────────────────────────────────────────────
+    # 鈹鈹 Quote Stream 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _refresh_strip(self, quote: dict, prev_quote: dict | None, pid: int = None):
-        """更新行情条显示"""
+        """UI helper."""
         sym = quote["symbol"]
         for i, p in self.panels.items():
             if pid is not None and i != pid:
@@ -1585,15 +1926,15 @@ class TradingTerminal(tk.Tk):
             p.q_ask_var.set(f"{quote['ask']:.2f}")
             p.q_chg_var.set(f"+{chg:.2f}" if chg >= 0 else f"{chg:.2f}")
             p.q_vol_var.set(f"{quote['volume']:,}")
-            p.order_last_var.set(f"Last: ${quote['last']:.2f}")
+            p.order_last_var.set(f"\u6700\u65b0: ${quote['last']:.2f}")
 
-            # 自动填充ask价格
+            # 鑷姩濉厖ask浠锋牸
             if p.price_needs_fill:
                 p.fill_price_from_quote(quote["ask"],
                                          p.order_type_var.get() == "Market")
 
     def _start_mock_stream(self):
-        """启动模拟行情线程"""
+        """UI helper."""
         self._mock_active = True
         def _run():
             while self._mock_active:
@@ -1606,64 +1947,52 @@ class TradingTerminal(tk.Tk):
                 time.sleep(MOCK_QUOTE_INTERVAL / 1000)
         threading.Thread(target=_run, daemon=True).start()
 
-    def _start_real_stream(self):
-        """启动真实WebSocket行情流"""
-        self._mock_active = False
-        self._stream_active = True
-        self._ws_stream = QuoteStream(
-            http_client=self.http,
-            on_quote_callback=self._handle_ws_quote,
-            on_status_callback=lambda msg: self.log_area.log(msg, "ok"),
-        )
-        self._ws_stream.start()
-
     def _handle_ws_quote(self, quote: dict):
-        """WebSocket行情回调（通过after推送到主线程）"""
+        """UI helper."""
         sym = quote["symbol"]
         prev = self.current_quote.get(sym)
         self.current_quote[sym] = quote
-        self.after(0, lambda _q=quote, _p=prev: self._refresh_strip(_q, _p))
+        self._quote_ui_pending[sym] = (quote, prev)
+        if self._quote_ui_flush_job is None:
+            self._quote_ui_flush_job = self.after(50, self._flush_quote_ui_updates)
+
+    def _flush_quote_ui_updates(self):
+        self._quote_ui_flush_job = None
+        pending = list(self._quote_ui_pending.values())
+        self._quote_ui_pending.clear()
+        for quote, prev in pending:
+            self._refresh_strip(quote, prev)
 
     def _on_server_disconnect(self):
-        """服务器断线处理"""
+        """UI helper."""
         if not self.session.connected:
             return
         self.session.connected = False
         self._stream_active = False
         self._mock_active = False
-        self.status_var.set("\u25cf Not connected")
+        self.status_var.set("\u25cf \u672a\u8fde\u63a5")
         self.status_lbl.config(fg=ACCENT_RED)
-        self.log_area.log("Server disconnected", "err")
+        self._log_user_error_once("管理服务连接已断开")
+        self._apply_broker_gate_ui()
 
-    # ── SE (Server_economic) Direct Connection ──────────────────────────────
+    # 鈹鈹 SE (Trade_Server) Direct Connection 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _toggle_se_connection(self):
-        """切换 SE WebSocket 连接"""
+        """UI helper."""
         if self._se_connected:
             self._se_disconnect()
         else:
             self._se_connect()
 
     def _se_connect(self):
-        """建立到 Server_economic 的 WebSocket 连接（含验证和占用注册）"""
+        """UI helper."""
         if self._se_client and self._se_client.is_active:
             return
 
-        self._se_btn.config(state="disabled", text="Validating...")
-        self.log_area.log("[SE] Validating node status...", "inf")
-
+        self._se_btn.config(state="disabled", text="\u6821\u9a8c\u4e2d\u2026")
         target_addr = self._se_target_address or DEFAULT_SE_HOST
 
         def _do_connect_with_retry(max_retries=5):
-            """
-            带重试的 WS 连接（解决 Error 1225 / WSAECONNREFUSED 问题）。
-            
-            场景：SM 标记 online 但 SE 的 WS 端口尚未就绪
-                  （SE 进程刚启动，心跳先于 ws.serve() 完成）
-                  
-            策略：每尝试创建 client → start → 等 10s 看是否 connected
-                 失败则指数退避重试（2s/4s/6s/8s），共最多 5 次。
-            """
             token = self.http.token
             if ':' in target_addr:
                 hp = target_addr.rsplit(':', 1)
@@ -1672,14 +2001,11 @@ class TradingTerminal(tk.Tk):
                 host, port = target_addr, DEFAULT_SE_PORT
 
             last_err = ""
-
             for attempt in range(1, max_retries + 1):
-                # 更新按钮状态
                 self.after(0, lambda a=attempt, m=max_retries: self._se_btn.config(
-                    state="disabled", text=f"Connecting ({a}/{m})...",
+                    state="disabled", text=f"\u8fde\u63a5\u4e2d\uff08{a}/{m}\uff09\u2026",
                 ))
 
-                # 创建客户端（暂不启用内部自动重连，由本函数控制重试）
                 client = SEWebSocketClient(
                     host=host, port=port, token=token,
                     on_message_callback=self._on_se_message,
@@ -1689,7 +2015,6 @@ class TradingTerminal(tk.Tk):
                 self._se_client = client
                 client.start()
 
-                # 等待连接结果（最多 10 秒）
                 connected = False
                 for _ in range(100):
                     import time as _time
@@ -1701,34 +2026,17 @@ class TradingTerminal(tk.Tk):
                         break
 
                 if connected:
-                    # ★ 连接成功！恢复自动重连能力（后续断线可自动恢复）
                     client._reconnect_enabled = SE_RECONNECT_ENABLED
-                    self.after(0, lambda a=attempt: (
-                        self.log_area.log(
-                            f"[SE] \u2713 \u8fde\u63a5\u6210\u529f" +
-                            (f" (\u7b2c{a}\u6b21\u5c1d\u8bd5)" if a > 1 else ""),
-                            "ok",
-                        ),
-                    ))
                     return
 
-                # 本次失败，清理
                 self._se_client = None
-                last_err = "\u8fdc\u7a0b\u8ba1\u7b97\u673a\u62d2\u7edd\u8fde\u63a5 (\u7aef\u53e3\u53ef\u80fd\u5c1a\u672a\u5c31\u7eea)"
-
+                last_err = "remote host refused connection (port may not be ready)"
                 if attempt < max_retries:
-                    self.after(0, lambda a=attempt, m=max_retries: (
-                        self.log_area.log(
-                            f"[SE] WS \u8fde\u63a5\u672a\u5c31\u7eea ({a}/{m})\uff0c\u7b49\u5f85\u540e\u91cd\u8bd5...",
-                            "warn",
-                        ),
-                    ))
                     import time as _time
                     _time.sleep(min(2 * attempt, 8))
 
-            # 全部重试耗尽
             self.after(0, lambda: (
-                self.log_area.log(f"[SE] \u2717 \u8fde\u63a5\u5931\u8d25\uff08{max_retries}\u6b21\u5747\u5931\u8d25\uff09: {last_err}", "err"),
+                self._log_user_error_once(f"Trade server connect failed: {last_err}"),
                 self._set_se_connection_ui(False),
             ))
 
@@ -1738,43 +2046,39 @@ class TradingTerminal(tk.Tk):
                     f"/api/accounts/se-status?address={target_addr}",
                 )
                 if status_code == 200 and resp_data.get("ok") and resp_data.get("online"):
-                    # 检查占用
                     occupied_by = (resp_data.get("occupied_by") or "").strip()
                     if occupied_by and occupied_by != self._login_username:
                         self.after(0, lambda ob=occupied_by: (
-                            self.log_area.log(f"[SE] 节点已被账户 '{ob}' 占用，无法连接", "err"),
+                            self._log_user_error_once(f"Trade server is occupied by {ob!r}"),
                             self._set_se_connection_ui(False),
                         ))
                         return
-                    # ★ 关键修复：从 se-status 响应中提取 server_id（Disconnect 后重连时必须重新获取）
-                    node_name = resp_data.get("node_name", "")
                     self._se_target_address = target_addr
                     self._se_server_id = resp_data.get("server_id", "")
-                    # 在线且未被占用 → 同步注册占用 + 连接
                     occ_ok = self._occupy_se_node(sync=True)
                     if not occ_ok:
                         self.after(0, lambda: (
-                            self.log_area.log("[SE] 节点占用注册失败，无法连接", "err"),
+                            self._log_user_error_once("Trade server lock failed; connection aborted"),
                             self._set_se_connection_ui(False),
                         ))
                         return
-                    # ★ 在后台线程执行 WS 连接（含重试），避免冻结 UI
                     threading.Thread(target=_do_connect_with_retry, daemon=True).start()
                 else:
                     self.after(0, lambda: (
-                        self.log_area.log("[SE] 子服务器不在线，无法连接", "err"),
+                        self._log_user_error_once("Trade server is offline"),
                         self._set_se_connection_ui(False),
                     ))
-            except Exception as e:
+            except Exception as exc:
                 self.after(0, lambda: (
-                    self.log_area.log(f"[SE] 验证失败: {e}", "err"),
+                    self._log_user_error_once(f"Trade server validation failed: {exc}"),
                     self._set_se_connection_ui(False),
                 ))
+
         threading.Thread(target=_check, daemon=True).start()
 
     def _se_disconnect(self):
-        """断开 SE 连接"""
-        # 如果正在重连，先隐藏重连弹窗
+        """UI helper."""
+        # 濡傛灉姝ｅ湪閲嶈繛锛屽厛闅愯棌閲嶈繛寮圭獥
         if self._reconnecting:
             self._reconnecting = False
             if self._reconnect_dialog:
@@ -1792,120 +2096,106 @@ class TradingTerminal(tk.Tk):
             self._quote_subscribed_symbols.clear()
         self._se_connected = False
 
-        # 释放节点占用（同步，确保释放请求先于后续流程）
+        # 閲婃斁鑺傜偣鍗犵敤锛堝悓姝ワ紝纭繚閲婃斁璇锋眰鍏堜簬鍚庣画娴佺▼锛?
 
         self._release_se_occupation(sync=True)
         self._set_se_connection_ui(False)
-        self.log_area.log("[SE] Disconnected", "inf")
+        self.log_area.log("交易服务器已断开", "warn")
 
     def _on_se_status(self, msg: str):
-        """SE 连接状态变化回调（来自后台线程，需用 after 切回主线程）"""
+        """UI helper."""
         def _ui_update():
             if "Authenticated" in msg:
                 self._se_connected = True
                 self._set_se_connection_ui(True)
                 if self.session:
                     self.session.bind_se_client(self._se_client)
-                self.log_area.log(f"[SE] {msg}", "ok")
+                self._apply_broker_gate_ui()
+                if self._init_ready and self.log_area:
+                    self.log_area.log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
                 self._sync_quote_subscriptions_async()
-
-                # ★ 重连成功后自动恢复节点占用（防止占用丢失）
-
-
-                # 场景：SE 掉线→SM 标记离线并释放占用→SE 恢复→Client 重连成功
-                # 注意：此处运行在 UI 线程中，使用 async 模式避免冻结界面
-                # （主连接流程中的 occupy 已是同步的，此处为辅助保活）
                 if self._se_server_id:
                     self._occupy_se_node(sync=False)
-                
-                # 自动查询一次状态验证连接
-                if self._se_client and self._se_client.is_connected:
-                    self._se_client.send_query_status()
-                # ── 重连成功 → 隐藏重连弹窗 ──
+                self._refresh_broker_gate_async(log_errors=False)
                 if self._reconnecting and self._reconnect_dialog:
                     self._hide_reconnect_dialog()
 
             elif "Reconnecting" in msg or "reconnecting" in msg.lower():
-                # ── 运行中自动重连中 → 显示/更新重连弹窗 ──
                 self._set_se_connection_ui(False)
+                self._apply_broker_gate_ui()
                 if not self._reconnecting and self._init_ready:
                     self._reconnecting = True
                     self._show_reconnect_dialog(msg)
                 elif self._reconnect_dialog:
-                    # 更新弹窗状态文本
-                    self._reconnect_var.set(msg)
+                    self._reconnect_var.set(_localize_user_message(msg))
 
             elif "Auth failed" in msg:
-                # ★ 仅匹配认证失败，不匹配 SE 返回的 "Error [xxx]: ..." 消息
-                # 原来的 "error" in msg.lower() 会误匹配 SE 的 ERROR 类型响应消息，
-                # 导致正在重连时收到一个业务错误就 _cancel_reconnect()
                 if self._reconnecting:
-                    # 重连过程中认证失败（如 token 过期）→ 停止重连，提示用户
                     self._cancel_reconnect()
                 self._release_se_occupation()
                 self._set_se_connection_ui(False)
                 with self._quote_sub_lock:
                     self._quote_subscribed_symbols.clear()
-                self.log_area.log(f"[SE] {msg}", "err")
-
+                self._apply_broker_gate_ui()
+                self._log_user_error_once(msg)
 
             elif "Connection error" in msg or (msg.startswith("Disconnected:") and not self._se_active_se()):
                 if self._init_ready and self._se_connected and not self._reconnecting:
-                    # 运行中断线且尚未进入重连 → 触发自动重连流程
                     self._se_connected = False
                     self._set_se_connection_ui(False)
                     with self._quote_sub_lock:
                         self._quote_subscribed_symbols.clear()
-                    self.log_area.log("[SE] 子服务器连接断开，正在尝试重新连接...", "warn")
-
+                    self._apply_broker_gate_ui()
                     self._start_se_reconnect()
                 elif self._reconnecting:
-                    # 重连彻底失败（达到最大次数或 stop 后的 Disconnected 通知）
                     self._cancel_reconnect()
                     self._release_se_occupation()
                     self._set_se_connection_ui(False)
                     with self._quote_sub_lock:
                         self._quote_subscribed_symbols.clear()
+                    self._apply_broker_gate_ui()
                 else:
-                    # 初始化阶段失败或手动断开
                     self._release_se_occupation()
                     self._set_se_connection_ui(False)
                     with self._quote_sub_lock:
                         self._quote_subscribed_symbols.clear()
-                    self.log_area.log(f"[SE] {msg}", "err")
-
+                    self._apply_broker_gate_ui()
+                    self._log_user_error_once(msg)
 
             else:
-                # 其他状态消息（Connecting、Connected 等）
                 if self._reconnecting:
-                    self._reconnect_var.set(msg)
-                self.log_area.log(f"[SE] {msg}", "inf")
+                    self._reconnect_var.set(_localize_user_message(msg))
 
         self.after(0, _ui_update)
 
     def _on_se_message(self, msg: dict):
-        """SE 消息回调（后台线程 → after 到主线程）"""
+        """UI helper."""
         def _ui_update():
             msg_type = msg.get("type", "")
+            payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
 
             if msg_type == "CONNECT_ACK":
-                payload = msg.get("payload", {})
-                node = payload.get("node_info", {})
-                self.log_area.log(
-                    f"[SE] Connected to node: {node.get('node_name', '?')} "
-                    f"(id={node.get('server_id', '?')}, region={node.get('region', '?')})",
-                    "ok"
-                )
+                gate = payload.get("broker_gate")
+                if self.session and isinstance(gate, dict):
+                    self.session._set_broker_gate(gate)
+                    self._apply_broker_gate_ui()
+
             elif msg_type == "STATUS_RESPONSE":
-                info = msg.get("payload", {}).get("node_info", {})
-                self.log_area.log(
-                    f"[SE] Status: {info.get('registration_status', '?')} | "
-                    f"heartbeat={'OK' if info.get('heartbeat_ok') else 'FAIL'} | "
-                    f"clients={info.get('connections', 0)}",
-                    "inf"
-                )
+                gate = payload.get("broker_gate")
+                if self.session and isinstance(gate, dict):
+                    self.session._set_broker_gate(gate)
+                    self._apply_broker_gate_ui()
+
+            elif msg_type in ("BROKER_LOGIN_RESPONSE", "BROKER_STATUS_RESPONSE", "BROKER_LOGOUT_RESPONSE"):
+                gate = payload.get("gate")
+                if self.session and isinstance(gate, dict):
+                    self.session._set_broker_gate(gate)
+                self._apply_broker_gate_ui()
+                if msg_type == "BROKER_LOGIN_RESPONSE" and payload.get("success"):
+                    self.after(120, self._refresh_positions)
+                    self.after(220, self._refresh_orders)
+
             elif msg_type == "QUOTE_DATA":
-                payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
                 sym = str(payload.get("symbol", "")).strip().upper()
                 if not sym:
                     return
@@ -1929,13 +2219,10 @@ class TradingTerminal(tk.Tk):
 
             elif msg_type == "QUOTE_ACK":
                 pass
+
             elif msg_type == "FORCE_DISCONNECT":
-
-                payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
                 reason = payload.get("reason", "admin_force_release")
-                self.log_area.log(f"[SE] 连接被管理端强制断开 ({reason})", "warn")
-
-                # 停止自动重连并断开当前连接，保持为可手动重连状态
+                self._log_user_error_once(f"交易服务器连接已被管理端释放（{reason}）", "warn")
                 self._reconnecting = False
                 if self._reconnect_dialog:
                     try:
@@ -1943,7 +2230,6 @@ class TradingTerminal(tk.Tk):
                     except tk.TclError:
                         pass
                     self._reconnect_dialog = None
-
                 if self._se_client:
                     self._se_client._reconnect_enabled = False
                     self._se_client.stop()
@@ -1954,32 +2240,39 @@ class TradingTerminal(tk.Tk):
                 self._set_se_connection_ui(False)
                 with self._quote_sub_lock:
                     self._quote_subscribed_symbols.clear()
-                messagebox.showwarning("连接已被管理端断开", "当前 SE 连接已被管理员强制断开。\n如需继续使用，请点击 Connect 重新连接。")
+                self._apply_broker_gate_ui()
+                messagebox.showwarning("交易服务器已释放", "当前交易服务器连接已被管理端释放，请重新连接。")
 
             elif msg_type == "ERROR":
-                err = msg.get("payload", {})
-                self.log_area.log(f"[SE] Error [{err.get('code', '')}]: {err.get('message', '')}", "err")
+                err = payload
+                if err.get("code") in ("BROKER_LOGIN_REQUIRED", "BROKER_CREDENTIALS_REQUIRED"):
+                    self._refresh_broker_gate_async(log_errors=False)
+                self._log_user_error_once(
+                    f"\u4ea4\u6613\u670d\u52a1\u5668\u9519\u8bef[{err.get('code', '')}]\uff1a"
+                    f"{_localize_user_message(err.get('message', ''))}"
+                )
 
             elif msg_type == "PONG":
-                pass  # 心跳响应，静默
+                pass
+
             else:
-                self.log_area.log(f"[SE] Recv {msg_type}: {str(msg)[:120]}", "inf")
+                pass
 
         self.after(0, _ui_update)
 
     def _se_active_se(self) -> bool:
-        """检查 SE client 是否仍然活跃"""
+        """UI helper."""
         return self._se_client is not None and self._se_client.is_active
 
-    # ── SE 自动重连（运行中断线后）───────────────────────────────────────
+    # 鈹鈹 SE 鑷姩閲嶈繛锛堣繍琛屼腑鏂嚎鍚庯級鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _start_se_reconnect(self):
         """
-        运行中 SE 断线 → 启动自动重连流程
-        创建新的 SEWebSocketClient 并启用重连模式，后台线程自动尝试重连
+        杩愯涓?SE 鏂嚎 鈫?鍚姩鑷姩閲嶈繛娴佺▼
+        鍒涘缓鏂扮殑 SEWebSocketClient 骞跺惎鐢ㄩ噸杩炴ā寮忥紝鍚庡彴绾跨▼鑷姩灏濊瘯閲嶈繛
         """
         if self._reconnecting:
-            return  # 已在重连中
+            return  # 宸插湪閲嶈繛涓?
 
         self._reconnecting = True
         self._reconnect_cancelled = False
@@ -1992,14 +2285,13 @@ class TradingTerminal(tk.Tk):
         else:
             host, port = target_addr, DEFAULT_SE_PORT
 
-        # ★ 关键修复：先停止旧客户端，防止幽灵线程残留
-        # 旧客户端的后台线程可能仍在 sleep/退避等待，如果不 stop()，
-        # 它醒来后会尝试重新连接，导致两个 WS 连接同时竞争同一个 SE 端口
+        # 鈽?鍏抽敭淇锛氬厛鍋滄鏃у鎴风锛岄槻姝㈠菇鐏电嚎绋嬫畫鐣?
+        # 鏃у鎴风鐨勫悗鍙扮嚎绋嬪彲鑳戒粛鍦?sleep/閫閬跨瓑寰咃紝濡傛灉涓?stop()锛?
+        # 瀹冮啋鏉ュ悗浼氬皾璇曢噸鏂拌繛鎺ワ紝瀵艰嚧涓や釜 WS 杩炴帴鍚屾椂绔炰簤鍚屼竴涓?SE 绔彛
         if self._se_client and self._se_client.is_active:
-            self.log_area.log("[SE] Stopping old connection before reconnect...", "inf")
             self._se_client.stop()
 
-        # 创建启用重连的 SE 客户端
+        # 鍒涘缓鍚敤閲嶈繛鐨?SE 瀹㈡埛绔?
         se_client = SEWebSocketClient(
             host=host, port=port, token=token,
             on_message_callback=self._on_se_message,
@@ -2009,26 +2301,25 @@ class TradingTerminal(tk.Tk):
         self._se_client = se_client
         se_client.start()
 
-        self.log_area.log(f"[SE] Auto-reconnecting to {host}:{port}...", "inf")
 
     def _show_reconnect_dialog(self, initial_msg: str = ""):
-        """显示重连弹窗（覆盖主界面的模态式提示）"""
+        """UI helper."""
         if self._reconnect_dialog:
-            return  # 已存在则不重复创建
+            return  # 宸插瓨鍦ㄥ垯涓嶉噸澶嶅垱寤?
 
         dlg = tk.Toplevel(self)
         self._reconnect_dialog = dlg
-        dlg.title("SE 重连")
+        dlg.title("\u4ea4\u6613\u670d\u52a1\u91cd\u8fde")
         dlg.geometry("420x240")
         dlg.resizable(False, False)
         dlg.configure(bg=DARK_BG)
 
-        # 居中显示
+        # 灞呬腑鏄剧ず
         dlg.transient(self)
         dlg.grab_set()
         dlg.protocol("WM_DELETE_WINDOW", self._cancel_reconnect)
 
-        # 计算居中位置
+        # 璁＄畻灞呬腑浣嶇疆
         dlg.update_idletasks()
         pw = self.winfo_width()
         ph = self.winfo_height()
@@ -2038,27 +2329,27 @@ class TradingTerminal(tk.Tk):
         y = py + (ph - 240) // 2
         dlg.geometry(f"+{x}+{y}")
 
-        # 标题图标
+        # 鏍囬鍥炬爣
         title_frame = tk.Frame(dlg, bg=DARK_BG)
         title_frame.pack(fill="x", pady=(24, 8))
         tk.Label(title_frame, text="\u26a0\ufe0f", font=FONT_TITLE,
                  bg=DARK_BG, fg=ACCENT_YELLOW).pack()
 
 
-        # 主提示文字
+        # 涓绘彁绀烘枃瀛?
         tk.Label(dlg, text="\u5b50\u670d\u52a1\u5668\u8fde\u63a5\u5df2\u65ad\u5f00",
                  bg=DARK_BG, fg=TEXT_PRIMARY, font=FONT_UI).pack(pady=(4, 2))
         tk.Label(dlg, text="\u6b63\u5728\u5c1d\u91cd\u65b0\u8fde\u63a5...",
                  bg=DARK_BG, fg=TEXT_DIM, font=FONT_UI_SM).pack(pady=(0, 16))
 
-        # 状态文本（动态更新）
-        self._reconnect_var.set(initial_msg or "\u7b49\u5f85\u8fde\u63a5...")
+        # 鐘舵佹枃鏈紙鍔ㄦ佹洿鏂帮級
+        self._reconnect_var.set(_localize_user_message(initial_msg) or "\u7b49\u5f85\u8fde\u63a5\u2026")
         status_lbl = tk.Label(dlg, textvariable=self._reconnect_var,
                                bg=DARK_BG, fg=ACCENT_YELLOW, font=FONT_MONO_SM,
                                wraplength=380)
         status_lbl.pack(pady=(0, 20))
 
-        # 取消按钮容器
+        # 鍙栨秷鎸夐挳瀹瑰櫒
         btn_frame = tk.Frame(dlg, bg=DARK_BG)
         btn_frame.pack(pady=(0, 16))
 
@@ -2073,7 +2364,7 @@ class TradingTerminal(tk.Tk):
 
 
     def _hide_reconnect_dialog(self):
-        """隐藏重连弹窗（重连成功时调用）"""
+        """UI helper."""
         self._reconnecting = False
         if self._reconnect_dialog:
             try:
@@ -2083,14 +2374,14 @@ class TradingTerminal(tk.Tk):
             self._reconnect_dialog = None
 
     def _cancel_reconnect(self):
-        """用户取消重连：停止客户端、释放占用、恢复 UI"""
+        """UI helper."""
         if not self._reconnecting and not self._reconnect_dialog:
             return
 
         self._reconnecting = False
         self._reconnect_cancelled = True
 
-        # 停止正在重连的 SE 客户端
+        # 鍋滄姝ｅ湪閲嶈繛鐨?SE 瀹㈡埛绔?
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
@@ -2100,7 +2391,7 @@ class TradingTerminal(tk.Tk):
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
 
-        # 隐藏弹窗
+        # 闅愯棌寮圭獥
 
         if self._reconnect_dialog:
             try:
@@ -2109,19 +2400,19 @@ class TradingTerminal(tk.Tk):
                 pass
             self._reconnect_dialog = None
 
-        # 释放节点占用（同步，确保释放请求先于后续流程）
+        # 閲婃斁鑺傜偣鍗犵敤锛堝悓姝ワ紝纭繚閲婃斁璇锋眰鍏堜簬鍚庣画娴佺▼锛?
         self._release_se_occupation(sync=True)
 
-        # 恢复 UI 状态
+        # 鎭㈠ UI 鐘舵?
         self._set_se_connection_ui(False)
-        self.log_area.log("[SE] 用户取消了重连，子服务器连接已释放", "warn")
+        self.log_area.log("已取消交易服务器重连", "warn")
 
     def _logout_to_login(self):
-        """退出当前账户并返回登录界面"""
-        if not messagebox.askyesno("退出登录", "确认退出当前账户并返回登录界面？"):
+        """UI helper."""
+        if not messagebox.askyesno("退出登录", "是否退出当前账号并返回登录界面？"): 
             return
 
-        # 停止重连状态/弹窗
+        # 鍋滄閲嶈繛鐘舵?寮圭獥
         self._reconnecting = False
         if self._reconnect_dialog:
             try:
@@ -2130,7 +2421,13 @@ class TradingTerminal(tk.Tk):
                 pass
             self._reconnect_dialog = None
 
-        # 断开 SE 连接
+        if self.session:
+            try:
+                self.session.broker_logout()
+            except Exception:
+                pass
+
+        # 鏂紑 SE 杩炴帴
         if self._se_client:
             self._se_client.stop()
             self._se_client = None
@@ -2138,26 +2435,26 @@ class TradingTerminal(tk.Tk):
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
 
-        # 释放节点占用（同步，确保释放请求先于后续流程）
+        # 閲婃斁鑺傜偣鍗犵敤锛堝悓姝ワ紝纭繚閲婃斁璇锋眰鍏堜簬鍚庣画娴佺▼锛?
 
         self._release_se_occupation(sync=True)
 
-        # 解绑会话中的 SE client
+        # 瑙ｇ粦浼氳瘽涓殑 SE client
         if self.session:
             self.session.bind_se_client(None)
 
-        # 退出 SM 登录并清空 token
+        # 閫鍑?SM 鐧诲綍骞舵竻绌?token
         if self.session:
             try:
                 self.session.logout()
             except Exception:
                 self.http.token = ""
 
-        # 清空当前账号缓存，允许切换账号登录
+        # 娓呯┖褰撳墠璐﹀彿缂撳瓨锛屽厑璁稿垏鎹㈣处鍙风櫥褰?
         self._login_username = ""
         self._login_password = ""
 
-        # 隐藏主界面组件，回到初始化+登录流程
+        # 闅愯棌涓荤晫闈㈢粍浠讹紝鍥炲埌鍒濆鍖?鐧诲綍娴佺▼
         for child in self.winfo_children():
             try:
                 child.pack_forget()
@@ -2175,14 +2472,14 @@ class TradingTerminal(tk.Tk):
         self._show_init_screen()
         self.after(100, self._show_login_first)
 
-    # ── Lifecycle ──────────────────────────────────────────────────────────
+    # 鈹鈹 Lifecycle 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def on_close(self):
 
-        """窗口关闭"""
+        """UI helper."""
         self._mock_active = False
         self._stream_active = False
-        self._reconnecting = False  # 取消重连状态
+        self._reconnecting = False  # 鍙栨秷閲嶈繛鐘舵?
         if self._se_dot_job is not None:
             try:
                 self.after_cancel(self._se_dot_job)
@@ -2190,43 +2487,40 @@ class TradingTerminal(tk.Tk):
                 pass
             self._se_dot_job = None
 
-        # 隐藏重连弹窗
+        # 闅愯棌閲嶈繛寮圭獥
         if self._reconnect_dialog:
             try:
                 self._reconnect_dialog.destroy()
             except tk.TclError:
                 pass
             self._reconnect_dialog = None
-        # 断开 SE 连接
+        # 鏂紑 SE 杩炴帴
         if self._se_client:
             self._se_client.stop()
         if self.session:
             self.session.bind_se_client(None)
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
-        if self._ws_stream:
-
-            self._ws_stream.stop()
-        # 释放节点占用（同步，防止关闭窗口后节点被永久锁定）
+        # 閲婃斁鑺傜偣鍗犵敤锛堝悓姝ワ紝闃叉鍏抽棴绐楀彛鍚庤妭鐐硅姘镐箙閿佸畾锛?
         self._release_se_occupation(sync=True)
-        # 登出并清理token（防止服务端token残留）
+        # 鐧诲嚭骞舵竻鐞唗oken锛堥槻姝㈡湇鍔＄token娈嬬暀锛?
         if self.http and self.http.token:
             try:
                 self.http.post("/auth/logout", {})
                 if hasattr(self, 'log_area') and self.log_area:
-                    self.log_area.log("[System] Logged out successfully", "ok")
+                    self.log_area.log("已退出登录", "ok")
             except Exception as e:
-                # 网络错误不影响窗口关闭
+                # 缃戠粶閿欒涓嶅奖鍝嶇獥鍙ｅ叧闂?
                 pass
             finally:
                 self.http.token = ""
         self.destroy()
 
 
-# ── Mock Quote Helper ────────────────────────────────────────────────────────
+# 鈹鈹 Mock Quote Helper 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
 def mock_quote(sym: str, base: float) -> dict:
-    """生成模拟行情数据"""
+    """UI helper."""
     last = round(base + random.uniform(-0.3, 0.3), 2)
     sp = random.uniform(0.01, 0.08)
     return dict(symbol=sym, bid=round(last - sp, 2), ask=round(last + sp, 2),

@@ -334,9 +334,9 @@ class NodeStateManager:
         """
         对所有 status=online 的节点发起主动 TCP 探活。
 
-        通过尝试建立 TCP 连接到节点的 SE 服务端口（默认 8900），
+        通过尝试建立 TCP 连接到节点的 TS 服务端口（默认 8900），
         立即判断节点进程是否真的存活。这解决了"被动心跳超时检测延迟"
-        导致的 SE 停机后 Web 刷新仍显示在线的问题。
+        导致的 TS 停机后 Web 刷新仍显示在线的问题。
 
         Returns:
             被探活确认死亡并标记为离线的 server_id 列表。
@@ -493,14 +493,14 @@ class NodeStateManager:
         state.occupied_at = 0.0
 
         # ★ 关键修复：释放占用时检查节点是否真的存活
-        # 场景：SE 在占用期间掉线 → Client 取消重连 → 释放占用
+        # 场景：TS 在占用期间掉线 → Client 取消重连 → 释放占用
         # 如果不立即校验，status 仍是 online 且超时阈值从 15s→90s，
         # 导致 Web 刷新显示错误的"在线"状态长达 ~80 秒
         if check_offline and state.status == "online":
             now = time.time()
             elapsed = now - state.last_heartbeat
             # ★ 使用较短的安全阈值（5秒）：Client 明确释放说明连接有问题，
-            #   如果最近 5 秒内没有新心跳，大概率 SE 已死，直接标离线
+            #   如果最近 5 秒内没有新心跳，大概率 TS 已停止响应，直接标离线
             _RELEASE_SAFE_THRESHOLD = 5.0
             if elapsed > _RELEASE_SAFE_THRESHOLD:
                 old_status = state.status

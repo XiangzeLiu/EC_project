@@ -38,5 +38,9 @@ def load_credentials() -> tuple[str, str]:
 
 
 def save_credentials(username: str, password: str) -> None:
-    """保存用户名和密码"""
-    save_config({"username": username, "password": password})
+    """Do not persist login credentials locally.
+
+    Kept as a compatibility shim for legacy Tk code paths. The current Qt
+    client stores credentials only in memory for the active session.
+    """
+    return None
