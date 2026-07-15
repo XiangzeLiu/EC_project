@@ -137,23 +137,34 @@ class TradingSession:
     def can_trade(self) -> bool:
         return bool(self.connected and self._can_use_se() and self.broker_gate_active)
 
-    def broker_login(self, account_username: str, account_password: str) -> tuple[bool, str]:
+    def broker_login(
+        self,
+        account_username: str,
+        account_password: str,
+        challenge_token: str = "",
+        otp: str = "",
+    ) -> tuple[bool, str, dict]:
         account_username = (account_username or "").strip()
         account_password = account_password or ""
         if not account_username or not account_password:
-            return False, "请输入交易服务账号和密码"
-        resp = self._request_se("BROKER_LOGIN", {
+            return False, "Broker username and password are required", {}
+        request_payload = {
             "account_username": account_username,
             "account_password": account_password,
-        }, timeout=10.0)
+        }
+        if challenge_token:
+            request_payload["challenge_token"] = challenge_token
+        if otp:
+            request_payload["otp"] = otp
+        resp = self._request_se("BROKER_LOGIN", request_payload, timeout=20.0)
         if not isinstance(resp, dict):
-            return False, "交易服务登录请求超时"
+            return False, "Broker login request timed out", {}
         payload = resp.get("payload", {}) if isinstance(resp.get("payload", {}), dict) else {}
         gate = payload.get("gate")
         if isinstance(gate, dict):
             self._set_broker_gate(gate)
         ok = bool(payload.get("success"))
-        return ok, sanitize(payload.get("message", "ok"))
+        return ok, sanitize(payload.get("message", "ok")), payload
 
     def broker_status_query(self) -> tuple[bool, dict, str]:
         if not self._can_use_se():

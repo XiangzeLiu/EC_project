@@ -1766,7 +1766,8 @@ class TradingTerminal(tk.Tk):
             self._broker_login_btn.config(state="disabled", text="\u767b\u5f55\u4e2d\u2026")
 
         def _bg():
-            ok, msg = self.session.broker_login(username, password)
+            result = self.session.broker_login(username, password)
+            ok, msg = result[0], result[1]
             self.after(0, lambda: self._handle_broker_login_result(ok, msg, username))
 
         threading.Thread(target=_bg, daemon=True).start()

@@ -143,6 +143,87 @@ async def ensure_broker_connected() -> bool:
     return await _do_hot_reload(trigger="ensure")
 
 
+async def login_broker_with_credentials(broker_type: str = "", credentials: dict | None = None) -> dict[str, object]:
+    """
+    Runtime broker login initiated by the connected Client.
+
+    This is intentionally separate from SM config hot-reload: the Client can enter
+    the actual broker username/password after the TS connection is locked to it.
+    """
+    global _current_broker, _current_broker_type, _local_config_version
+
+    runtime_credentials = dict(credentials or {})
+    cfg: dict | None = None
+    if not broker_type:
+        cfg = await _pull_config_from_sm()
+        if cfg:
+            broker_type = str(cfg.get("broker_type") or "")
+            _local_config_version = int(cfg.get("config_version", _local_config_version) or 0)
+
+    if not broker_type:
+        return {
+            "success": False,
+            "code": "BROKER_CONFIG_MISSING",
+            "message": "Broker type is not configured",
+            "retryable": False,
+        }
+
+    if cfg is None:
+        cfg = await _pull_config_from_sm()
+        if cfg:
+            _local_config_version = int(cfg.get("config_version", _local_config_version) or 0)
+
+    base_credentials = {}
+    if isinstance(cfg, dict):
+        base_credentials = dict(cfg.get("credentials") or {})
+
+    merged_credentials: dict = {}
+    for key in ("account_number", "secret"):
+        if base_credentials.get(key):
+            merged_credentials[key] = base_credentials.get(key)
+    merged_credentials.update(runtime_credentials)
+
+    try:
+        broker = BrokerFactory.create(broker_type)
+        normalized = broker.normalize_credentials(merged_credentials)
+        ok = await broker.connect(normalized)
+        if not ok:
+            err = broker.get_connection_error() if hasattr(broker, "get_connection_error") else {}
+            return {
+                "success": False,
+                "code": str(err.get("code") or "BROKER_LOGIN_FAILED"),
+                "message": str(err.get("message") or "Broker login failed"),
+                "retryable": bool(err.get("retryable", False)),
+                "challenge_token": str(err.get("challenge_token") or ""),
+                "challenge": err.get("challenge") if isinstance(err.get("challenge"), dict) else {},
+            }
+
+        await _destroy_broker()
+        _current_broker = broker
+        _current_broker_type = broker_type
+        broker.set_quote_callback(_on_quote_from_broker)
+        _reset_connect_retry_state()
+        _start_auto_reconnect()
+        _broadcast_status(broker_type, "connected")
+        return {
+            "success": True,
+            "code": "BROKER_LOGIN_OK",
+            "message": "Broker login active",
+            "retryable": False,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "code": "BROKER_LOGIN_FAILED",
+            "message": str(e)[:240] or "Broker login failed",
+            "retryable": True,
+        }
+
+
+async def logout_current_broker() -> None:
+    await _destroy_broker()
+
+
 async def init_broker() -> bool:
     """
     场景A: Trader_Server 注册审批通过后调用，首次从 SM 拉取配置并连接券商

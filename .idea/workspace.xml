@@ -1,79 +1,60 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="AutoImportSettings">
-    <option name="autoReloadType" value="SELECTIVE" />
-  </component>
   <component name="ChangeListManager">
-    <list default="true" id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="名称优化修改" />
+    <list default="true" id="19189f78-2e06-41aa-94b5-7440bd770b4c" name="更改" comment="">
+      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/EC_project.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/EC_project.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/services/trading_session.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/services/trading_session.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/ui/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui/main_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Client/ui_qt/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/Client/ui_qt/main_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/data/logs/sm.log" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/data/logs/sm.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Server_manager/data/server_manager.db" beforeDir="false" afterPath="$PROJECT_DIR$/Server_manager/data/server_manager.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/api/tastytrade.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/api/tastytrade.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/data/logs/ts_error.log" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/data/logs/ts_error.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/network/ws_server.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/network/ws_server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/services/broker_gate.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/broker_gate.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Trader_Server/services/config_sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/Trader_Server/services/config_sync.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
-  <component name="CopilotPersistence">
-    <persistenceIdMap>
-      <entry key="_E:/GitHub/EC_project" value="3DaTW3znRuUYaJEsorPCKX7slYY" />
-    </persistenceIdMap>
-  </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory">{
-  &quot;lastFilter&quot;: {
-    &quot;state&quot;: &quot;OPEN&quot;,
-    &quot;assignee&quot;: &quot;XiangzeLiu&quot;
-  }
-}</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/XiangzeLiu/EC_project.git&quot;,
-    &quot;accountId&quot;: &quot;7b67268d-edd8-48ec-901d-75838aa04087&quot;
-  }
-}</component>
-  <component name="ProjectColorInfo">{
-  &quot;customColor&quot;: &quot;&quot;,
-  &quot;associatedIndex&quot;: 0
-}</component>
-  <component name="ProjectId" id="3DaTW3znRuUYaJEsorPCKX7slYY" />
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 5,
+  "fromUser": false
+}]]></component>
+  <component name="ProjectId" id="3GY3eY7MqoBbwH3sd9jCkKJMNfG" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.main (1).executor": "Run",
     "Python.main (2).executor": "Run",
-    "Python.main (3).executor": "Run",
     "Python.main.executor": "Run",
-    "Python.main_demo.executor": "Run",
-    "Python.main_qt.executor": "Run",
-    "Python.main_qt_demo.executor": "Run",
-    "Python.main_v2_demo.executor": "Run",
-    "Python.main_window.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "git-widget-placeholder": "master",
-    "last_opened_file_path": "E:/GitHub/EC_project",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
     "vue.rearranger.settings.migration": "true"
-  },
-  "keyToStringList": {
-    "GitStage.ChangesTree.GroupingKeys": [
-      "directory",
-      "module",
-      "repository"
-    ]
   }
 }]]></component>
-  <component name="RunManager" selected="Python.main">
+  <component name="RunManager" selected="Python.main (2)">
     <configuration name="main (1)" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="EC_project" />
       <option name="ENV_FILES" value="" />
@@ -87,7 +68,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Trader_Server/main.py" />
@@ -108,14 +89,14 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Server_manager" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Client" />
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Server_manager/main.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Client/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -133,64 +114,14 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Client" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Server_manager" />
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Client/main.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="main_demo" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="EC_project" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Trader_Server/qt_draft" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="true" />
-      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Trader_Server/qt_draft/main_demo.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="main_qt" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="EC_project" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/Client" />
-      <option name="IS_MODULE_SDK" value="true" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="true" />
-      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Client/main_qt.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Server_manager/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -201,197 +132,36 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.main" />
-        <item itemvalue="Python.main (1)" />
         <item itemvalue="Python.main (2)" />
-        <item itemvalue="Python.main_demo" />
-        <item itemvalue="Python.main_qt" />
+        <item itemvalue="Python.main (1)" />
+        <item itemvalue="Python.main" />
       </list>
     </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.24374.152" />
-        <option value="bundled-python-sdk-c59985aa861c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.24374.152" />
+        <option value="bundled-python-sdk-50341a9f1f9c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.26222.68" />
       </set>
     </attachedChunks>
   </component>
-  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="应用程序级" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="默认任务">
-      <changelist id="5f8c88d8-5efc-4ed3-945b-47ae9ac6d1c4" name="更改" comment="" />
-      <created>1778519209263</created>
+      <changelist id="19189f78-2e06-41aa-94b5-7440bd770b4c" name="更改" comment="" />
+      <created>1784134770667</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
-      <updated>1778519209263</updated>
-      <workItem from="1784049681812" duration="2654000" />
+      <updated>1784134770667</updated>
+      <workItem from="1784134772249" duration="5311000" />
     </task>
-    <task id="LOCAL-00001" summary="提交">
-      <option name="closed" value="true" />
-      <created>1778778230301</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1778778230301</updated>
-    </task>
-    <task id="LOCAL-00002" summary="提交">
-      <option name="closed" value="true" />
-      <created>1778778326361</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1778778326361</updated>
-    </task>
-    <task id="LOCAL-00003" summary="api提交，修复部分web界面功能问题，增加配置读取功能环节，优化servereconomic功能，增加日志面板">
-      <option name="closed" value="true" />
-      <created>1779007290438</created>
-      <option name="number" value="00003" />
-      <option name="presentableId" value="LOCAL-00003" />
-      <option name="project" value="LOCAL" />
-      <updated>1779007290438</updated>
-    </task>
-    <task id="LOCAL-00004" summary="删除无用代码，测试代码，打包代码（后续重写）">
-      <option name="closed" value="true" />
-      <created>1779042116390</created>
-      <option name="number" value="00004" />
-      <option name="presentableId" value="LOCAL-00004" />
-      <option name="project" value="LOCAL" />
-      <updated>1779042116390</updated>
-    </task>
-    <task id="LOCAL-00005" summary="优化链接逻辑，优化子服务面板">
-      <option name="closed" value="true" />
-      <created>1779129473148</created>
-      <option name="number" value="00005" />
-      <option name="presentableId" value="LOCAL-00005" />
-      <option name="project" value="LOCAL" />
-      <updated>1779129473148</updated>
-    </task>
-    <task id="LOCAL-00006" summary="优化client界面样式，修复状态显示，增加时间切换功能。">
-      <option name="closed" value="true" />
-      <created>1779304121149</created>
-      <option name="number" value="00006" />
-      <option name="presentableId" value="LOCAL-00006" />
-      <option name="project" value="LOCAL" />
-      <updated>1779304121149</updated>
-    </task>
-    <task id="LOCAL-00007" summary="修改client的api功能">
-      <option name="closed" value="true" />
-      <created>1779390813196</created>
-      <option name="number" value="00007" />
-      <option name="presentableId" value="LOCAL-00007" />
-      <option name="project" value="LOCAL" />
-      <updated>1779390813196</updated>
-    </task>
-    <task id="LOCAL-00008" summary="修复client的登录功能。">
-      <option name="closed" value="true" />
-      <created>1779463150821</created>
-      <option name="number" value="00008" />
-      <option name="presentableId" value="LOCAL-00008" />
-      <option name="project" value="LOCAL" />
-      <updated>1779463150821</updated>
-    </task>
-    <task id="LOCAL-00009" summary="优化web管理界面功能。">
-      <option name="closed" value="true" />
-      <created>1779468218491</created>
-      <option name="number" value="00009" />
-      <option name="presentableId" value="LOCAL-00009" />
-      <option name="project" value="LOCAL" />
-      <updated>1779468218491</updated>
-    </task>
-    <task id="LOCAL-00010" summary="优化web管理界面功能。">
-      <option name="closed" value="true" />
-      <created>1779468281400</created>
-      <option name="number" value="00010" />
-      <option name="presentableId" value="LOCAL-00010" />
-      <option name="project" value="LOCAL" />
-      <updated>1779468281400</updated>
-    </task>
-    <task id="LOCAL-00011" summary="优化web管理界面功能。">
-      <option name="closed" value="true" />
-      <created>1779468338099</created>
-      <option name="number" value="00011" />
-      <option name="presentableId" value="LOCAL-00011" />
-      <option name="project" value="LOCAL" />
-      <updated>1779468338099</updated>
-    </task>
-    <task id="LOCAL-00012" summary="优化登录与注册逻辑，增加servermanager的管理分级。">
-      <option name="closed" value="true" />
-      <created>1779476736823</created>
-      <option name="number" value="00012" />
-      <option name="presentableId" value="LOCAL-00012" />
-      <option name="project" value="LOCAL" />
-      <updated>1779476736823</updated>
-    </task>
-    <task id="LOCAL-00013" summary="优化登录与注册逻辑，增加servermanager的管理分级。">
-      <option name="closed" value="true" />
-      <created>1779642925231</created>
-      <option name="number" value="00013" />
-      <option name="presentableId" value="LOCAL-00013" />
-      <option name="project" value="LOCAL" />
-      <updated>1779642925231</updated>
-    </task>
-    <task id="LOCAL-00014" summary="优化登录与注册逻辑，增加servermanager的管理分级。">
-      <option name="closed" value="true" />
-      <created>1779820649151</created>
-      <option name="number" value="00014" />
-      <option name="presentableId" value="LOCAL-00014" />
-      <option name="project" value="LOCAL" />
-      <updated>1779820649151</updated>
-    </task>
-    <task id="LOCAL-00015" summary="打包">
-      <option name="closed" value="true" />
-      <created>1779822217957</created>
-      <option name="number" value="00015" />
-      <option name="presentableId" value="LOCAL-00015" />
-      <option name="project" value="LOCAL" />
-      <updated>1779822217958</updated>
-    </task>
-    <task id="LOCAL-00016" summary="名称优化修改">
-      <option name="closed" value="true" />
-      <created>1781458574800</created>
-      <option name="number" value="00016" />
-      <option name="presentableId" value="LOCAL-00016" />
-      <option name="project" value="LOCAL" />
-      <updated>1781458574800</updated>
-    </task>
-    <option name="localTasksCounter" value="17" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
-  <component name="Vcs.Log.Tabs.Properties">
-    <option name="TAB_STATES">
-      <map>
-        <entry key="MAIN">
-          <value>
-            <State />
-          </value>
-        </entry>
-      </map>
-    </option>
-  </component>
-  <component name="VcsManagerConfiguration">
-    <MESSAGE value="提交" />
-    <MESSAGE value="api提交，修复部分web界面功能问题，增加配置读取功能环节，优化servereconomic功能，增加日志面板" />
-    <MESSAGE value="删除无用代码，测试代码，打包代码（后续重写）" />
-    <MESSAGE value="优化链接逻辑，优化子服务面板" />
-    <MESSAGE value="优化client界面样式，修复状态显示，增加时间切换功能。" />
-    <MESSAGE value="修改client的api功能" />
-    <MESSAGE value="修复client的登录功能。" />
-    <MESSAGE value="优化web管理界面功能。" />
-    <MESSAGE value="优化登录与注册逻辑，增加servermanager的管理分级。" />
-    <MESSAGE value="打包" />
-    <MESSAGE value="名称优化修改" />
-    <option name="LAST_COMMIT_MESSAGE" value="名称优化修改" />
-  </component>
-  <component name="github-copilot-workspace">
-    <instructionFileLocations>
-      <option value=".github/instructions" />
-    </instructionFileLocations>
-    <promptFileLocations>
-      <option value=".github/prompts" />
-    </promptFileLocations>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/EC_project$main__2_.coverage" NAME="main (2) 覆盖结果" MODIFIED="1784143128979" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Client" />
+    <SUITE FILE_PATH="coverage/EC_project$main__1_.coverage" NAME="main (1) 覆盖结果" MODIFIED="1784142011785" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Trader_Server" />
+    <SUITE FILE_PATH="coverage/EC_project$main.coverage" NAME="main 覆盖结果" MODIFIED="1784137258432" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Server_manager" />
   </component>
 </project>

@@ -10,13 +10,18 @@ Tastytrade 券商适配器
 
 import asyncio
 import datetime
+import json
 import logging
+import time
+import urllib.error
+import urllib.request
 from decimal import Decimal
 from typing import Any
 
 from .base import BaseBrokerAPI
 
 log = logging.getLogger("trader_server.api.tastytrade")
+TT_API_URL = "https://api.tastyworks.com"
 
 # SDK 导入标记
 _SDK_AVAILABLE = False
@@ -78,13 +83,22 @@ class TastytradeBroker(BaseBrokerAPI):
 
     @classmethod
     def credential_profiles(cls) -> list[tuple[str, ...]]:
-        return [("token", "secret")]
+        return [("token", "secret"), ("account_username", "account_password")]
 
     @staticmethod
     def _classify_connect_exception(exc: Exception) -> tuple[str, str, bool]:
         message = str(exc or "")[:240]
         lower = message.lower()
-        if any(flag in lower for flag in ("invalid_grant", "invalid jwt", "invalid credentials", "invalid token", "unauthorized", "401")):
+        if any(flag in lower for flag in (
+            "invalid_grant",
+            "invalid jwt",
+            "invalid credentials",
+            "invalid login",
+            "invalid token",
+            "please check your username and password",
+            "unauthorized",
+            "401",
+        )):
             return "BROKER_AUTH_INVALID", message, False
         if "forbidden" in lower or "403" in lower:
             return "BROKER_AUTH_FORBIDDEN", message, False
@@ -105,11 +119,32 @@ class TastytradeBroker(BaseBrokerAPI):
         self._quote_task: asyncio.Task | None = None
         self._subscribed_symbols: set[str] = set()
         self._quote_lock = asyncio.Lock()
+        self._last_connect_detail: dict[str, Any] = {}
+
+    def set_connection_error(
+        self,
+        code: str,
+        message: str,
+        retryable: bool = True,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        super().set_connection_error(code, message, retryable=retryable)
+        self._last_connect_detail = dict(detail or {})
+
+    def clear_connection_error(self) -> None:
+        super().clear_connection_error()
+        self._last_connect_detail = {}
+
+    def get_connection_error(self) -> dict[str, Any]:
+        err = super().get_connection_error()
+        if self._last_connect_detail:
+            err.update(self._last_connect_detail)
+        return err
 
 
 
     async def connect(self, credentials: dict) -> bool:
-        """浣跨敤 secret+token 鍒涘缓 TT Session 骞惰幏鍙?Account"""
+        """Create a TT session from token/secret or interactive username/password login."""
         self._connected = False
         self._session = None
         self._account = None
@@ -131,9 +166,25 @@ class TastytradeBroker(BaseBrokerAPI):
         secret = normalized.get("secret", "")
         token = normalized.get("token", "")
         acct_num = normalized.get("account_number", "")
+        account_username = normalized.get("account_username", "")
+        account_password = normalized.get("account_password", "")
+        challenge_token = normalized.get("challenge_token", "")
+        otp = normalized.get("otp", "")
 
         try:
-            self._session = Session(secret, token)
+            if secret and token:
+                self._session = Session(secret, token)
+            elif account_username and account_password:
+                self._session = await self._create_password_session(
+                    account_username=account_username,
+                    account_password=account_password,
+                    challenge_token=challenge_token,
+                    otp=otp,
+                )
+            else:
+                self.set_connection_error("BROKER_CREDENTIALS_INVALID", "Missing Tastytrade credentials", retryable=False)
+                return False
+
             accts = await Account.get(self._session)
             if acct_num:
                 self._account = next(
@@ -155,12 +206,141 @@ class TastytradeBroker(BaseBrokerAPI):
             return True
 
         except Exception as e:
+            if str(getattr(e, "args", [""])[0]) == "BROKER_DEVICE_CHALLENGE_REQUIRED":
+                return False
             code, message, retryable = self._classify_connect_exception(e)
             self.set_connection_error(code, message, retryable=retryable)
             log.error(f"TastytradeBroker connect failed [{code}]: {message}")
             self._session = None
             self._account = None
             return False
+
+    async def _create_password_session(
+        self,
+        account_username: str,
+        account_password: str,
+        challenge_token: str = "",
+        otp: str = "",
+    ) -> Any:
+        payload = {
+            "login": account_username,
+            "password": account_password,
+            "remember-me": True,
+        }
+        headers = {}
+        if challenge_token:
+            headers["X-Tastyworks-Challenge-Token"] = challenge_token
+        if otp:
+            headers["X-Tastyworks-OTP"] = otp
+
+        result = await self._tt_post_json("/sessions", payload, headers=headers)
+        data = result.get("body", {}) if isinstance(result.get("body"), dict) else {}
+        body_data = data.get("data", data) if isinstance(data, dict) else {}
+        session_token = self._pick_first(
+            body_data,
+            "session-token",
+            "session_token",
+            "sessionToken",
+            "access-token",
+            "access_token",
+            "token",
+        )
+        refresh_token = self._pick_first(
+            body_data,
+            "remember-token",
+            "remember_token",
+            "refresh-token",
+            "refresh_token",
+        )
+        provider_secret = self.normalize_credentials(self._credentials).get("secret") or "session-login"
+
+        if refresh_token and provider_secret and provider_secret != "session-login":
+            return Session(provider_secret, refresh_token)
+        if not session_token:
+            keys = ", ".join(sorted(str(k) for k in body_data.keys())) if isinstance(body_data, dict) else ""
+            raise RuntimeError(f"Tastytrade login succeeded but no session token was returned (keys: {keys})")
+
+        session = Session(provider_secret or "session-login", refresh_token or "session-login")
+        session.session_token = session_token
+        session.session_expiration = time.time() + 12 * 60 * 60
+        session._client.headers.update({"Authorization": f"Bearer {session_token}"})
+        return session
+
+    async def _tt_post_json(self, path: str, payload: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: self._tt_post_json_sync(path, payload, headers or {}))
+
+    def _tt_post_json_sync(self, path: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+        url = f"{TT_API_URL}{path}"
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
+        req.add_header("Accept", "application/json")
+        req.add_header("Content-Type", "application/json")
+        for key, value in headers.items():
+            if value:
+                req.add_header(key, value)
+
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                return {"status": resp.status, "headers": dict(resp.headers), "body": json.loads(raw) if raw else {}}
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            try:
+                body = json.loads(raw) if raw else {}
+            except Exception:
+                body = {"error": raw[:240]}
+            self._handle_tt_login_error(exc.code, dict(exc.headers), body)
+            raise
+
+    def _handle_tt_login_error(self, status: int, headers: dict[str, str], body: dict[str, Any]) -> None:
+        error_code = str(body.get("error", {}).get("code") if isinstance(body.get("error"), dict) else body.get("error_code") or body.get("code") or "")
+        message = str(
+            body.get("error", {}).get("message") if isinstance(body.get("error"), dict) else body.get("message") or body.get("error_description") or error_code or f"HTTP {status}"
+        )
+        challenge_token = headers.get("X-Tastyworks-Challenge-Token") or headers.get("x-tastyworks-challenge-token") or ""
+
+        if status == 403 and ("device_challenge_required" in error_code or challenge_token):
+            challenge = self._request_device_challenge(challenge_token)
+            self.set_connection_error(
+                "BROKER_DEVICE_CHALLENGE_REQUIRED",
+                "Tastytrade device challenge required",
+                retryable=False,
+                detail={
+                    "challenge_token": challenge_token,
+                    "challenge": challenge,
+                },
+            )
+            raise RuntimeError("BROKER_DEVICE_CHALLENGE_REQUIRED")
+
+        if status in (400, 401, 403):
+            self.set_connection_error("BROKER_AUTH_INVALID", message[:240], retryable=False)
+            raise RuntimeError(message[:240])
+        self.set_connection_error("BROKER_CONNECT_FAILED", message[:240], retryable=True)
+        raise RuntimeError(message[:240])
+
+    def _request_device_challenge(self, challenge_token: str) -> dict[str, Any]:
+        if not challenge_token:
+            return {}
+        try:
+            req = urllib.request.Request(f"{TT_API_URL}/device-challenge", data=b"{}", method="POST")
+            req.add_header("Accept", "application/json")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("X-Tastyworks-Challenge-Token", challenge_token)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                body = json.loads(raw) if raw else {}
+                return body.get("data", body) if isinstance(body, dict) else {}
+        except Exception as exc:
+            log.warning("Tastytrade device challenge request failed: %s", str(exc)[:120])
+            return {}
+
+    @staticmethod
+    def _pick_first(data: dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            value = data.get(key) if isinstance(data, dict) else None
+            if value:
+                return str(value)
+        return ""
     async def disconnect(self) -> None:
         """断开连接，清除缓存"""
         await self._stop_quote_stream()

@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from ..config import state, verify_trade_service_login
+from ..config import state
 from ..services import broker_gate
 
 log = logging.getLogger("trader_server.ws_server")
@@ -310,7 +310,7 @@ async def _route_message(
 ) -> dict[str, Any] | None:
     from ..services.message_log import on_recv, on_send
 
-    on_recv(session_id, msg_type, msg.get('payload'), trace_id=trace_id)
+    on_recv(session_id, msg_type, _redact_sensitive_payload(msg.get('payload')), trace_id=trace_id)
     handler = _MESSAGE_HANDLERS.get(msg_type)
     if handler is None:
         log.warning('Unknown message type: %s from %s', msg_type, session_id)
@@ -321,13 +321,36 @@ async def _route_message(
     try:
         response = await handler(msg, session_id, trace_id, conn or {})
         if response is not None:
-            on_send(session_id, response.get('type', 'UNKNOWN'), response.get('payload'), True, trace_id=trace_id)
+            on_send(
+                session_id,
+                response.get('type', 'UNKNOWN'),
+                _redact_sensitive_payload(response.get('payload')),
+                True,
+                trace_id=trace_id,
+            )
         return response
     except Exception as exc:
         log.error('Handler error for %s: %s', msg_type, exc, exc_info=True)
         err_resp = _error_response('INTERNAL_ERROR', str(exc)[:100], trace_id=trace_id)
         on_send(session_id, 'ERROR', err_resp.get('payload'), False, trace_id=trace_id)
         return err_resp
+
+
+def _redact_sensitive_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    redacted = dict(payload)
+    for key in (
+        'password',
+        'account_password',
+        'token',
+        'secret',
+        'otp',
+        'challenge_token',
+    ):
+        if key in redacted:
+            redacted[key] = '***'
+    return redacted
 
 
 async def _handle_economic_query(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -478,9 +501,14 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
 
 
 async def _handle_broker_login(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
+    from ..services.config_sync import login_broker_with_credentials
+
     payload = msg.get('payload', {}) if isinstance(msg.get('payload', {}), dict) else {}
     account_username = str(payload.get('account_username') or '').strip()
     account_password = str(payload.get('account_password') or '')
+    challenge_token = str(payload.get('challenge_token') or '')
+    otp = str(payload.get('otp') or '').strip()
+    broker_type = str(payload.get('broker_type') or '').strip()
     username = (conn or {}).get('username', '')
     server_id = (conn or {}).get('server_id', state.server_id)
 
@@ -493,32 +521,46 @@ async def _handle_broker_login(msg: dict[str, Any], sid: str, trace_id: str = ''
             'payload': {
                 'success': False,
                 'code': 'BROKER_CREDENTIALS_REQUIRED',
-                'message': 'Trade service username and password are required',
+                'message': 'Broker username and password are required',
                 'gate': status,
                 'trace_id': trace_id,
             },
         }
 
-    if not verify_trade_service_login(account_username, account_password):
+    login_result = await login_broker_with_credentials(
+        broker_type=broker_type,
+        credentials={
+            'account_username': account_username,
+            'account_password': account_password,
+            'challenge_token': challenge_token,
+            'otp': otp,
+        },
+    )
+    if not bool(login_result.get('success')):
         status = broker_gate.get_gate_status(username, server_id)
+        code = str(login_result.get('code') or 'BROKER_LOGIN_FAILED')
+        payload_out: dict[str, Any] = {
+            'success': False,
+            'code': code,
+            'message': str(login_result.get('message') or 'Broker login failed'),
+            'gate': status,
+            'retryable': bool(login_result.get('retryable', False)),
+            'trace_id': trace_id,
+        }
+        if code == 'BROKER_DEVICE_CHALLENGE_REQUIRED':
+            payload_out['challenge_token'] = str(login_result.get('challenge_token') or '')
+            payload_out['challenge'] = login_result.get('challenge') if isinstance(login_result.get('challenge'), dict) else {}
         return {
             'type': 'BROKER_LOGIN_RESPONSE',
             'id': msg.get('id', ''),
             'timestamp': int(time.time() * 1000),
-            'payload': {
-                'success': False,
-                'code': 'TRADE_SERVICE_LOGIN_FAILED',
-                'message': 'Trade service login failed',
-                'gate': status,
-                'trace_id': trace_id,
-            },
+            'payload': payload_out,
         }
 
     status = broker_gate.login_gate(
         username=username,
         server_id=server_id,
         account_username=account_username,
-        account_password=account_password,
     )
     return {
         'type': 'BROKER_LOGIN_RESPONSE',
@@ -526,8 +568,8 @@ async def _handle_broker_login(msg: dict[str, Any], sid: str, trace_id: str = ''
         'timestamp': int(time.time() * 1000),
         'payload': {
             'success': True,
-            'code': 'TRADE_SERVICE_LOGIN_OK',
-            'message': 'Trade service login active',
+            'code': 'BROKER_LOGIN_OK',
+            'message': 'Broker login active',
             'gate': status,
             'trace_id': trace_id,
         },
@@ -554,6 +596,9 @@ async def _handle_broker_status_query(msg: dict[str, Any], sid: str, trace_id: s
 
 
 async def _handle_broker_logout(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
+    from ..services.config_sync import logout_current_broker
+
+    await logout_current_broker()
     status = broker_gate.logout_gate((conn or {}).get('username', ''), (conn or {}).get('server_id', state.server_id))
     return {
         'type': 'BROKER_LOGOUT_RESPONSE',

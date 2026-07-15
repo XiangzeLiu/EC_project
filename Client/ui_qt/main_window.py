@@ -351,6 +351,7 @@ class TradingTerminalQt(QMainWindow):
         self._quote_requested_symbols: set[str] = set()
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
+        self._ui_backdoor_mode = False
 
         root = QWidget()
         root.setObjectName("root")
@@ -560,6 +561,10 @@ class TradingTerminalQt(QMainWindow):
         password = self._login_pass_entry.text() if self._login_pass_entry else ""
         if not username or not password:
             self._set_init_hint("请输入账号和密码")
+            return
+        if username == "dev" and password == "dev":
+            self._set_init_hint("")
+            self._enter_dev_main_interface(username)
             return
         self._set_init_hint("")
         self._show_connection_page()
@@ -1231,21 +1236,23 @@ class TradingTerminalQt(QMainWindow):
         return {"active": False, "status": "not_logged_in", "display": "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55"}
 
     def _trade_controls_enabled(self) -> bool:
+        if self._ui_backdoor_mode:
+            return True
         return bool(self.session and self.session.connected and self._se_connected and getattr(self.session, "broker_gate_active", False))
 
     def _apply_broker_gate_ui(self) -> None:
         if not self._main_ui_built:
             return
         gate = self._broker_gate_state()
-        active = bool(gate.get("active") and self.session and self.session.connected and self._se_connected)
+        active = bool(self._ui_backdoor_mode or (gate.get("active") and self.session and self.session.connected and self._se_connected))
         enabled = self._trade_controls_enabled()
-        display = gate.get("display") or ("\u4ea4\u6613\u670d\u52a1\u5df2\u767b\u5f55" if active else "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55")
+        display = "DEV UI 后门已解锁" if self._ui_backdoor_mode else (gate.get("display") or ("\u4ea4\u6613\u670d\u52a1\u5df2\u767b\u5f55" if active else "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55"))
         if hasattr(self, "account_state"):
-            style_status_pill(self.account_state, "Connect" if active else "Disconnect", active=True, danger=not active)
+            style_status_pill(self.account_state, "DEV" if self._ui_backdoor_mode else ("Connect" if active else "Disconnect"), active=True, danger=not active)
         self.broker_login_btn.setEnabled(bool(self.session and self.session.connected and self._se_connected))
         self.broker_login_btn.setText("\u5df2\u767b\u5f55" if active else "登录")
-        self.broker_user_entry.setEnabled(not active)
-        self.broker_pass_entry.setEnabled(not active)
+        self.broker_user_entry.setEnabled(not active and not self._ui_backdoor_mode)
+        self.broker_pass_entry.setEnabled(not active and not self._ui_backdoor_mode)
         for slot in self.slots.values():
             slot.set_trade_enabled(enabled)
         self.orders_refresh_btn.setEnabled(enabled)
@@ -1322,6 +1329,10 @@ class TradingTerminalQt(QMainWindow):
                 if startup:
                     QTimer.singleShot(80, self._show_startup_login)
                 return
+            if username == "dev" and password == "dev":
+                self._startup_login_required = False
+                self._enter_dev_main_interface(username)
+                return
             self._startup_login_required = startup
             self._run_bg(lambda: self._login_manager(username, password, False))
         finally:
@@ -1331,9 +1342,28 @@ class TradingTerminalQt(QMainWindow):
         self._run_bg(lambda: self._login_manager(username, password, force))
 
     def _login_manager(self, username: str, password: str, force: bool = False) -> None:
+        self._ui_backdoor_mode = False
         self.session = TradingSession(self.http)
         ok, msg = self.session.login(username, password, force=force)
         self._ui(lambda: self._handle_manager_login_result(ok, msg, username, password))
+
+    def _enter_dev_main_interface(self, username: str) -> None:
+        self._ui_backdoor_mode = True
+        self.session = TradingSession(self.http)
+        self.session.connected = True
+        self.session.mock_mode = False
+        self.session.se_address = f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        self.http.token = "dev-ui-backdoor"
+        self._login_username = username
+        self._login_password = ""
+        self._startup_login_required = False
+        self._se_target_address = self.session.se_address
+        self._se_connected = False
+        self._show_connection_page()
+        self._update_init_step("auth", "本地后门", theme.ACCENT_BLUE)
+        self._update_init_step("sm", "已跳过", theme.TEXT_MUTED)
+        self._update_init_step("se", "未连接", theme.TEXT_MUTED)
+        self._enter_main_interface()
 
     def _handle_manager_login_result(self, ok: bool, msg: str, username: str, password: str) -> None:
         if not ok:
@@ -1716,9 +1746,16 @@ class TradingTerminalQt(QMainWindow):
         self._build_root()
         self._main_ui_built = True
         self._set_se_connection_ui(self._se_connected)
-        self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
-        self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
+        if self._ui_backdoor_mode:
+            self._append_log("DEV UI 后门已启用", "warn")
+            self._append_log("交易服务器未连接，仅用于界面操作", "inf")
+        else:
+            self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
+            self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
         self._apply_broker_gate_ui()
+        if self._ui_backdoor_mode:
+            for slot in self.slots.values():
+                slot.set_trade_enabled(True)
         self._refresh_broker_gate_async(log_errors=False)
         self._sync_quote_subscriptions_async()
 
@@ -1776,10 +1813,10 @@ class TradingTerminalQt(QMainWindow):
         self._run_bg(lambda: self._broker_login_bg(username, password))
 
     def _broker_login_bg(self, username: str, password: str) -> None:
-        ok, msg = self.session.broker_login(username, password) if self.session else (False, "\u672a\u8fde\u63a5")
-        self._ui(lambda: self._handle_broker_login_result(ok, msg))
+        ok, msg, payload = self.session.broker_login(username, password) if self.session else (False, "\u672a\u8fde\u63a5", {})
+        self._ui(lambda: self._handle_broker_login_result(ok, msg, payload, username, password))
 
-    def _handle_broker_login_result(self, ok: bool, msg: str) -> None:
+    def _handle_broker_login_result(self, ok: bool, msg: str, payload: dict | None = None, username: str = "", password: str = "") -> None:
         self.broker_login_btn.setEnabled(True)
         self.broker_login_btn.setText("登录")
         self._apply_broker_gate_ui()
@@ -1787,8 +1824,29 @@ class TradingTerminalQt(QMainWindow):
             self._append_log("\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u6210\u529f", "ok")
             self._refresh_positions()
             self._refresh_orders()
+        elif isinstance(payload, dict) and payload.get("code") == "BROKER_DEVICE_CHALLENGE_REQUIRED":
+            self._prompt_broker_otp(username, password, str(payload.get("challenge_token") or ""))
         else:
             self._log_user_error_once(f"\u4ea4\u6613\u670d\u52a1\u767b\u5f55\u5931\u8d25\uff1a{localize_user_message(msg)}")
+
+    def _prompt_broker_otp(self, username: str, password: str, challenge_token: str) -> None:
+        if not challenge_token:
+            self._log_user_error_once("券商设备验证失败：缺少 challenge token")
+            return
+        dialog = BrokerOtpDialog(self)
+        accepted = dialog.exec() == QDialog.Accepted
+        otp = dialog.otp()
+        otp = (otp or "").strip()
+        if not accepted or not otp:
+            self._log_user_error_once("券商登录已取消", "warn")
+            return
+        self.broker_login_btn.setEnabled(False)
+        self.broker_login_btn.setText("验证中...")
+        self._run_bg(lambda: self._broker_login_otp_bg(username, password, challenge_token, otp))
+
+    def _broker_login_otp_bg(self, username: str, password: str, challenge_token: str, otp: str) -> None:
+        ok, msg, payload = self.session.broker_login(username, password, challenge_token=challenge_token, otp=otp) if self.session else (False, "\u672a\u8fde\u63a5", {})
+        self._ui(lambda: self._handle_broker_login_result(ok, msg, payload, username, password))
 
     def _refresh_broker_gate_async(self, log_errors: bool = False) -> None:
         if not self.session or not self.session.connected or not self._se_connected:
@@ -2071,6 +2129,86 @@ class ManagerLoginDialog(QDialog):
 
     def credentials(self) -> tuple[str, str]:
         return self._username.text().strip(), self._password.text()
+
+
+class BrokerOtpDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("券商验证")
+        self.setModal(True)
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(420)
+        self.setStyleSheet(
+            theme.APP_QSS
+            + f"""
+            QDialog {{
+                background: {theme.TERM_BG};
+                color: {theme.TEXT_PRIMARY};
+                border: none;
+            }}
+            QLineEdit {{
+                background: {theme.INPUT_BG};
+                color: {theme.TEXT_PRIMARY};
+                border: 1px solid {theme.BORDER};
+                border-radius: 8px;
+                padding: 9px 12px;
+                selection-background-color: {theme.ACCENT_BLUE};
+                selection-color: #07121B;
+            }}
+            QPushButton {{
+                background: {theme.PANEL_ALT_BG};
+                color: {theme.TEXT_PRIMARY};
+                border: 1px solid {theme.BORDER};
+                border-radius: 8px;
+                padding: 8px 16px;
+                min-height: 30px;
+            }}
+            QPushButton#loginButton {{
+                background: {theme.PANEL_ALT_BG};
+                color: {theme.ACCENT_BLUE};
+                border: 1px solid {theme.ACCENT_BLUE};
+                font-weight: 700;
+            }}
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        panel = QFrame()
+        panel.setStyleSheet(f"background: {theme.TERM_BG}; border: none;")
+        layout.addWidget(panel)
+
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(24, 22, 24, 22)
+        panel_layout.setSpacing(12)
+
+        hint = make_label("请输入验证码", color=theme.TEXT_DIM, font=theme.ui_font(12, bold=True))
+        hint.setAlignment(Qt.AlignCenter)
+        panel_layout.addWidget(hint)
+
+        self._otp = make_input("", placeholder="验证码")
+        self._otp.setAlignment(Qt.AlignCenter)
+        self._otp.setFixedWidth(210)
+        self._otp.setFont(theme.mono_font(14, bold=True))
+        self._otp.returnPressed.connect(self.accept)
+        panel_layout.addWidget(self._otp, alignment=Qt.AlignCenter)
+
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 10, 0, 0)
+        buttons.setSpacing(0)
+        cancel = make_button("取消", min_width=128)
+        ok = make_button("确认", object_name="loginButton", min_width=128)
+        cancel.clicked.connect(self.reject)
+        ok.clicked.connect(self.accept)
+        buttons.addWidget(cancel, alignment=Qt.AlignCenter)
+        buttons.addWidget(ok, alignment=Qt.AlignCenter)
+        panel_layout.addLayout(buttons)
+        self._otp.setFocus()
+
+    def otp(self) -> str:
+        return self._otp.text().strip()
 
 
 def run() -> int:

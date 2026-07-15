@@ -53,7 +53,7 @@ def _status_record(username: str, server_id: str) -> dict[str, Any]:
     }
 
 
-def login_gate(username: str, server_id: str, account_username: str, account_password: str) -> dict[str, Any]:
+def login_gate(username: str, server_id: str, account_username: str) -> dict[str, Any]:
     rec = {
         'username': (username or '').strip(),
         'server_id': (server_id or '').strip(),
