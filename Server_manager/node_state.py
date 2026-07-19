@@ -342,6 +342,10 @@ class NodeStateManager:
             被探活确认死亡并标记为离线的 server_id 列表。
         """
         import socket
+        try:
+            from .address_utils import tcp_probe_target
+        except ImportError:
+            from address_utils import tcp_probe_target
 
         now = time.time()
         offline_ids = []
@@ -351,24 +355,18 @@ class NodeStateManager:
             if state.status != "online":
                 continue
 
-            # 解析目标地址（优先用 current_ip，其次 _host）
-            target = state.current_ip or state._host or ""
+            # 解析目标地址（生产优先使用注册时配置的域名/WSS 入口）
+            target = state._host or state.current_ip or ""
             if not target:
                 continue
 
-            # 从地址中提取 host 和 port
-            host = target
-            port = self._TS_DEFAULT_PORT
-            if ":" in target:
-                parts = target.rsplit(":", 1)
-                host = parts[0]
-                try:
-                    port = int(parts[1])
-                except (ValueError, IndexError):
-                    port = self._TS_DEFAULT_PORT
+            probe_target = tcp_probe_target(target, default_port=self._TS_DEFAULT_PORT)
+            if not probe_target:
+                continue
+            host, port = probe_target
 
             # 跳过明显无效的地址
-            if not host or host in ("", "0.0.0.0"):
+            if not host:
                 continue
 
             probed += 1

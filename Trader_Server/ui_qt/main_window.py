@@ -41,7 +41,14 @@ else:
         sys.path.insert(0, str(project_root))
     from Trader_Server.ui_qt import theme
 
-from Trader_Server.config import DEFAULT_MANAGER_URL, DEFAULT_NODE_NAME, DEFAULT_REGION, state
+from Trader_Server.config import (
+    DEFAULT_HOST,
+    DEFAULT_MANAGER_URL,
+    DEFAULT_NODE_NAME,
+    DEFAULT_REGION,
+    DEFAULT_WS_PORT,
+    state,
+)
 from Trader_Server.ui_qt.api_client import TSApiClient
 
 
@@ -575,14 +582,16 @@ class TraderServerWindow(QMainWindow):
         self.fm_region.setCurrentText(DEFAULT_REGION if DEFAULT_REGION in {"IB", "TT", "Test"} else "TT")
         self.fm_region.setMinimumHeight(42)
 
-        self.fm_host = make_input(self._detect_host(), readonly=True)
-        self.fm_host.setEnabled(False)
+        self.fm_host = make_input(
+            self._default_public_endpoint(),
+            placeholder="wss://sg-01.ts.yourdomain.com/ws 或 127.0.0.1:8900",
+        )
 
         for title, widget in (
             ("管理服务器地址 *", self.fm_mgr_url),
             ("节点名称 *", self.fm_node_name),
             ("券商类型 *", self.fm_region),
-            ("主机地址", self.fm_host),
+            ("对外访问地址 *", self.fm_host),
         ):
             layout.addWidget(make_label(title, object_name="caption"))
             layout.addWidget(widget)
@@ -907,9 +916,12 @@ class TraderServerWindow(QMainWindow):
             sock.connect(("8.8.8.8", 80))
             ip = sock.getsockname()[0]
             sock.close()
-            return f"{ip}:8900"
+            return f"{ip}:{DEFAULT_WS_PORT}"
         except Exception:
-            return "127.0.0.1:8900"
+            return f"127.0.0.1:{DEFAULT_WS_PORT}"
+
+    def _default_public_endpoint(self) -> str:
+        return DEFAULT_HOST or self._detect_host()
 
     def _append_local_log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
@@ -1083,6 +1095,7 @@ class TraderServerWindow(QMainWindow):
         self.fm_mgr_url.setEnabled(not locked)
         self.fm_node_name.setEnabled(not locked)
         self.fm_region.setEnabled(not locked)
+        self.fm_host.setEnabled(not locked)
 
         if self._register_in_progress:
             self.register_button.setText("等待审批中...")
@@ -1112,7 +1125,7 @@ class TraderServerWindow(QMainWindow):
             "region": self.fm_region.currentText().strip(),
             "host": self.fm_host.text().strip(),
         }
-        if not payload["manager_url"] or not payload["node_name"] or not payload["region"]:
+        if not payload["manager_url"] or not payload["node_name"] or not payload["region"] or not payload["host"]:
             self._show_message_dialog(
                 "参数不完整",
                 "请完整填写注册参数后再提交。",

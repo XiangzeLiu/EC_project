@@ -4,18 +4,28 @@ HTTP Client
 用于认证、订单操作、数据查询等REST API调用
 """
 
-import json
-import urllib.request
 import urllib.error
+import urllib.request
+import json
 
-from ..constants import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
+from ..constants import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, DEFAULT_SM_BASE_URL
 
 
 class HttpClient:
     """HTTP REST API 客户端"""
 
-    def __init__(self, host: str = DEFAULT_SERVER_HOST, port: int = DEFAULT_SERVER_PORT):
-        self.base_url = f"http://{host}:{port}"
+    def __init__(
+        self,
+        host: str = DEFAULT_SERVER_HOST,
+        port: int = DEFAULT_SERVER_PORT,
+        base_url: str = DEFAULT_SM_BASE_URL,
+    ):
+        configured_url = (base_url or "").strip()
+        host_value = (host or "").strip()
+        if not configured_url and host_value.startswith(("http://", "https://")):
+            configured_url = host_value
+
+        self.base_url = (configured_url or f"http://{host_value}:{port}").rstrip("/")
         self._token: str = ""
 
     @property
@@ -42,7 +52,8 @@ class HttpClient:
         Returns:
             (status_code, response_dict) 元组
         """
-        url = self.base_url + path
+        request_path = path if path.startswith("/") else f"/{path}"
+        url = self.base_url + request_path
         data = json.dumps(body).encode() if body else None
         headers = {"Content-Type": "application/json"}
         if self._token:

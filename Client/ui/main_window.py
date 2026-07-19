@@ -10,6 +10,7 @@ import random
 import re
 import threading
 import time
+from urllib.parse import quote
 
 # 鏃跺尯鏀寔锛圥ython 3.9+ 浣跨敤 zoneinfo锛屾洿浣庣増鏈洖閫鍒?pytz锛?
 try:
@@ -58,6 +59,14 @@ _TIF_LABELS = {
     "Day": "当日有效",
     "GTC": "撤单前有效",
 }
+
+
+def _default_se_target() -> str:
+    return DEFAULT_TS_WS_URL or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+
+
+def _encode_query_value(value: str) -> str:
+    return quote(value or "", safe="")
 
 
 def _format_order_action(action: str) -> str:
@@ -479,7 +488,7 @@ class TradingTerminal(tk.Tk):
                 _validate_se(se_addr)
             else:
                 # 鍗充娇鏄粯璁ゅ湴鍧锛屼篃蹇呴』鍏堥氳繃 SM 楠岃瘉鑺傜偣鍦ㄧ嚎
-                _validate_se(DEFAULT_TS_HOST)
+                _validate_se(_default_se_target())
 
         def _validate_se(se_address: str):
             """UI helper."""
@@ -488,7 +497,7 @@ class TradingTerminal(tk.Tk):
             def _check():
                 try:
                     status_code, resp_data = self.http.get(
-                        f"/api/accounts/se-status?address={se_address}",
+                        f"/api/accounts/se-status?address={_encode_query_value(se_address)}",
                     )
                     if status_code == 200 and resp_data.get("ok"):
                         if resp_data.get("online"):
@@ -543,20 +552,16 @@ class TradingTerminal(tk.Tk):
             """
             self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
             token = self.http.token
-            target = target_addr or getattr(self, '_se_target_address', '') or DEFAULT_TS_HOST
-            if ':' in target:
-                hp = target.rsplit(':', 1)
-                host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_TS_PORT
-            else:
-                host, port = target, DEFAULT_TS_PORT
-            self._last_connected_se = f"{host}:{port}"
+            target = target_addr or getattr(self, '_se_target_address', '') or _default_se_target()
+            endpoint = TSWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_TS_PORT)
+            self._last_connected_se = endpoint
 
             max_retries = 5
             for attempt in range(1, max_retries + 1):
                 self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
 
                 ts_client = TSWebSocketClient(
-                    host=host, port=port, token=token, server_id=self._se_server_id,
+                    ws_url=endpoint, port=DEFAULT_TS_PORT, token=token, server_id=self._se_server_id,
                     on_message_callback=self._on_init_se_msg,
                     on_status_callback=self._on_init_se_status,
                     reconnect_enabled=False,
@@ -580,7 +585,7 @@ class TradingTerminal(tk.Tk):
                     # 杩炴帴鎴愬姛锛佸仠姝㈡棫瀹㈡埛绔?鍒涘缓鍚敤閲嶈繛鐨勬柊瀹㈡埛绔?
                     ts_client.stop()
                     ts_client = TSWebSocketClient(
-                        host=host, port=port, token=token, server_id=self._se_server_id,
+                        ws_url=endpoint, port=DEFAULT_TS_PORT, token=token, server_id=self._se_server_id,
                         on_message_callback=self._on_init_se_msg,
                         on_status_callback=self._on_init_se_status,
                         reconnect_enabled=TS_RECONNECT_ENABLED,
@@ -688,7 +693,7 @@ class TradingTerminal(tk.Tk):
         if se_addr:
             self.after(200, lambda: self._retry_se_connect(se_addr))
         else:
-            self.after(200, lambda: self._retry_se_connect(DEFAULT_SE_HOST))
+            self.after(200, lambda: self._retry_se_connect(_default_se_target()))
 
     def _retry_se_connect(self, target_addr: str):
         """UI helper."""
@@ -698,7 +703,7 @@ class TradingTerminal(tk.Tk):
         def _check():
             try:
                 status_code, resp_data = self.http.get(
-                    f"/api/accounts/se-status?address={target_addr}",
+                    f"/api/accounts/se-status?address={_encode_query_value(target_addr)}",
                 )
                 if status_code == 200 and resp_data.get("ok") and resp_data.get("online"):
                     # 妫鏌ユ槸鍚﹁鍏朵粬璐︽埛鍗犵敤
@@ -744,19 +749,16 @@ class TradingTerminal(tk.Tk):
         """
         self._update_init_step("se", "Connecting...", ACCENT_YELLOW)
         token = self.http.token
-        target = target_addr or DEFAULT_SE_HOST
-        if ':' in target:
-            hp = target.rsplit(':', 1)
-            host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
-        else:
-            host, port = target, DEFAULT_SE_PORT
+        target = target_addr or _default_se_target()
+        endpoint = SEWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_SE_PORT)
+        self._last_connected_se = endpoint
 
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             self._update_init_step("se", f"Connecting ({attempt}/{max_retries})...", ACCENT_YELLOW)
 
             se_client = SEWebSocketClient(
-                host=host, port=port, token=token, server_id=self._se_server_id,
+                ws_url=endpoint, port=DEFAULT_SE_PORT, token=token, server_id=self._se_server_id,
                 on_message_callback=self._on_init_se_msg,
                 on_status_callback=self._on_init_se_status,
                 reconnect_enabled=False,
@@ -780,7 +782,7 @@ class TradingTerminal(tk.Tk):
                 # 杩炴帴鎴愬姛锛佸仠姝㈡棫瀹㈡埛绔?鍒涘缓鍚敤閲嶈繛鐨勬柊瀹㈡埛绔?
                 se_client.stop()
                 se_client = SEWebSocketClient(
-                    host=host, port=port, token=token, server_id=self._se_server_id,
+                    ws_url=endpoint, port=DEFAULT_SE_PORT, token=token, server_id=self._se_server_id,
                     on_message_callback=self._on_init_se_msg,
                     on_status_callback=self._on_init_se_status,
                     reconnect_enabled=SE_RECONNECT_ENABLED,
@@ -1991,15 +1993,12 @@ class TradingTerminal(tk.Tk):
             return
 
         self._se_btn.config(state="disabled", text="\u6821\u9a8c\u4e2d\u2026")
-        target_addr = self._se_target_address or DEFAULT_SE_HOST
+        target_addr = self._se_target_address or _default_se_target()
 
         def _do_connect_with_retry(max_retries=5):
             token = self.http.token
-            if ':' in target_addr:
-                hp = target_addr.rsplit(':', 1)
-                host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
-            else:
-                host, port = target_addr, DEFAULT_SE_PORT
+            endpoint = SEWebSocketClient.normalize_endpoint(target_addr, default_port=DEFAULT_SE_PORT)
+            self._last_connected_se = endpoint
 
             last_err = ""
             for attempt in range(1, max_retries + 1):
@@ -2008,7 +2007,7 @@ class TradingTerminal(tk.Tk):
                 ))
 
                 client = SEWebSocketClient(
-                    host=host, port=port, token=token,
+                    ws_url=endpoint, port=DEFAULT_SE_PORT, token=token,
                     on_message_callback=self._on_se_message,
                     on_status_callback=self._on_se_status,
                     reconnect_enabled=False,
@@ -2044,7 +2043,7 @@ class TradingTerminal(tk.Tk):
         def _check():
             try:
                 status_code, resp_data = self.http.get(
-                    f"/api/accounts/se-status?address={target_addr}",
+                    f"/api/accounts/se-status?address={_encode_query_value(target_addr)}",
                 )
                 if status_code == 200 and resp_data.get("ok") and resp_data.get("online"):
                     occupied_by = (resp_data.get("occupied_by") or "").strip()
@@ -2277,14 +2276,10 @@ class TradingTerminal(tk.Tk):
 
         self._reconnecting = True
         self._reconnect_cancelled = False
-        target_addr = self._last_connected_se or self._se_target_address or DEFAULT_SE_HOST
+        target_addr = self._last_connected_se or self._se_target_address or _default_se_target()
         token = self.http.token
 
-        if ':' in target_addr:
-            hp = target_addr.rsplit(':', 1)
-            host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_SE_PORT
-        else:
-            host, port = target_addr, DEFAULT_SE_PORT
+        endpoint = SEWebSocketClient.normalize_endpoint(target_addr, default_port=DEFAULT_SE_PORT)
 
         # 鈽?鍏抽敭淇锛氬厛鍋滄鏃у鎴风锛岄槻姝㈠菇鐏电嚎绋嬫畫鐣?
         # 鏃у鎴风鐨勫悗鍙扮嚎绋嬪彲鑳戒粛鍦?sleep/閫閬跨瓑寰咃紝濡傛灉涓?stop()锛?
@@ -2294,7 +2289,7 @@ class TradingTerminal(tk.Tk):
 
         # 鍒涘缓鍚敤閲嶈繛鐨?SE 瀹㈡埛绔?
         se_client = SEWebSocketClient(
-            host=host, port=port, token=token,
+            ws_url=endpoint, port=DEFAULT_SE_PORT, token=token,
             on_message_callback=self._on_se_message,
             on_status_callback=self._on_se_status,
             reconnect_enabled=SE_RECONNECT_ENABLED,

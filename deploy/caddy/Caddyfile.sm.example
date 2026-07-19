@@ -1,0 +1,8 @@
+# Replace sm.yourdomain.com with your real SM domain.
+# Keep Server_manager bound to 127.0.0.1:8800.
+
+sm.yourdomain.com {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:8800
+}

@@ -7,7 +7,7 @@ SM keeps only the health endpoint here.
 from fastapi import APIRouter
 
 from models import HealthResponse
-from config import quote_clients
+from config import SM_ENABLE_LEGACY_QUOTES, quote_clients
 
 router = APIRouter(tags=["Health"])
 
@@ -19,5 +19,5 @@ async def health_check():
         status="ok",
         connected=False,
         ib_connected=False,
-        active_clients=len(quote_clients),
+        active_clients=len(quote_clients) if SM_ENABLE_LEGACY_QUOTES else 0,
     )

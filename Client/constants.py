@@ -61,10 +61,12 @@ HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
 MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)
 
 # ── Server defaults ─────────────────────────────────────────────────────────────
+DEFAULT_SM_BASE_URL = os.getenv("CLIENT_SM_BASE_URL", "").strip()
 DEFAULT_SERVER_HOST = os.getenv("CLIENT_SM_HOST", "127.0.0.1")
 DEFAULT_SERVER_PORT = int(os.getenv("CLIENT_SM_PORT", "8800"))
 
 # ── Trader_Server (TS) 直连配置 ────────────────────────────────────────────
+DEFAULT_TS_WS_URL = os.getenv("CLIENT_TS_WS_URL", "").strip()
 DEFAULT_TS_HOST = os.getenv("CLIENT_TS_HOST", "127.0.0.1")
 DEFAULT_TS_PORT = int(os.getenv("CLIENT_TS_PORT", "8900"))
 

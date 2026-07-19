@@ -10,6 +10,7 @@ Server Manager - Main Entry Point
 环境变量:
     SERVER_USERNAME   服务器登录用户名 (默认: admin)
     SERVER_PASSWORD   服务器登录密码 (默认: changeme123)
+    SERVER_HOST       服务监听地址   (默认: 127.0.0.1；临时直连可设 0.0.0.0)
     SERVER_PORT       服务端口       (默认: 8800)
     TASTY_SECRET      Tastytrade Secret Token
     TASTY_TOKEN       Tastytrade Session Token
@@ -51,14 +52,15 @@ from fastapi.templating import Jinja2Templates
 from config import (
     SERVER_HOST, SERVER_PORT, session_store,
     quote_clients, subscribed_syms, log, read_recent_error_lines, read_error_log_text, LOG_FILE, ERROR_LOG_FILE,
+    SM_ENABLE_LEGACY_QUOTES,
 )
 
 import database
 import node_state
+from address_utils import address_candidates, ts_api_url
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
-from services.quote_service import ib_preconnect, quote_stream_loop, broadcast_quote
 
 
 
@@ -296,14 +298,15 @@ async def admin_dashboard(request: Request):
     sdk_status = "N/A"
     ib_connected = False
 
-    try:
-        from services.quote_service import get_ib_app
-        ib_app = get_ib_app()
-        if ib_app:
-            ib_connected = ib_app.isConnected()
-    except Exception:
-        pass
-    ib_status = "\u5DF2\u8FDE\u63A5" if ib_connected else "\u672A\u8FDE\u63A5"
+    if SM_ENABLE_LEGACY_QUOTES:
+        try:
+            from services.quote_service import get_ib_app
+            ib_app = get_ib_app()
+            if ib_app:
+                ib_connected = ib_app.isConnected()
+        except Exception:
+            pass
+    ib_status = "\u5DF2\u8FDE\u63A5" if ib_connected else ("未启用" if not SM_ENABLE_LEGACY_QUOTES else "\u672A\u8FDE\u63A5")
     ib_color = "green" if ib_connected else "orange"
     active_count = len(quote_clients)
 
@@ -505,6 +508,10 @@ async def quote_websocket(ws: WebSocket):
     行情 WebSocket 端点
     支持 subscribe / unsubscribe 动作管理订阅标的
     """
+    if not SM_ENABLE_LEGACY_QUOTES:
+        await ws.close(code=4004, reason="Legacy quote service disabled")
+        return
+
     token = ws.query_params.get("token", "")
     if not token:
         await ws.close(code=4001, reason="Missing token")
@@ -597,9 +604,11 @@ def _probe_ts_request_alive(req: dict, request_id: str, timeout_s: int = 10) -> 
     if not host:
         return "unknown", "SE网络异常（缺少主机地址）"
 
-    base = host if host.startswith("http://") or host.startswith("https://") else f"http://{host}"
     params = urllib.parse.urlencode({"request_id": request_id})
-    url = f"{base.rstrip('/')}/api/register/pre-approve-check?{params}"
+    base_url = ts_api_url(host, "/api/register/pre-approve-check")
+    if not base_url:
+        return "unknown", "SE网络异常（无法解析主机地址）"
+    url = f"{base_url}?{params}"
 
     try:
         req_obj = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -634,8 +643,9 @@ def _force_disconnect_ts_clients(ts_host: str, node_token: str, reason: str, tim
     if not node_token:
         return False, {"error": "node_token_empty"}
 
-    base = host if host.startswith("http://") or host.startswith("https://") else f"http://{host}"
-    url = f"{base.rstrip('/')}/api/admin/force-disconnect"
+    url = ts_api_url(host, "/api/admin/force-disconnect")
+    if not url:
+        return False, {"error": "ts_endpoint_invalid"}
     body = _json.dumps({"reason": reason}).encode("utf-8")
 
     req_obj = urllib.request.Request(url, data=body, method="POST")
@@ -1728,21 +1738,7 @@ async def check_se_status(request: Request, address: str = ""):
     if not token or token not in active_client_tokens:
         return {"ok": False, "error": "Unauthorized", "online": False}
 
-    def _address_candidates(raw: str) -> set[str]:
-        value = (raw or "").strip()
-        if not value:
-            return set()
-        if "://" in value:
-            value = value.split("://", 1)[1]
-        value = value.split("/", 1)[0].strip()
-        candidates = {value}
-        if value.count(":") == 1:
-            host = value.rsplit(":", 1)[0].strip()
-            if host:
-                candidates.add(host)
-        return {c for c in candidates if c}
-
-    requested = _address_candidates(address)
+    requested = address_candidates(address)
     if not requested:
         return {
             "ok": True,
@@ -1755,8 +1751,8 @@ async def check_se_status(request: Request, address: str = ""):
 
     for state in node_state.manager._states.values():
         candidates = set()
-        candidates.update(_address_candidates(getattr(state, "current_ip", "")))
-        candidates.update(_address_candidates(getattr(state, "_host", "")))
+        candidates.update(address_candidates(getattr(state, "current_ip", "")))
+        candidates.update(address_candidates(getattr(state, "_host", "")))
         if not (requested & candidates):
             continue
         if state.is_online:
@@ -1936,14 +1932,16 @@ async def startup():
     # 启动定期 DB 同步任务
     asyncio.create_task(_db_sync_loop())
 
-    # 启动行情相关后台任务（IB 可选）
-    asyncio.create_task(ib_preconnect())
-    asyncio.create_task(quote_stream_loop())
+    # 旧 SM 行情链路默认关闭；生产行情走 Client -> TS -> Broker
+    if SM_ENABLE_LEGACY_QUOTES:
+        from services.quote_service import ib_preconnect, quote_stream_loop
+        asyncio.create_task(ib_preconnect())
+        asyncio.create_task(quote_stream_loop())
 
     log.info("=" * 60)
     log.info(f"Server Manager started on {SERVER_HOST}:{SERVER_PORT}")
     log.info("Mode: CONTROL_PLANE (trading execution is handled by SE)")
-    log.info(f"IB available: {'ibapi' in __import__('sys').modules or False}")
+    log.info(f"Legacy quote service enabled: {SM_ENABLE_LEGACY_QUOTES}")
     log.info("=" * 60)
 
 

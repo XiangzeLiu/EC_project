@@ -701,7 +701,7 @@
                   <option value="trader" selected>交易员</option>
                   {% if is_super_admin %}<option value="admin">管理员</option>{% endif %}
                 </select>
-                <input class="inp req" id="inp-se-addr" placeholder="TS 地址（如 127.0.0.1:8900）" autocomplete="off" style="flex:1;min-width:0" />
+                <input class="inp req" id="inp-se-addr" placeholder="TS 地址（WSS URL 或 IP:端口）" autocomplete="off" style="flex:1;min-width:0" />
                 <select class="sel" id="inp-broker" autocomplete="off" style="flex:1;min-width:0">
                   <option value="" disabled selected>选择券商</option>
                   <option value="IB">IB</option>
@@ -845,6 +845,43 @@ function fmtTime(isoStr) {
 function escapeHtml(s){
   var d=document.createElement('div');
   d.textContent=s; return d.innerHTML;
+}
+
+function tsAddressKeys(raw){
+  var value=(raw||'').toString().trim().toLowerCase();
+  if(!value) return [];
+  var keys={};
+  function add(v){ v=(v||'').replace(/\/+$/,''); if(v) keys[v]=true; }
+  add(value);
+  var authority=value;
+  var scheme='';
+  var idx=authority.indexOf('://');
+  if(idx>=0){
+    scheme=authority.substring(0,idx);
+    authority=authority.substring(idx+3);
+  }
+  authority=authority.split(/[/?#]/)[0].trim();
+  add(authority);
+  var host=authority;
+  var lastColon=authority.lastIndexOf(':');
+  if(lastColon>0 && /^\d+$/.test(authority.substring(lastColon+1))){
+    host=authority.substring(0,lastColon);
+  }
+  add(host);
+  if(host && lastColon<0 && (scheme==='https'||scheme==='wss')){
+    add(host+':443');
+  }
+  return Object.keys(keys);
+}
+
+function addTsAddressMap(map, raw, value){
+  tsAddressKeys(raw).forEach(function(k){ if(k && value && !map[k]) map[k]=value; });
+}
+
+function getTsAddressMap(map, raw){
+  var keys=tsAddressKeys(raw);
+  for(var i=0;i<keys.length;i++){ if(map[keys[i]]) return map[keys[i]]; }
+  return '';
 }
 
 function maskToken(tok){
@@ -1532,8 +1569,8 @@ function renderAccounts(accounts){
   /* 构建节点占用映射: se_address -> occupied_by */
   var seOccupiedMap={};
   (_nodesCache||[]).forEach(function(n){
-    if(n.occupied_by && n.host){ seOccupiedMap[n.host]=n.occupied_by; }
-    if(n.occupied_by && n.current_ip){ seOccupiedMap[n.current_ip]=n.occupied_by; }
+    if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.host,n.occupied_by); }
+    if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.current_ip,n.occupied_by); }
   });
 
   function renderCards(list){
@@ -1545,7 +1582,7 @@ function renderAccounts(accounts){
       var st=a.status||'active';
       var seAddr=(a.se_address||'').trim();
       var isSuspended = (st!=='active');
-      var occupier = seAddr ? seOccupiedMap[seAddr] : '';
+      var occupier = seAddr ? getTsAddressMap(seOccupiedMap,seAddr) : '';
       var isInUse = (role==='trader' && !isSuspended && occupier===a.username);
 
       var cardClass='acct-card acct-active';
@@ -1623,7 +1660,7 @@ function onCreateRoleChanged(){
   var isTrader=(roleEl.value==='trader');
   seEl.disabled=!isTrader;
   brokerEl.disabled=!isTrader;
-  seEl.placeholder=isTrader?'TS 地址（如 127.0.0.1:8900）':'管理员账户无需 TS 地址';
+  seEl.placeholder=isTrader?'TS 地址（WSS URL 或 IP:端口）':'管理员账户无需 TS 地址';
   if(!isTrader){
     seEl.value='';
     brokerEl.value='';
@@ -1862,7 +1899,7 @@ function showAccountEdit(id,user,seAddr,broker,desc){
     +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-edit-modal\').remove()"><i class="ri-close-line"></i></button></div>'
     +'    <div class="modal-body">'
     +'      <div class="field-group"><label class="field-label">用户名（不可修改）</label><div class="field-readonly">'+escapeHtml(user)+'</div></div>'
-    +'      <div class="field-group"><label class="field-label">TS 地址 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" /></div>'
+    +'      <div class="field-group"><label class="field-label">TS 地址 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" placeholder="WSS URL 或 IP:端口" /></div>'
     +'      <div class="field-group"><label class="field-label">券商 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-broker" value="'+escapeHtml(broker)+'" /></div>'
     +'      <div class="field-group"><label class="field-label">描述</label><input class="inp" id="edit-desc" value="'+escapeHtml(desc)+'" /></div>'
     +'      <div class="field-group"><label class="field-label">新密码（留空不修改）</label><input class="inp" type="password" id="edit-pwd" placeholder="留空则不修改密码" /></div>'
@@ -1930,7 +1967,7 @@ function nodeBroker(n){
 function accountState(a, occMap){
   var st=a.status||'active';
   var seAddr=(a.se_address||a.trade_server_address||'').trim();
-  var occupier=seAddr ? occMap[seAddr] : '';
+  var occupier=seAddr ? getTsAddressMap(occMap,seAddr) : '';
   if(st!=='active') return {rank:3,label:'暂停/异常',cls:'ov-status-paused',occupier:occupier};
   if(occupier===a.username) return {rank:1,label:'占用中',cls:'ov-status-occupied',occupier:occupier};
   return {rank:2,label:'可使用',cls:'ov-status-active',occupier:occupier};
@@ -1953,9 +1990,9 @@ function renderOverview(){
   var seOccupiedMap={};
   (nodes||[]).forEach(function(n){
     var name=n.node_name||n.server_id||'-';
-    [n.host,n.current_ip].forEach(function(addr){ if(addr){ tsNameByAddress[addr]=name; } });
-    if(n.occupied_by && n.host){ seOccupiedMap[n.host]=n.occupied_by; }
-    if(n.occupied_by && n.current_ip){ seOccupiedMap[n.current_ip]=n.occupied_by; }
+    [n.host,n.current_ip].forEach(function(addr){ addTsAddressMap(tsNameByAddress,addr,name); });
+    if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.host,n.occupied_by); }
+    if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.current_ip,n.occupied_by); }
   });
 
   var acctTotal=accts.length, acctTradable=0, acctInUse=0, acctStopped=0;
@@ -1977,7 +2014,7 @@ function renderOverview(){
   }).map(function(a){
     var s=accountState(a,seOccupiedMap);
     var addr=(a.se_address||a.trade_server_address||'').trim();
-    var tsName=tsNameByAddress[addr] || addr || '-';
+    var tsName=getTsAddressMap(tsNameByAddress,addr) || addr || '-';
     return '<div class="ov-detail-row">'
       +'<div class="ov-detail-main"><div class="ov-detail-title">'+escapeHtml(a.username||'-')+'</div><div class="ov-detail-sub">账户名称</div></div>'
       +'<div class="ov-detail-mid">'+escapeHtml(accountBroker(a))+'</div>'

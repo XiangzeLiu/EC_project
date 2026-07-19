@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -41,6 +42,7 @@ else:
 from Client.constants import (
     DEFAULT_TS_HOST,
     DEFAULT_TS_PORT,
+    DEFAULT_TS_WS_URL,
     HEARTBEAT_INTERVAL,
     ORDERS_INTERVAL,
     POSITIONS_INTERVAL,
@@ -66,6 +68,14 @@ TIF_LABELS = {
     "EXT": "盘前盘后",
     "GTC_EXT": "长期盘前盘后",
 }
+
+
+def default_ts_target() -> str:
+    return DEFAULT_TS_WS_URL or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+
+
+def encode_query_value(value: str) -> str:
+    return quote(value or "", safe="")
 
 
 def localize_user_message(msg: str) -> str:
@@ -1352,7 +1362,7 @@ class TradingTerminalQt(QMainWindow):
         self.session = TradingSession(self.http)
         self.session.connected = True
         self.session.mock_mode = False
-        self.session.se_address = f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        self.session.se_address = default_ts_target()
         self.http.token = "dev-ui-backdoor"
         self._login_username = username
         self._login_password = ""
@@ -1383,7 +1393,7 @@ class TradingTerminalQt(QMainWindow):
         self._update_init_step("auth", "\u5df2\u767b\u5f55", theme.ACCENT_GREEN)
         if self._main_ui_built:
             self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
-        self._se_target_address = getattr(self.session, "se_address", "") or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        self._se_target_address = getattr(self.session, "se_address", "") or default_ts_target()
         self._start_connection_flow()
 
     def _start_connection_flow(self) -> None:
@@ -1401,7 +1411,7 @@ class TradingTerminalQt(QMainWindow):
             self._ui(lambda: self._on_init_failed("sm", "\u65e0\u6cd5\u8fde\u63a5\u5230\u7ba1\u7406\u670d\u52a1", "\u8bf7\u786e\u4fdd\u7ba1\u7406\u670d\u52a1\u5df2\u542f\u52a8\u4e14\u7f51\u7edc\u901a\u7545\u3002"))
             return
         self._ui(lambda: self._update_init_step("sm", "\u5df2\u8fde\u63a5", theme.ACCENT_GREEN))
-        target = self._se_target_address or getattr(self.session, "se_address", "") or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        target = self._se_target_address or getattr(self.session, "se_address", "") or default_ts_target()
         self._validate_and_connect_ts(target)
 
     def _se_connect(self) -> None:
@@ -1410,14 +1420,14 @@ class TradingTerminalQt(QMainWindow):
             return
         if self._se_client and self._se_client.is_active:
             return
-        target_addr = self._se_target_address or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        target_addr = self._se_target_address or default_ts_target()
         self._append_log("\u6b63\u5728\u8fde\u63a5\u4ea4\u6613\u670d\u52a1\u5668", "inf")
         self._run_bg(lambda: self._validate_and_connect_ts(target_addr))
 
     def _validate_and_connect_ts(self, target_addr: str) -> None:
         try:
             self._ui(lambda: self._update_init_step("se", "\u6821\u9a8c\u4e2d...", theme.ACCENT_YELLOW))
-            status_code, resp_data = self.http.get(f"/api/accounts/se-status?address={target_addr}")
+            status_code, resp_data = self.http.get(f"/api/accounts/se-status?address={encode_query_value(target_addr)}")
             if status_code == 200 and resp_data.get("ok"):
                 if not resp_data.get("online"):
                     self._ui(lambda: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u5f53\u524d\u79bb\u7ebf", "\u6240\u5206\u914d\u7684\u4ea4\u6613\u670d\u52a1\u5668\u76ee\u524d\u79bb\u7ebf\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u3002"))
@@ -1439,19 +1449,15 @@ class TradingTerminalQt(QMainWindow):
             self._ui(lambda e=exc: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25", str(e)))
 
     def _connect_ts_with_retry(self, target_addr: str) -> None:
-        target = target_addr or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
-        if ":" in target:
-            hp = target.rsplit(":", 1)
-            host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_TS_PORT
-        else:
-            host, port = target, DEFAULT_TS_PORT
-        self._last_connected_se = f"{host}:{port}"
+        target = target_addr or default_ts_target()
+        endpoint = TSWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_TS_PORT)
+        self._last_connected_se = endpoint
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             self._ui(lambda a=attempt: self._update_init_step("se", f"\u8fde\u63a5\u4e2d ({a}/{max_retries})...", theme.ACCENT_YELLOW))
             client = TSWebSocketClient(
-                host=host,
-                port=port,
+                ws_url=endpoint,
+                port=DEFAULT_TS_PORT,
                 token=self.http.token,
                 server_id=self._se_server_id,
                 on_message_callback=None,
@@ -1479,18 +1485,14 @@ class TradingTerminalQt(QMainWindow):
         self._ui(lambda: (self._release_se_occupation(), self._on_init_failed("se", "\u65e0\u6cd5\u8fde\u63a5\u5230\u4ea4\u6613\u670d\u52a1\u5668", "\u8fde\u63a5\u5931\u8d25\uff0c\u53ef\u80fd\u4ea4\u6613\u670d\u52a1\u5668\u7aef\u53e3\u5c1a\u672a\u5c31\u7eea\u3002")))
 
     def _do_ws_connect(self, target_addr: str) -> None:
-        target = target_addr or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
-        if ":" in target:
-            hp = target.rsplit(":", 1)
-            host, port = hp[0], int(hp[1]) if hp[1].isdigit() else DEFAULT_TS_PORT
-        else:
-            host, port = target, DEFAULT_TS_PORT
-        self._last_connected_se = f"{host}:{port}"
+        target = target_addr or default_ts_target()
+        endpoint = TSWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_TS_PORT)
+        self._last_connected_se = endpoint
         self._se_generation += 1
         generation = self._se_generation
         client = TSWebSocketClient(
-            host=host,
-            port=port,
+            ws_url=endpoint,
+            port=DEFAULT_TS_PORT,
             token=self.http.token,
             server_id=self._se_server_id,
             on_message_callback=self._wrap_se_message_handler(generation),
@@ -1548,9 +1550,9 @@ class TradingTerminalQt(QMainWindow):
             return False
         if not self.session or not self.session.connected:
             return False
-        target = self._se_target_address or getattr(self, "_last_connected_se", "") or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        target = self._se_target_address or getattr(self, "_last_connected_se", "") or default_ts_target()
         try:
-            status_code, resp_data = self.http.get(f"/api/accounts/se-status?address={target}")
+            status_code, resp_data = self.http.get(f"/api/accounts/se-status?address={encode_query_value(target)}")
         except Exception:
             return False
         if status_code != 200 or not (resp_data or {}).get("ok") or not (resp_data or {}).get("online"):
@@ -1672,7 +1674,7 @@ class TradingTerminalQt(QMainWindow):
         self._set_init_actions_visible(False)
         self._set_init_hint("")
         self._update_init_step("se", "\u91cd\u8bd5\u4e2d...", theme.ACCENT_YELLOW)
-        target = self._se_target_address or getattr(self.session, "se_address", "") or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
+        target = self._se_target_address or getattr(self.session, "se_address", "") or default_ts_target()
         self._run_bg(lambda: self._validate_and_connect_ts(target))
 
     def _on_init_cancel(self) -> None:

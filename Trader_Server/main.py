@@ -10,6 +10,7 @@ Trader_Server — 交易服务子服务端 主入口
     --manager-url   Server_manager 地址 (默认 http://127.0.0.1:8800)
     --node-name     节点名称 (默认 trader-node-01)
     --broker-type   券商类型 (默认 TT)
+    --bind-host     本机监听地址 (默认 127.0.0.1)
     --ws-port       WebSocket 监听端口 (默认 8900)
 
 启动流程:
@@ -52,6 +53,7 @@ from .config import (
     DEFAULT_MANAGER_URL,
     DEFAULT_NODE_NAME,
     DEFAULT_REGION,
+    DEFAULT_BIND_HOST,
     DEFAULT_WS_PORT,
     DEFAULT_HEARTBEAT_INTERVAL,
     init_logging,
@@ -620,8 +622,10 @@ async def on_startup():
     print("  SM 地址  : %s" % state.manager_url)
     print("")
     print("  桌面控制台 : 已自动启动 (PySide6 GUI)")
-    print("  WS 端点    : ws://0.0.0.0:%d/ws" % ws_port)
-    print("  API 状态   : http://0.0.0.0:%d/api/status" % ws_port)
+    bind_host = args.bind_host or DEFAULT_BIND_HOST
+    print("  监听地址   : %s:%d" % (bind_host, ws_port))
+    print("  WS 端点    : ws://%s:%d/ws" % (bind_host, ws_port))
+    print("  API 状态   : http://%s:%d/api/status" % (bind_host, ws_port))
     print("-" * 60)
     print()
 
@@ -662,6 +666,8 @@ def _build_arg_parser():
                    help=f"券商类型 (默认: {DEFAULT_REGION})")
     p.add_argument("--ws-port", type=int, default=DEFAULT_WS_PORT,
                    help=f"WS 端口 (默认: {DEFAULT_WS_PORT})")
+    p.add_argument("--bind-host", default=DEFAULT_BIND_HOST,
+                   help=f"本机监听地址 (默认: {DEFAULT_BIND_HOST})")
     p.add_argument("--skip-register", action="store_true",
                    help="跳过自动注册（需已有 config.json）")
     p.add_argument("--auto-approve", action="store_true",
@@ -679,6 +685,7 @@ def parse_args_from_env_or_default():
         manager_url=os.environ.get("TS_MANAGER_URL", DEFAULT_MANAGER_URL),
         node_name=os.environ.get("TS_NODE_NAME", DEFAULT_NODE_NAME),
         broker_type=os.environ.get("TS_BROKER_TYPE", DEFAULT_REGION),
+        bind_host=os.environ.get("TS_BIND_HOST", DEFAULT_BIND_HOST),
         ws_port=int(os.environ.get("TS_WS_PORT", str(DEFAULT_WS_PORT))),
         skip_register=os.environ.get("TS_SKIP_REGISTER", "").lower() in ("1", "true"),
         auto_approve=False,
@@ -695,6 +702,7 @@ if __name__ == "__main__":
     os.environ["TS_MANAGER_URL"] = args.manager_url
     os.environ["TS_NODE_NAME"] = args.node_name
     os.environ["TS_BROKER_TYPE"] = args.broker_type
+    os.environ["TS_BIND_HOST"] = args.bind_host
     os.environ["TS_WS_PORT"] = str(args.ws_port)
     if args.skip_register:
         os.environ["TS_SKIP_REGISTER"] = "1"
@@ -706,7 +714,7 @@ if __name__ == "__main__":
         target=uvicorn.run,
         args=("Trader_Server.main:app",),
         kwargs=dict(
-            host="0.0.0.0",
+            host=args.bind_host,
             port=args.ws_port,
             reload=False,
             log_level="warning",  # 降低日志噪音，GUI 中查看即可

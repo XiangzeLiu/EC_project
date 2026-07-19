@@ -95,7 +95,7 @@ SERVER_TOKEN = hashlib.sha256(
 ).hexdigest()
 
 # ── 服务监听地址 ──────────────────────────────────────────────────────────
-SERVER_HOST = os.environ.get("SERVER_HOST", "0.0.0.0")
+SERVER_HOST = os.environ.get("SERVER_HOST", "127.0.0.1")
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8800"))
 
 # ── Tastytrade 券商凭据 ──────────────────────────────────────────────────
@@ -103,6 +103,7 @@ _TASTY_SECRET = os.environ.get("TASTY_SECRET", "")
 _TASTY_TOKEN = os.environ.get("TASTY_TOKEN", "")
 
 # ── IB TWS 行情源配置 ────────────────────────────────────────────────────
+SM_ENABLE_LEGACY_QUOTES = os.environ.get("SM_ENABLE_LEGACY_QUOTES", "0").strip().lower() in {"1", "true", "yes"}
 IB_HOST = os.environ.get("IB_HOST", "127.0.0.1")
 IB_PORT = int(os.environ.get("IB_PORT", "7496"))
 IB_CLIENT_ID = int(os.environ.get("IB_CLIENT_ID", "19"))

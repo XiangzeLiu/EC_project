@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 from typing import Callable
+from urllib.parse import urlsplit, urlunsplit
 
 
 
@@ -46,10 +47,12 @@ class TSWebSocketClient:
                  on_status_callback: Callable[[str], None] = None,
                  on_latency_callback: Callable[[int], None] = None,
                  on_reconnect_prepare_callback: Callable[[int], bool] | None = None,
-                 reconnect_enabled: bool = False):
+                 reconnect_enabled: bool = False,
+                 ws_url: str = ""):
 
         self.host = host
         self.port = port
+        self.ws_url = self.normalize_endpoint(ws_url or host, default_port=port)
         self.token = token
         self.server_id = server_id
         self.on_message = on_message_callback
@@ -77,6 +80,39 @@ class TSWebSocketClient:
         self._send_lock: asyncio.Lock | None = None
         self._ping_sent_at: dict[str, float] = {}
 
+        try:
+            parsed = urlsplit(self.ws_url)
+            if parsed.hostname:
+                self.host = parsed.hostname
+            if parsed.port:
+                self.port = parsed.port
+        except Exception:
+            pass
+
+    @staticmethod
+    def normalize_endpoint(endpoint: str, default_port: int = 8900) -> str:
+        """Return a usable ws/wss URL from a full URL, host:port, or bare host."""
+        raw = (endpoint or "").strip() or "127.0.0.1"
+
+        if raw.startswith(("ws://", "wss://", "http://", "https://")):
+            parsed = urlsplit(raw)
+            scheme = parsed.scheme
+            if scheme == "http":
+                scheme = "ws"
+            elif scheme == "https":
+                scheme = "wss"
+            path = parsed.path if parsed.path and parsed.path != "/" else "/ws"
+            return urlunsplit((scheme, parsed.netloc, path, parsed.query, parsed.fragment))
+
+        authority, sep, path_part = raw.partition("/")
+        path = f"/{path_part}" if sep and path_part else "/ws"
+        if ":" not in authority and default_port:
+            authority = f"{authority}:{default_port}"
+        return f"ws://{authority}{path}"
+
+    @property
+    def endpoint(self) -> str:
+        return self.ws_url
 
     @property
     def is_active(self) -> bool:
@@ -372,7 +408,7 @@ class TSWebSocketClient:
 
     async def _connect_and_run(self):
         """建立连接并运行主循环"""
-        uri = f"ws://{self.host}:{self.port}/ws"
+        uri = self.ws_url
 
         if self.on_status:
             self.on_status(f"Connecting to {uri}...")

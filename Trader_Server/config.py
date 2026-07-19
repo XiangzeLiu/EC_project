@@ -35,7 +35,12 @@ log = logging.getLogger("trader_server")
 DEFAULT_MANAGER_URL = os.getenv("TS_MANAGER_URL", "http://127.0.0.1:8800")
 DEFAULT_NODE_NAME = os.getenv("TS_NODE_NAME", "trader-node-01")
 DEFAULT_REGION = os.getenv("TS_BROKER_TYPE", "TT")  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
-DEFAULT_HOST = ""
+DEFAULT_PUBLIC_ENDPOINT = (
+    os.getenv("TS_PUBLIC_ENDPOINT", "")
+    or os.getenv("TS_PUBLIC_URL", "")
+    or os.getenv("TS_PUBLIC_HOST", "")
+).strip()
+DEFAULT_HOST = DEFAULT_PUBLIC_ENDPOINT
 DEFAULT_CAPABILITIES = ["cpi", "gdp", "interest_rate", "employment", "trade_balance"]
 DEFAULT_CONTACT = ""
 DEFAULT_DESCRIPTION = ""
@@ -44,6 +49,7 @@ DEFAULT_DESCRIPTION = ""
 DEFAULT_HEARTBEAT_INTERVAL = int(os.getenv("TS_HEARTBEAT_INTERVAL", "20"))
 
 # WebSocket 服务端口（供 Client 连接）
+DEFAULT_BIND_HOST = os.getenv("TS_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
 DEFAULT_WS_PORT = int(os.getenv("TS_WS_PORT", "8900"))
 DEFAULT_TS_LOGIN_USERNAME = os.getenv("TS_LOGIN_USERNAME", "")
 DEFAULT_TS_LOGIN_PASSWORD = os.getenv("TS_LOGIN_PASSWORD", "")

@@ -7,11 +7,13 @@ import json
 import urllib.request
 import urllib.error
 
+from Trader_Server.config import DEFAULT_WS_PORT
+
 
 class TSApiClient:
     """Trader_Server Desktop GUI 专用 API 客户端"""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8900):
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_WS_PORT):
         self.base_url = f"http://{host}:{port}"
 
     # ── 基础请求 ──────────────────────────────────────────────

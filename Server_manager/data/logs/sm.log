@@ -475,3 +475,31 @@ of version 954.1 or newer:  TWS: 7497; IB Gateway: 4002
 2026-07-16 03:19:15,832 INFO [server_manager] [DB Sync] synced 2 node states to database
 2026-07-16 03:19:15,837 INFO [server_manager] [Shutdown] synced 2 node states to DB
 2026-07-16 03:19:15,837 INFO [server_manager] Server Manager shut down cleanly
+2026-07-20 02:22:21,619 INFO [server_manager] Database initialized: C:\Users\Administrator\PycharmProjects\EC_project\Server_manager\data\server_manager.db (schema_version=3)
+2026-07-20 02:22:21,638 WARNING [server_manager] Database init skipped (non-critical): module 'database' has no attribute '_ensure_config_version_column'
+2026-07-20 02:22:21,643 INFO [node_state] [NodeState] DB load correction: node_trader-node-01_7ae7b2c7 marked OFFLINE (heartbeat age=342193s > 20s threshold, was occupied by 'test')
+2026-07-20 02:22:21,643 INFO [node_state] [NodeState] loaded 2 nodes from DB into memory
+2026-07-20 02:22:21,644 INFO [server_manager] [Startup] loaded 2 approved nodes into memory state
+2026-07-20 02:22:21,644 INFO [server_manager] ============================================================
+2026-07-20 02:22:21,645 INFO [server_manager] Server Manager started on 127.0.0.1:8800
+2026-07-20 02:22:21,645 INFO [server_manager] Mode: CONTROL_PLANE (trading execution is handled by SE)
+2026-07-20 02:22:21,646 INFO [server_manager] Legacy quote service enabled: False
+2026-07-20 02:22:21,646 INFO [server_manager] ============================================================
+2026-07-20 02:22:31,688 INFO [server_manager] Heartbeat monitor started (check_interval=30s, timeout=60s/occupied=15s)
+2026-07-20 02:23:21,654 INFO [server_manager] [DB Sync] synced 2 node states to database
+2026-07-20 02:23:22,928 INFO [server_manager] Admin logged in: admin role=super_admin
+2026-07-20 02:23:37,687 INFO [server_manager] Client logged in (DB): test role=trader
+2026-07-20 02:23:37,687 INFO [server_manager] Generated client token for user: test
+2026-07-20 02:23:37,701 INFO [node_state] [NodeState] OCCUPIED: node_trader-node-01_7ae7b2c7 by 'test'
+2026-07-20 02:24:15,807 INFO [server_manager] Invalidated client token for user: test
+2026-07-20 02:24:15,808 INFO [server_manager] Client logged out and token invalidated
+2026-07-20 02:24:31,683 INFO [server_manager] [Probe] Active probing occupied node node_trader-node-01_7ae7b2c7 (occupied by 'test', 5.3s until timeout)
+2026-07-20 02:25:01,675 INFO [node_state] [NodeState] OFFLINE & RELEASED (occupied): node_trader-node-01_7ae7b2c7 (was occupied by 'test', timeout=15s, elapsed=39.7s)
+2026-07-20 02:25:01,675 INFO [server_manager] Heartbeat monitor: 1 node(s) marked as OFFLINE
+2026-07-20 02:28:21,656 INFO [server_manager] [DB Sync] synced 2 node states to database
+2026-07-20 02:33:21,668 INFO [server_manager] [DB Sync] synced 2 node states to database
+2026-07-20 02:38:21,685 INFO [server_manager] [DB Sync] synced 2 node states to database
+2026-07-20 02:43:21,699 INFO [server_manager] [DB Sync] synced 2 node states to database
+2026-07-20 02:46:59,801 INFO [server_manager] [DB Sync] synced 2 node states to database
+2026-07-20 02:46:59,805 INFO [server_manager] [Shutdown] synced 2 node states to DB
+2026-07-20 02:46:59,806 INFO [server_manager] Server Manager shut down cleanly
