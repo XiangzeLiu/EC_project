@@ -20,6 +20,9 @@ pydantic>=2.5.0
 # SSL 证书（可选，解决 Windows 证书链问题）
 certifi>=2023.0.0
 
+# Tencent Cloud DNSPod API (TS domain-pool A records)
+tencentcloud-sdk-python>=3.0.1200
+
 # 券商 SDK（可选，未安装时以 DEMO 模式运行）
 tastytrade>=4.0.0
 

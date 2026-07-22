@@ -1,18 +1,21 @@
-# Replace sg-01.ts.yourdomain.com with this TS server's real domain.
-# Keep Trader_Server bound to 127.0.0.1:8900.
+{
+	admin 127.0.0.1:2020
+}
 
-sg-01.ts.yourdomain.com {
-    encode zstd gzip
+ts-01.ts.scjrdomain.com {
+	encode zstd gzip
 
-    @client_ws {
-        path /ws
-    }
-    reverse_proxy @client_ws 127.0.0.1:8900
+	@client_ws path /ws
+	handle @client_ws {
+		reverse_proxy 127.0.0.1:8900
+	}
 
-    @sm_admin {
-        path /api/admin/force-disconnect /api/register/pre-approve-check
-    }
-    reverse_proxy @sm_admin 127.0.0.1:8900
+	@sm_admin path /api/admin/force-disconnect /api/register/pre-approve-check
+	handle @sm_admin {
+		reverse_proxy 127.0.0.1:8900
+	}
 
-    respond 404
+	handle {
+		respond 404
+	}
 }

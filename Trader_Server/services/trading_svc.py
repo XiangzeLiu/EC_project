@@ -16,7 +16,7 @@ ORDER_DUPLICATE_WINDOW_SECONDS = 0.5
 _ORDER_RECENT: dict[str, float] = {}
 _VALID_ACTIONS = {"Buy to Open", "Buy to Close", "Sell to Open", "Sell to Close"}
 _VALID_ORDER_TYPES = {"limit", "market"}
-_VALID_TIFS = {"Day", "GTC", "IOC", "FOK"}
+_VALID_TIFS = {"Day", "GTC", "IOC", "EXT", "GTC_EXT"}
 
 
 

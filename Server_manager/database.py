@@ -7,7 +7,7 @@ import json
 import os
 import sqlite3
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger("server_manager")
 
@@ -21,6 +21,7 @@ _DB_PATH = os.environ.get("SERVER_MANAGER_DB_PATH", _DEFAULT_DB_PATH)
 DB_SCHEMA_VERSION_V1 = 1
 DB_SCHEMA_VERSION_V2 = 2
 DB_SCHEMA_VERSION_V3 = 3
+DB_SCHEMA_VERSION_V4 = 4
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -102,6 +103,9 @@ CREATE TABLE IF NOT EXISTS nodes (
     node_name TEXT NOT NULL,
     broker_type TEXT NOT NULL DEFAULT '',
     host TEXT NOT NULL DEFAULT '',
+    public_ip TEXT NOT NULL DEFAULT '',
+    assigned_domain TEXT NOT NULL DEFAULT '',
+    public_endpoint TEXT NOT NULL DEFAULT '',
     token TEXT NOT NULL DEFAULT '' UNIQUE,
     description TEXT NOT NULL DEFAULT '',
     capabilities_json TEXT NOT NULL DEFAULT '[]',
@@ -139,6 +143,10 @@ CREATE TABLE IF NOT EXISTS node_registration_requests_v2 (
     node_name TEXT NOT NULL,
     broker_type TEXT NOT NULL DEFAULT '',
     host TEXT NOT NULL DEFAULT '',
+    public_ip TEXT NOT NULL DEFAULT '',
+    source_ip TEXT NOT NULL DEFAULT '',
+    assigned_domain TEXT NOT NULL DEFAULT '',
+    public_endpoint TEXT NOT NULL DEFAULT '',
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     contact TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
@@ -151,6 +159,32 @@ CREATE TABLE IF NOT EXISTS node_registration_requests_v2 (
     expire_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT ''
 );
+"""
+
+V4_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS ts_domain_pool (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fqdn TEXT NOT NULL UNIQUE,
+    root_domain TEXT NOT NULL DEFAULT '',
+    record_name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'available',
+    assigned_server_id TEXT NOT NULL DEFAULT '',
+    assigned_node_name TEXT NOT NULL DEFAULT '',
+    assigned_ip TEXT NOT NULL DEFAULT '',
+    public_endpoint TEXT NOT NULL DEFAULT '',
+    dns_record_id TEXT NOT NULL DEFAULT '',
+    dns_status TEXT NOT NULL DEFAULT 'pending',
+    dns_error TEXT NOT NULL DEFAULT '',
+    cooldown_until TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_ts_domain_pool_status
+ON ts_domain_pool(status, cooldown_until, id);
+
+CREATE INDEX IF NOT EXISTS idx_ts_domain_pool_server
+ON ts_domain_pool(assigned_server_id);
 """
 
 V2_INDEXES_SQL = """
@@ -226,6 +260,17 @@ def _ensure_v3_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "nodes", "capabilities_json", "capabilities_json TEXT NOT NULL DEFAULT '[]'")
     _ensure_column(conn, "node_registration_requests_v2", "server_id", "server_id TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "node_registration_requests_v2", "token", "token TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_v4_schema(conn: sqlite3.Connection) -> None:
+    _ensure_column(conn, "nodes", "public_ip", "public_ip TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "nodes", "assigned_domain", "assigned_domain TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "nodes", "public_endpoint", "public_endpoint TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "node_registration_requests_v2", "public_ip", "public_ip TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "node_registration_requests_v2", "source_ip", "source_ip TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "node_registration_requests_v2", "assigned_domain", "assigned_domain TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "node_registration_requests_v2", "public_endpoint", "public_endpoint TEXT NOT NULL DEFAULT ''")
+    conn.executescript(V4_SCHEMA_SQL)
 
 
 def _has_v2_schema(conn: sqlite3.Connection) -> bool:
@@ -368,6 +413,10 @@ def _map_request_v2_to_legacy(data: dict | sqlite3.Row | None) -> dict | None:
         "node_name": data.get("node_name", "") or "",
         "region": data.get("broker_type", "") or "",
         "host": data.get("host", "") or "",
+        "public_ip": data.get("public_ip", "") or "",
+        "source_ip": data.get("source_ip", "") or "",
+        "assigned_domain": data.get("assigned_domain", "") or "",
+        "public_endpoint": data.get("public_endpoint", "") or "",
         "capabilities": data.get("capabilities_json", "[]") or "[]",
         "contact": data.get("contact", "") or "",
         "description": data.get("description", "") or "",
@@ -755,11 +804,22 @@ def migrate_v2_to_v3(conn: sqlite3.Connection) -> dict:
     return report
 
 
+def migrate_v3_to_v4(conn: sqlite3.Connection) -> dict:
+    _ensure_v4_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V4)
+    return {
+        "domain_pool_created": 1,
+        "node_domain_columns_added": 1,
+        "request_network_columns_added": 1,
+    }
+
+
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
     _ensure_legacy_schema(conn)
     _create_v2_schema(conn)
     _ensure_v3_schema(conn)
+    _ensure_v4_schema(conn)
     version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
@@ -774,6 +834,12 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
         report = migrate_v2_to_v3(conn)
         report["from_version"] = version
         report["to_version"] = DB_SCHEMA_VERSION_V3
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V3
+    if version < DB_SCHEMA_VERSION_V4:
+        report = migrate_v3_to_v4(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V4
         reports.append(report)
     return reports
 
@@ -885,7 +951,7 @@ def get_broker_list() -> list[dict]:
                 SELECT
                     n.server_id AS name,
                     COALESCE(NULLIF(cfg.broker_type, ''), NULLIF(n.broker_type, ''), 'TT') AS broker_type,
-                    COALESCE(n.host, '') AS host,
+                    COALESCE(NULLIF(n.public_endpoint, ''), n.host, '') AS host,
                     0 AS port,
                     COALESCE(rt.status, 'offline') AS status
                 FROM nodes n
@@ -1134,6 +1200,7 @@ def update_broker_heartbeat(name: str):
 def create_node_request(request_id: str, node_name: str, region: str = "",
                         host: str = "", capabilities: list | None = None,
                         contact: str = "", description: str = "",
+                        public_ip: str = "", source_ip: str = "",
                         expire_hours: int = 24) -> dict | None:
     """?????????"""
     conn = _get_conn()
@@ -1147,28 +1214,36 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
             conn.execute(
                 """
                 INSERT INTO node_registration_requests_v2 (
-                    request_id, node_name, broker_type, host, capabilities_json,
+                    request_id, node_name, broker_type, host, public_ip, source_ip, capabilities_json,
                     contact, description, status, server_id, token,
-                    reviewed_by, reviewed_at, reject_reason, expire_at, created_at
+                    assigned_domain, public_endpoint, reviewed_by, reviewed_at,
+                    reject_reason, expire_at, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', '', '', '', '', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', '', '', '', '', '', ?, ?)
                 ON CONFLICT(request_id) DO UPDATE SET
                     node_name=excluded.node_name,
                     broker_type=excluded.broker_type,
                     host=excluded.host,
+                    public_ip=excluded.public_ip,
+                    source_ip=excluded.source_ip,
                     capabilities_json=excluded.capabilities_json,
                     contact=excluded.contact,
                     description=excluded.description,
                     status='pending',
                     server_id='',
                     token='',
+                    assigned_domain='',
+                    public_endpoint='',
                     reviewed_by='',
                     reviewed_at='',
                     reject_reason='',
                     expire_at=excluded.expire_at,
                     created_at=excluded.created_at
                 """,
-                (request_id, node_name, region, host, capabilities_json, contact, description, expire_at, now.isoformat()),
+                (
+                    request_id, node_name, region, host, public_ip, source_ip,
+                    capabilities_json, contact, description, expire_at, now.isoformat(),
+                ),
             )
             row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
             result = _map_request_v2_to_legacy(row)
@@ -1227,12 +1302,20 @@ def get_pending_node_requests() -> list[dict]:
         conn.close()
 
 
-def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | None:
+def approve_node_request(
+    request_id: str,
+    reviewer: str = "admin",
+    domain_assignment: dict | None = None,
+) -> dict | None:
     """????????????????????"""
     import secrets
 
     conn = _get_conn()
     try:
+        # Serialize approval of one pending request. Domain allocation happens
+        # before this function, so a losing concurrent approver must receive
+        # None and let the caller release its reserved domain.
+        conn.execute("BEGIN IMMEDIATE")
         has_v2 = _has_v2_schema(conn)
         if has_v2:
             req_row = conn.execute(
@@ -1240,6 +1323,7 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
                 (request_id,),
             ).fetchone()
             if not req_row:
+                conn.rollback()
                 return None
             req = _map_request_v2_to_legacy(req_row)
         else:
@@ -1248,6 +1332,7 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
                 (request_id,),
             ).fetchone()
             if not req_row:
+                conn.rollback()
                 return None
             req = dict(req_row)
 
@@ -1256,27 +1341,40 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
         token = secrets.token_urlsafe(32)
         approved_broker_type = (req['region'] or 'TT').strip() or 'TT'
         caps_json = _load_json_list(req['capabilities'])
+        assignment = domain_assignment or {}
+        domain_id = int(assignment.get("id") or 0)
+        assigned_domain = (assignment.get("fqdn") or "").strip().lower()
+        public_endpoint = (assignment.get("public_endpoint") or "").strip()
+        public_ip = (req.get("public_ip") or req.get("source_ip") or "").strip()
 
         if has_v2:
-            conn.execute(
+            request_update = conn.execute(
                 """
                 UPDATE node_registration_requests_v2
-                SET status='approved', server_id=?, token=?, reviewed_by=?, reviewed_at=?, reject_reason=''
-                WHERE request_id=?
+                SET status='approved', server_id=?, token=?, assigned_domain=?, public_endpoint=?,
+                    reviewed_by=?, reviewed_at=?, reject_reason=''
+                WHERE request_id=? AND status='pending'
                 """,
-                (server_id, token, reviewer, now, request_id),
+                (server_id, token, assigned_domain, public_endpoint, reviewer, now, request_id),
             )
+            if request_update.rowcount != 1:
+                conn.rollback()
+                return None
             conn.execute(
                 """
                 INSERT INTO nodes (
-                    server_id, node_name, broker_type, host, token,
+                    server_id, node_name, broker_type, host, public_ip,
+                    assigned_domain, public_endpoint, token,
                     description, capabilities_json, enabled, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 ON CONFLICT(server_id) DO UPDATE SET
                     node_name=excluded.node_name,
                     broker_type=excluded.broker_type,
                     host=excluded.host,
+                    public_ip=excluded.public_ip,
+                    assigned_domain=excluded.assigned_domain,
+                    public_endpoint=excluded.public_endpoint,
                     token=excluded.token,
                     description=excluded.description,
                     capabilities_json=excluded.capabilities_json,
@@ -1288,6 +1386,9 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
                     req['node_name'],
                     approved_broker_type,
                     req['host'] or '',
+                    public_ip,
+                    assigned_domain,
+                    public_endpoint,
                     token,
                     req['description'] or '',
                     json.dumps(caps_json, ensure_ascii=False),
@@ -1295,25 +1396,55 @@ def approve_node_request(request_id: str, reviewer: str = "admin") -> dict | Non
                     now,
                 ),
             )
-            _upsert_node_runtime(conn, server_id, 'approved', '', '', '', '', now)
+            _upsert_node_runtime(conn, server_id, 'approved', public_ip, '', '', '', now)
             _upsert_node_broker_config(conn, server_id, approved_broker_type, {}, True, 0, now)
+            if domain_id:
+                cursor = conn.execute(
+                    """
+                    UPDATE ts_domain_pool
+                    SET status='occupied', assigned_server_id=?, assigned_node_name=?, assigned_ip=?,
+                        public_endpoint=?, dns_record_id=?, dns_status=?, dns_error='',
+                        cooldown_until='', updated_at=?
+                    WHERE id=? AND status='allocating'
+                    """,
+                    (
+                        server_id,
+                        req['node_name'],
+                        public_ip,
+                        public_endpoint,
+                        str(assignment.get("dns_record_id") or ""),
+                        str(assignment.get("dns_status") or "active"),
+                        now,
+                        domain_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError("domain assignment is no longer reserved")
             row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
             result = _map_request_v2_to_legacy(row)
         else:
-            conn.execute(
+            request_update = conn.execute(
                 """
                 UPDATE node_requests SET status='approved', server_id=?, token=?, reviewed_by=?, reviewed_at=?
-                WHERE request_id=?
+                WHERE request_id=? AND status='pending'
                 """,
                 (server_id, token, reviewer, now, request_id),
             )
+            if request_update.rowcount != 1:
+                conn.rollback()
+                return None
             row = conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone()
             result = dict(row) if row else None
 
         conn.commit()
+        if result is not None:
+            result["assigned_domain"] = assigned_domain
+            result["public_endpoint"] = public_endpoint
+            result["public_ip"] = public_ip
         log.info(f"Node request approved: {request_id} -> server_id={server_id}")
         return result
     except Exception as e:
+        conn.rollback()
         log.error(f"approve_node_request failed: {e}")
         return None
     finally:
@@ -1437,6 +1568,9 @@ def verify_node_token(token: str) -> dict | None:
                     n.server_id,
                     n.node_name,
                     n.host,
+                    n.public_ip,
+                    n.assigned_domain,
+                    n.public_endpoint,
                     n.token,
                     n.description,
                     n.created_at,
@@ -1874,6 +2008,9 @@ def get_all_nodes() -> list[dict]:
                     n.node_name,
                     COALESCE(NULLIF(cfg.broker_type, ''), NULLIF(n.broker_type, ''), 'TT') AS region,
                     COALESCE(n.host, '') AS host,
+                    COALESCE(n.public_ip, '') AS public_ip,
+                    COALESCE(n.assigned_domain, '') AS assigned_domain,
+                    COALESCE(n.public_endpoint, '') AS public_endpoint,
                     COALESCE(NULLIF(n.capabilities_json, ''), '[]') AS capabilities,
                     COALESCE(rt.status, 'approved') AS req_status,
                     COALESCE(rt.current_ip, '') AS current_ip,
@@ -1950,6 +2087,327 @@ def get_approved_nodes_for_memory_load() -> list[dict]:
     实时状态以返回数据为准，启动后由心跳覆盖。
     """
     return get_all_nodes()
+
+
+def _refresh_expired_domain_cooldowns(conn: sqlite3.Connection, now_iso: str) -> int:
+    cursor = conn.execute(
+        """
+        UPDATE ts_domain_pool
+        SET status='available', assigned_server_id='', assigned_node_name='', assigned_ip='',
+            dns_record_id='', dns_status='released', dns_error='', cooldown_until='', updated_at=?
+        WHERE status='cooling' AND cooldown_until <> '' AND cooldown_until <= ?
+        """,
+        (now_iso, now_iso),
+    )
+    return cursor.rowcount
+
+
+def import_ts_domain_pool(entries: list[dict]) -> dict:
+    conn = _get_conn()
+    inserted = 0
+    updated = 0
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        for entry in entries:
+            fqdn = (entry.get("fqdn") or "").strip().lower().strip(".")
+            if not fqdn:
+                continue
+            existing = conn.execute(
+                "SELECT id FROM ts_domain_pool WHERE fqdn = ?",
+                (fqdn,),
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO ts_domain_pool (
+                    fqdn, root_domain, record_name, status, public_endpoint,
+                    dns_status, created_at, updated_at
+                ) VALUES (?, ?, ?, 'available', ?, 'pending', ?, ?)
+                ON CONFLICT(fqdn) DO UPDATE SET
+                    root_domain=excluded.root_domain,
+                    record_name=excluded.record_name,
+                    public_endpoint=excluded.public_endpoint,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    fqdn,
+                    (entry.get("root_domain") or "").strip().lower(),
+                    (entry.get("record_name") or "").strip().lower(),
+                    (entry.get("public_endpoint") or "").strip(),
+                    now,
+                    now,
+                ),
+            )
+            if existing:
+                updated += 1
+            else:
+                inserted += 1
+        conn.commit()
+        return {"ok": True, "inserted": inserted, "updated": updated}
+    except Exception as e:
+        conn.rollback()
+        log.error(f"import_ts_domain_pool failed: {e}")
+        return {"ok": False, "error": str(e), "inserted": inserted, "updated": updated}
+    finally:
+        conn.close()
+
+
+def list_ts_domain_pool(page: int = 1, page_size: int = 20, status: str = "") -> dict:
+    conn = _get_conn()
+    try:
+        safe_page = max(1, int(page or 1))
+        safe_size = max(1, min(int(page_size or 20), 100))
+        now = datetime.now(timezone.utc).isoformat()
+        refreshed = _refresh_expired_domain_cooldowns(conn, now)
+        if refreshed:
+            conn.commit()
+        where = ""
+        params: list = []
+        normalized_status = (status or "").strip().lower()
+        if normalized_status:
+            where = "WHERE status = ?"
+            params.append(normalized_status)
+        total = int(conn.execute(
+            f"SELECT COUNT(*) FROM ts_domain_pool {where}",
+            params,
+        ).fetchone()[0])
+        rows = conn.execute(
+            f"""
+            SELECT * FROM ts_domain_pool
+            {where}
+            ORDER BY
+                CASE status
+                    WHEN 'allocating' THEN 1
+                    WHEN 'occupied' THEN 2
+                    WHEN 'cooling' THEN 3
+                    WHEN 'error' THEN 4
+                    ELSE 5
+                END,
+                id ASC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, safe_size, (safe_page - 1) * safe_size],
+        ).fetchall()
+        return {
+            "items": [dict(row) for row in rows],
+            "page": safe_page,
+            "page_size": safe_size,
+            "total": total,
+            "pages": max(1, (total + safe_size - 1) // safe_size),
+        }
+    finally:
+        conn.close()
+
+
+def get_ts_domain_pool_entry(domain_id: int) -> dict | None:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM ts_domain_pool WHERE id = ?",
+            (int(domain_id),),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_ts_domain_for_server(server_id: str) -> dict | None:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM ts_domain_pool WHERE assigned_server_id = ? LIMIT 1",
+            ((server_id or "").strip(),),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_ts_domain_options() -> list[dict]:
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, fqdn, public_endpoint, assigned_server_id,
+                   assigned_node_name, assigned_ip, dns_status
+            FROM ts_domain_pool
+            WHERE status='occupied' AND assigned_server_id <> ''
+            ORDER BY fqdn ASC
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def reserve_ts_domain(node_name: str, public_ip: str) -> dict | None:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        now = datetime.now(timezone.utc).isoformat()
+        _refresh_expired_domain_cooldowns(conn, now)
+        row = conn.execute(
+            "SELECT * FROM ts_domain_pool WHERE status='available' ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status='allocating', assigned_server_id='', assigned_node_name=?, assigned_ip=?,
+                dns_status='updating', dns_error='', cooldown_until='', updated_at=?
+            WHERE id=? AND status='available'
+            """,
+            ((node_name or "").strip(), (public_ip or "").strip(), now, row["id"]),
+        )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return None
+        conn.commit()
+        result = dict(row)
+        result.update({
+            "status": "allocating",
+            "assigned_node_name": (node_name or "").strip(),
+            "assigned_ip": (public_ip or "").strip(),
+            "dns_status": "updating",
+        })
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_reserved_domain_dns(domain_id: int, record_id: str, dns_status: str = "active") -> bool:
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET dns_record_id=?, dns_status=?, dns_error='',
+                status=CASE WHEN assigned_server_id <> '' THEN 'occupied' ELSE status END,
+                updated_at=?
+            WHERE id=? AND status IN ('allocating', 'occupied', 'error')
+            """,
+            ((record_id or "").strip(), (dns_status or "active").strip(), now, int(domain_id)),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
+def abort_reserved_domain(domain_id: int, error: str = "", reusable: bool = True) -> bool:
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        status = "available" if reusable else "error"
+        dns_status = "released" if reusable else "error"
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status=?, assigned_server_id='', assigned_node_name='', assigned_ip='',
+                dns_record_id='', dns_status=?, dns_error=?, cooldown_until='', updated_at=?
+            WHERE id=? AND status='allocating'
+            """,
+            (status, dns_status, (error or "").strip(), now, int(domain_id)),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
+def release_ts_domain_for_server(
+    server_id: str,
+    cooldown_seconds: int,
+    dns_status: str,
+    dns_error: str = "",
+) -> dict | None:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM ts_domain_pool WHERE assigned_server_id = ? LIMIT 1",
+            ((server_id or "").strip(),),
+        ).fetchone()
+        if not row:
+            return None
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        has_error = bool((dns_error or "").strip())
+        next_status = "error" if has_error else "cooling"
+        cooldown_until = "" if has_error else (now_dt + timedelta(seconds=max(0, int(cooldown_seconds)))).isoformat()
+        conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status=?, assigned_server_id='', dns_record_id='', dns_status=?, dns_error=?,
+                cooldown_until=?, updated_at=?
+            WHERE id=?
+            """,
+            (
+                next_status,
+                (dns_status or ("error" if has_error else "released")).strip(),
+                (dns_error or "").strip(),
+                cooldown_until,
+                now,
+                row["id"],
+            ),
+        )
+        conn.commit()
+        result = dict(row)
+        result.update({
+            "status": next_status,
+            "assigned_server_id": "",
+            "dns_status": dns_status,
+            "dns_error": dns_error,
+            "cooldown_until": cooldown_until,
+            "updated_at": now,
+        })
+        return result
+    finally:
+        conn.close()
+
+
+def mark_ts_domain_error(domain_id: int, error: str, dns_status: str = "error") -> bool:
+    conn = _get_conn()
+    try:
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status='error', dns_status=?, dns_error=?, updated_at=?
+            WHERE id=?
+            """,
+            (
+                (dns_status or "error").strip(),
+                (error or "unknown error").strip(),
+                datetime.now(timezone.utc).isoformat(),
+                int(domain_id),
+            ),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
+def reset_ts_domain_entry(domain_id: int) -> bool:
+    conn = _get_conn()
+    try:
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status='available', assigned_server_id='', assigned_node_name='', assigned_ip='',
+                dns_record_id='', dns_status='released', dns_error='', cooldown_until='', updated_at=?
+            WHERE id=? AND assigned_server_id=''
+            """,
+            (datetime.now(timezone.utc).isoformat(), int(domain_id)),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
 
 
 def sync_node_states_to_db(states: list[dict]) -> int:

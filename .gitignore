@@ -1,2 +1,16 @@
 /.codex_test_deps/
 /.venv/
+/deploy/windows/sm.local.bat
+/deploy/windows/ts.local.bat
+/deploy/caddy/caddy.exe
+/deploy/caddy/data/
+/Server_manager/caddy/Caddyfile
+/Server_manager/caddy/data/
+/Server_manager/caddy/config/
+/Server_manager/caddy/logs/
+/Server_manager/caddy/*.pid
+/Trader_Server/caddy/Caddyfile
+/Trader_Server/caddy/data/
+/Trader_Server/caddy/config/
+/Trader_Server/caddy/logs/
+/Trader_Server/caddy/*.pid

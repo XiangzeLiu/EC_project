@@ -48,16 +48,21 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from config import (
     SERVER_HOST, SERVER_PORT, session_store,
     quote_clients, subscribed_syms, log, read_recent_error_lines, read_error_log_text, LOG_FILE, ERROR_LOG_FILE,
     SM_ENABLE_LEGACY_QUOTES,
+    SM_ALLOWED_HOSTS, SM_COOKIE_SAMESITE, SM_COOKIE_SECURE, SM_CORS_ORIGINS,
+    SM_DNSPOD_MODE, SM_DOMAIN_POOL_REQUIRED, SM_PUBLIC_BASE_URL, SM_TS_DOMAIN_SUFFIX,
+    SM_CADDY_REQUIRED,
 )
 
 import database
+import domain_pool
 import node_state
-from address_utils import address_candidates, ts_api_url
+from address_utils import address_candidates, endpoint_matches_node, ts_api_url
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
@@ -66,13 +71,9 @@ from routers.position_router import router as position_router
 
 # ── FastAPI App ───────────────────────────────────────────────────────────
 
-_cors_origins_env = os.environ.get("SM_CORS_ORIGINS", "")
-_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()] or [
-    "http://127.0.0.1:8800",
-    "http://localhost:8800",
-]
-_cookie_secure = os.environ.get("SM_COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes"}
-_cookie_samesite = os.environ.get("SM_COOKIE_SAMESITE", "lax")
+_cors_origins = SM_CORS_ORIGINS
+_cookie_secure = SM_COOKIE_SECURE
+_cookie_samesite = SM_COOKIE_SAMESITE
 
 app = FastAPI(
     title="Trading Server Manager",
@@ -98,6 +99,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=SM_ALLOWED_HOSTS or ["*"],
 )
 
 # 注册 API 路由
@@ -169,6 +174,9 @@ def _is_super_admin(request: Request) -> bool:
 
 
 def _request_ip(request: Request) -> str:
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+    if forwarded_for:
+        return forwarded_for
     if request.client:
         return request.client.host or ""
     return ""
@@ -224,8 +232,7 @@ async def admin_login_page(request: Request, error: str = ""):
     if _is_admin_logged_in(request):
         return RedirectResponse(url="/admin/dashboard", status_code=302)
     last_user = request.cookies.get("admin_last_user", "")
-    return templates.TemplateResponse("login.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "login.html", {
         "error": error,
         "last_user": last_user,
     })
@@ -239,8 +246,7 @@ async def admin_login_submit(request: Request):
     password = (form.get("password") or "").strip()
 
     if not username or not password:
-        return templates.TemplateResponse("login.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "login.html", {
             "error": "请输入用户名和密码",
             "last_user": username,
         })
@@ -262,8 +268,7 @@ async def admin_login_submit(request: Request):
         return resp
 
     # 登录失败：直接返回登录页并显示错误（不跳转）
-    return templates.TemplateResponse("login.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "login.html", {
         "error": "用户名或密码错误",
         "last_user": username,
     })
@@ -310,8 +315,7 @@ async def admin_dashboard(request: Request):
     ib_color = "green" if ib_connected else "orange"
     active_count = len(quote_clients)
 
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "dashboard.html", {
         "admin_username": admin_username,
         "admin_role": admin_role,
         "is_super_admin": admin_role == "super_admin",
@@ -320,6 +324,8 @@ async def admin_dashboard(request: Request):
         "ib_status": ib_status,
         "ib_color": ib_color,
         "active_clients": str(active_count),
+        "public_base_url": SM_PUBLIC_BASE_URL,
+        "ts_domain_suffix": SM_TS_DOMAIN_SUFFIX,
     })
 
 
@@ -666,6 +672,46 @@ def _force_disconnect_ts_clients(ts_host: str, node_token: str, reason: str, tim
         return False, {"error": "network_error", "detail": str(e)}
 
 
+async def _disconnect_user_from_occupied_nodes(username: str, reason: str) -> list[dict]:
+    """Disconnect and release nodes currently occupied by one managed account."""
+    target_user = (username or "").strip()
+    results: list[dict] = []
+    if not target_user:
+        return results
+    for sid, state in list(node_state.manager._states.items()):
+        if (state.occupied_by or "").strip() != target_user:
+            continue
+        endpoint = (
+            state._public_endpoint
+            or state._assigned_domain
+            or state._host
+            or state.current_ip
+            or state._public_ip
+            or ""
+        ).strip()
+        node_token = (state._token or "").strip()
+        disconnected = False
+        detail: dict = {}
+        if endpoint and node_token and state.is_online:
+            disconnected, detail = await asyncio.to_thread(
+                _force_disconnect_ts_clients,
+                endpoint,
+                node_token,
+                reason,
+                8,
+            )
+        if disconnected or not state.is_online:
+            node_state.manager.release(sid, check_offline=False)
+            _sync_node_state_to_db(sid)
+        results.append({
+            "server_id": sid,
+            "disconnected": disconnected,
+            "released": disconnected or not state.is_online,
+            "detail": detail,
+        })
+    return results
+
+
 @app.get("/ping")
 
 async def ping():
@@ -683,9 +729,22 @@ async def register_request(request: Request):
     body = await request.json()
     node_name = (body.get("node_name") or "").strip()
     region = (body.get("region") or "").strip()
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+    source_ip = forwarded_for or ((request.client.host if request.client else "") or "").strip()
+    reported_public_ip = (body.get("public_ip") or "").strip()
 
     if not node_name:
         return {"ok": False, "error": "node_name is required"}
+    try:
+        public_ip = domain_pool.normalize_public_ipv4(reported_public_ip or source_ip)
+    except domain_pool.DomainPoolError as exc:
+        if SM_DOMAIN_POOL_REQUIRED:
+            return {
+                "ok": False,
+                "error": str(exc),
+                "source_ip": source_ip,
+            }
+        public_ip = reported_public_ip or source_ip
 
     # 生成唯一 request_id
     request_id = f"req_{secrets.token_hex(12)}"
@@ -694,7 +753,9 @@ async def register_request(request: Request):
         request_id=request_id,
         node_name=node_name,
         region=region,
-        host=(body.get("host") or "").strip(),
+        host=(body.get("host") or public_ip).strip(),
+        public_ip=public_ip,
+        source_ip=source_ip,
         capabilities=body.get("capabilities"),
         contact=(body.get("contact") or "").strip(),
         description=(body.get("description") or "").strip(),
@@ -735,7 +796,11 @@ async def await_approval(request_id: str):
         if req["status"] == "approved":
             data = _json.dumps({
                 "approved": True, "server_id": req["server_id"],
-                "token": req["token"], "message": "\u6ce8\u518c\u5df2\u901a\u8fc7",
+                "token": req["token"],
+                "public_ip": req.get("public_ip", ""),
+                "assigned_domain": req.get("assigned_domain", ""),
+                "public_endpoint": req.get("public_endpoint", ""),
+                "message": "\u6ce8\u518c\u5df2\u901a\u8fc7",
             })
         else:
             data = _json.dumps({
@@ -887,6 +952,50 @@ async def node_heartbeat(request: Request):
     return response
 
 
+@app.post("/nodes/release-occupation")
+async def release_node_occupation_from_ts(request: Request):
+    """Allow an authenticated TS to release the exact Client session it closed."""
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+    node_info = database.verify_node_token(token) if token else None
+    if not node_info:
+        return {"ok": False, "released": False, "error": "Unauthorized"}
+
+    body = await request.json() if await request.body() else {}
+    server_id = str(body.get("server_id") or "").strip()
+    username = str(body.get("username") or "").strip()
+    client_token = str(body.get("client_token") or "").strip()
+    node_server_id = str(node_info.get("server_id") or "")
+    if server_id != node_server_id:
+        return {
+            "ok": False,
+            "released": False,
+            "error": "node_server_mismatch",
+        }
+    if not username or not client_token:
+        return {
+            "ok": False,
+            "released": False,
+            "error": "session_identity_required",
+        }
+
+    if not node_state.manager.occupation_belongs_to_session(
+        server_id,
+        username,
+        client_token,
+    ):
+        return {"ok": True, "released": False, "reason": "occupation_changed"}
+
+    released = node_state.manager.release(server_id, check_offline=False)
+    if released:
+        log.info(
+            "Released Client occupation after TS connection closed: node=%s user=%s",
+            server_id,
+            username,
+        )
+    return {"ok": True, "released": bool(released)}
+
+
 # ── 节点管理 API（管理员用）───────────────────────────────────────────────
 
 @app.get("/api/nodes/pending")
@@ -906,6 +1015,87 @@ async def list_all_nodes(request: Request):
     node_state.manager.check_offline_nodes()
     nodes = _get_realtime_nodes_for_display()
     return {"ok": True, "data": nodes}
+
+
+@app.get("/api/domain-pool/list")
+async def list_domain_pool(request: Request, page: int = 1, status: str = ""):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    data = database.list_ts_domain_pool(page=page, page_size=20, status=status)
+    return {
+        "ok": True,
+        "data": data,
+        "dns_mode": SM_DNSPOD_MODE,
+        "domain_suffix": SM_TS_DOMAIN_SUFFIX,
+    }
+
+
+@app.get("/api/domain-pool/options")
+async def list_domain_pool_options(request: Request):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    return {"ok": True, "data": database.list_ts_domain_options()}
+
+
+@app.post("/api/domain-pool/import")
+async def import_domain_pool(request: Request):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    try:
+        body = await request.json() if await request.body() else {}
+    except Exception:
+        body = {}
+    raw_domains = body.get("domains") or []
+    if isinstance(raw_domains, str):
+        raw_domains = raw_domains.replace(",", "\n").splitlines()
+    domains = [str(item).strip() for item in raw_domains if str(item).strip()]
+    if not domains:
+        try:
+            count = max(1, min(int(body.get("count") or 20), 200))
+            start = max(1, int(body.get("start") or 1))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "count/start must be integers"}
+        domains = [
+            f"ts-{index:02d}.{SM_TS_DOMAIN_SUFFIX}"
+            for index in range(start, start + count)
+        ]
+    result = domain_pool.import_domains(domains)
+    if result.get("ok"):
+        _record_admin_event(
+            request,
+            "IMPORT_TS_DOMAINS",
+            "domain_pool",
+            f"导入域名：{result.get('accepted', 0)} 条",
+        )
+    return result
+
+
+@app.post("/api/domain-pool/{domain_id}/refresh-dns")
+async def refresh_domain_pool_dns(request: Request, domain_id: int):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: domain_pool.refresh_domain_dns(domain_id),
+        )
+        return result
+    except domain_pool.DomainPoolError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/domain-pool/{domain_id}/release")
+async def release_domain_pool_entry(request: Request, domain_id: int):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: domain_pool.release_orphan_domain(domain_id),
+        )
+        return result
+    except domain_pool.DomainPoolError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 @app.post("/api/nodes/refresh-status")
@@ -958,10 +1148,13 @@ async def approve_node(request: Request, request_id: str):
 
     # 审批前问询 SE：仅在“明确废弃/异常申请”时才自动废弃
     loop = asyncio.get_event_loop()
-    probe_state, probe_msg = await loop.run_in_executor(
-        None,
-        lambda: _probe_ts_request_alive(req, request_id, 10),
-    )
+    if _node_sse_queues.get(request_id):
+        probe_state, probe_msg = "ok", ""
+    else:
+        probe_state, probe_msg = await loop.run_in_executor(
+            None,
+            lambda: _probe_ts_request_alive(req, request_id, 10),
+        )
     if probe_state == "abandoned":
         discard_result = await loop.run_in_executor(
             None,
@@ -979,8 +1172,31 @@ async def approve_node(request: Request, request_id: str):
         log.warning(f"[approve] probe unknown, continue approval: {request_id}, detail={probe_msg}")
 
 
-    result = database.approve_node_request(request_id)
+    assignment = None
+    if SM_DOMAIN_POOL_REQUIRED:
+        try:
+            assignment = await loop.run_in_executor(
+                None,
+                lambda: domain_pool.allocate_domain(
+                    req.get("node_name", ""),
+                    req.get("public_ip", ""),
+                ),
+            )
+        except domain_pool.DomainPoolError as exc:
+            log.warning(f"[approve] domain allocation failed: {request_id}, detail={exc}")
+            return {
+                "ok": False,
+                "error": str(exc),
+                "request_id": request_id,
+            }
+
+    result = database.approve_node_request(request_id, domain_assignment=assignment)
     if not result:
+        if assignment:
+            await loop.run_in_executor(
+                None,
+                lambda: domain_pool.abort_allocation(assignment, "node approval failed"),
+            )
         return {"ok": False, "error": "Request not found or already processed"}
 
 
@@ -1008,6 +1224,9 @@ async def approve_node(request: Request, request_id: str):
             "node_name": "",
             "status": "approved",
             "broker_status": "online",
+            "public_ip": result.get("public_ip", ""),
+            "assigned_domain": result.get("assigned_domain", ""),
+            "public_endpoint": result.get("public_endpoint", ""),
         })
 
     # 向 SSE 等待队列推送结果
@@ -1015,6 +1234,9 @@ async def approve_node(request: Request, request_id: str):
         "approved": True,
         "server_id": result["server_id"],
         "token": result["token"],
+        "public_ip": result.get("public_ip", ""),
+        "assigned_domain": result.get("assigned_domain", ""),
+        "public_endpoint": result.get("public_endpoint", ""),
         "message": "\u6ce8\u518c\u5df2\u901a\u8fc7",
     })
     _push_sse_result(request_id, data)
@@ -1024,6 +1246,8 @@ async def approve_node(request: Request, request_id: str):
         "ok": True,
         "message": f"\u5df2\u901a\u8fc7\uff1a{result['server_id']}",
         "server_id": result["server_id"],
+        "assigned_domain": result.get("assigned_domain", ""),
+        "public_endpoint": result.get("public_endpoint", ""),
     }
 
 
@@ -1081,6 +1305,10 @@ async def cancel_node_request_by_se(request: Request):
         sid = result.get("server_id", "")
         if sid:
             node_state.manager.set_deleted(sid)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: domain_pool.release_server_domain(sid),
+            )
         data = _json.dumps({
             "approved": False,
             "reason": "该申请已被节点端废弃（审批结果已丢弃）",
@@ -1101,8 +1329,22 @@ async def delete_node(request: Request, server_id: str):
     if not ok:
         return {"ok": False, "error": "Node not found"}
     node_state.manager.set_deleted(server_id)
+    release_result = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: domain_pool.release_server_domain(server_id),
+    )
+    if release_result and release_result.get("error"):
+        log.warning(
+            "Domain release failed after node deletion: %s (%s)",
+            server_id,
+            release_result.get("error"),
+        )
     _record_admin_event(request, "DELETE_NODE", "node", f"删除节点：{server_id}")
-    return {"ok": True, "message": f"\u5df2\u5220\u9664\uff1a{server_id}"}
+    return {
+        "ok": True,
+        "message": f"\u5df2\u5220\u9664\uff1a{server_id}",
+        "domain_release": release_result,
+    }
 
 
 @app.post("/api/nodes/{server_id}/suspend")
@@ -1157,6 +1399,18 @@ async def occupy_node(request: Request, server_id: str):
             "message": "请求用户名与登录会话不一致",
         }
 
+    target_state = node_state.manager.get(server_id)
+    account = database.get_account_by_username(token_user)
+    bound_endpoint = database.resolve_trade_server_address(account)
+    if not account or account.get("status") != "active":
+        return {"ok": False, "error": "account_inactive_or_missing"}
+    if not endpoint_matches_node(bound_endpoint, target_state):
+        return {
+            "ok": False,
+            "error": "node_not_bound_to_account",
+            "message": "该交易账号未绑定当前交易服务器",
+        }
+
     # 检查是否已被其他账户占用（从内存读取）
     occ = node_state.manager.get_occupation_info(server_id)
     if occ and occ.get("occupied_by") and occ["occupied_by"] != token_user:
@@ -1166,7 +1420,7 @@ async def occupy_node(request: Request, server_id: str):
             "message": f"\u8282\u70b9\u5df2\u88ab\u8d26\u6237 '{occ['occupied_by']}' \u5360\u7528",
         }
 
-    ok, err_msg = node_state.manager.occupy(server_id, token_user)
+    ok, err_msg = node_state.manager.occupy(server_id, token_user, token)
     if not ok:
         return {"ok": False, "error": err_msg}
     return {"ok": True, "message": f"\u8282\u70b9\u5df2\u88ab '{token_user}' \u5360\u7528"}
@@ -1211,7 +1465,7 @@ async def force_release_node(request: Request, server_id: str):
     if not st:
         return {"ok": False, "error": "node_not_found"}
 
-    ts_host = (st._host or st.current_ip or "").strip()
+    ts_host = (st._public_endpoint or st._assigned_domain or st._host or st.current_ip or st._public_ip or "").strip()
 
     node_token = (st._token or "").strip()
     if not ts_host or not node_token:
@@ -1607,6 +1861,12 @@ async def delete_account(request: Request, account_id: int):
     ok = database.delete_account(account_id)
     if not ok:
         return {"ok": False, "error": "删除失败（可能不存在或受保护账号）"}
+    from auth import invalidate_client_tokens_by_username
+    invalidate_client_tokens_by_username(target.get("username", ""))
+    await _disconnect_user_from_occupied_nodes(
+        target.get("username", ""),
+        "account_deleted",
+    )
     _record_admin_event(request, "DELETE_ACCOUNT", "account", f"删除账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户已删除 (id={account_id})"}
 
@@ -1634,6 +1894,12 @@ async def suspend_account(request: Request, account_id: int):
     ok = database.suspend_account(account_id)
     if not ok:
         return {"ok": False, "error": "暂停失败（可能已被暂停或不存在）"}
+    from auth import invalidate_client_tokens_by_username
+    invalidate_client_tokens_by_username(target.get("username", ""))
+    await _disconnect_user_from_occupied_nodes(
+        target.get("username", ""),
+        "account_suspended",
+    )
     _record_admin_event(request, "SUSPEND_ACCOUNT", "account", f"暂停账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户已暂停 (id={account_id})"}
 
@@ -1708,6 +1974,11 @@ async def update_account(request: Request, account_id: int):
     broker_tag = (body.get("broker_tag") or "").strip()
     description = (body.get("description") or "").strip()
     password = (body.get("password") or "").strip()
+    revoke_active_session = bool(
+        password
+        or se_address != database.resolve_trade_server_address(target)
+        or broker_tag != (target.get("broker_tag") or "").strip()
+    )
 
     if not se_address:
         return {"ok": False, "error": "SE 地址不能为空"}
@@ -1723,6 +1994,13 @@ async def update_account(request: Request, account_id: int):
     )
     if not ok:
         return {"ok": False, "error": "更新失败（可能账户不存在）"}
+    if revoke_active_session:
+        from auth import invalidate_client_tokens_by_username
+        invalidate_client_tokens_by_username(target.get("username", ""))
+        await _disconnect_user_from_occupied_nodes(
+            target.get("username", ""),
+            "account_updated",
+        )
     _record_admin_event(request, "UPDATE_ACCOUNT", "account", f"更新账户：{target.get('username', account_id)}")
     return {"ok": True, "message": f"账户信息已更新 (id={account_id})"}
 
@@ -1731,14 +2009,33 @@ async def update_account(request: Request, account_id: int):
 @app.get("/api/accounts/se-status")
 async def check_se_status(request: Request, address: str = ""):
     """Return TS online/occupation state for an authenticated Client call."""
-    from auth import active_client_tokens
+    from auth import get_client_username
 
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
-    if not token or token not in active_client_tokens:
+    token_user = get_client_username(token)
+    if not token_user:
         return {"ok": False, "error": "Unauthorized", "online": False}
 
-    requested = address_candidates(address)
+    account = database.get_account_by_username(token_user)
+    bound_endpoint = database.resolve_trade_server_address(account)
+    if not account or account.get("status") != "active" or not bound_endpoint:
+        return {
+            "ok": False,
+            "error": "account_binding_missing",
+            "online": False,
+        }
+
+    supplied = address_candidates(address)
+    bound = address_candidates(bound_endpoint)
+    if supplied and not (supplied & bound):
+        return {
+            "ok": False,
+            "error": "address_not_bound_to_account",
+            "online": False,
+        }
+
+    requested = bound
     if not requested:
         return {
             "ok": True,
@@ -1753,6 +2050,9 @@ async def check_se_status(request: Request, address: str = ""):
         candidates = set()
         candidates.update(address_candidates(getattr(state, "current_ip", "")))
         candidates.update(address_candidates(getattr(state, "_host", "")))
+        candidates.update(address_candidates(getattr(state, "_public_ip", "")))
+        candidates.update(address_candidates(getattr(state, "_assigned_domain", "")))
+        candidates.update(address_candidates(getattr(state, "_public_endpoint", "")))
         if not (requested & candidates):
             continue
         if state.is_online:
@@ -1902,6 +2202,16 @@ async def _db_sync_loop():
 @app.on_event("startup")
 async def startup():
     """应用启动时执行初始化"""
+    from services.caddy_manager import configure_and_start_caddy
+
+    caddy_result = await asyncio.to_thread(configure_and_start_caddy)
+    if caddy_result.get("ok"):
+        log.info("[Startup] Caddy setup: %s", caddy_result)
+    else:
+        log.warning("[Startup] Caddy setup unavailable: %s", caddy_result)
+        if SM_CADDY_REQUIRED:
+            raise RuntimeError(f"Required Caddy setup failed: {caddy_result.get('reason', 'unknown error')}")
+
     # 启动会话过期清理任务
     asyncio.create_task(_session_cleanup_loop())
     # 启动节点注册请求过期清理任务
@@ -1911,7 +2221,6 @@ async def startup():
     # 初始化数据库
     try:
         init_db()
-        database._ensure_config_version_column()
     except Exception as e:
         log.warning(f"Database init skipped (non-critical): {e}")
 
@@ -1970,4 +2279,10 @@ async def shutdown():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
+    uvicorn.run(
+        app,
+        host=SERVER_HOST,
+        port=SERVER_PORT,
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
+    )

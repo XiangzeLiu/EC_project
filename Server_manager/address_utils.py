@@ -59,6 +59,27 @@ def address_candidates(endpoint: str) -> set[str]:
     return {c for c in candidates if c}
 
 
+def node_address_candidates(node) -> set[str]:
+    """Return every address form associated with a node row or NodeState."""
+    if node is None:
+        return set()
+
+    def value(name: str) -> str:
+        if isinstance(node, dict):
+            return str(node.get(name) or "")
+        return str(getattr(node, name, "") or getattr(node, f"_{name}", "") or "")
+
+    candidates: set[str] = set()
+    for field in ("host", "public_ip", "assigned_domain", "public_endpoint", "current_ip"):
+        candidates.update(address_candidates(value(field)))
+    return candidates
+
+
+def endpoint_matches_node(endpoint: str, node) -> bool:
+    requested = address_candidates(endpoint)
+    return bool(requested and (requested & node_address_candidates(node)))
+
+
 def ts_http_base_url(endpoint: str) -> str:
     """Convert a TS endpoint to an HTTP(S) base URL for REST admin calls."""
     raw = (endpoint or "").strip()

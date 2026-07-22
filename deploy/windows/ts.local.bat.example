@@ -1,0 +1,4 @@
+@echo off
+rem Rename this file to ts.local.bat only when this server needs overrides.
+set "TS_NODE_NAME=ts-node-01"
+set "TS_BROKER_TYPE=TT"

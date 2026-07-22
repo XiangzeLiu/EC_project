@@ -9,7 +9,7 @@ import logging
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from config import SERVER_TOKEN, active_client_tokens, log
+from config import CLIENT_TOKEN_TTL_SECONDS, SERVER_TOKEN, active_client_tokens, log
 
 
 security = HTTPBearer(auto_error=False)
@@ -30,7 +30,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     if token == SERVER_TOKEN:
         return True
     # 检查是否为已登录的客户端 Token
-    if token in active_client_tokens:
+    if get_client_token_info(token):
         return True
     raise HTTPException(status_code=401, detail="Invalid or expired token")
 
@@ -50,7 +50,22 @@ def generate_client_token(username: str) -> str:
 
 def get_client_token_info(token: str) -> dict | None:
     """获取客户端 token 对应的用户信息"""
-    return active_client_tokens.get(token)
+    info = active_client_tokens.get(token)
+    if not info:
+        return None
+    created_at = float(info.get("created_at") or 0)
+    if created_at <= 0 or time.time() - created_at > CLIENT_TOKEN_TTL_SECONDS:
+        active_client_tokens.pop(token, None)
+        return None
+    return info
+
+
+def prune_expired_client_tokens() -> int:
+    removed = 0
+    for token in list(active_client_tokens):
+        if get_client_token_info(token) is None:
+            removed += 1
+    return removed
 
 
 def get_client_username(token: str) -> str:

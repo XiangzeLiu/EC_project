@@ -1355,7 +1355,7 @@ class TradingTerminalQt(QMainWindow):
         self._ui_backdoor_mode = False
         self.session = TradingSession(self.http)
         ok, msg = self.session.login(username, password, force=force)
-        self._ui(lambda: self._handle_manager_login_result(ok, msg, username, password))
+        self._ui(lambda: self._handle_manager_login_result(ok, msg, username, password, force))
 
     def _enter_dev_main_interface(self, username: str) -> None:
         self._ui_backdoor_mode = True
@@ -1375,8 +1375,14 @@ class TradingTerminalQt(QMainWindow):
         self._update_init_step("se", "未连接", theme.TEXT_MUTED)
         self._enter_main_interface()
 
-    def _handle_manager_login_result(self, ok: bool, msg: str, username: str, password: str) -> None:
+    def _handle_manager_login_result(self, ok: bool, msg: str, username: str, password: str, force: bool = False) -> None:
         if not ok:
+            login_error = getattr(self.session, "last_login_error", {}) if self.session else {}
+            if not force and login_error.get("code") == "already_logged_in":
+                if DuplicateLoginDialog(self).exec() == QDialog.Accepted:
+                    self._update_init_step("auth", "正在接管...", theme.ACCENT_YELLOW)
+                    self._run_bg(lambda: self._login_manager(username, password, True))
+                    return
             self._update_init_step("auth", "\u5931\u8d25", theme.ACCENT_RED)
             if self._main_ui_built:
                 self._log_user_error_once(f"SM\u767b\u5f55\u5931\u8d25\uff1a{localize_user_message(msg)}")
@@ -1389,7 +1395,7 @@ class TradingTerminalQt(QMainWindow):
             return
         self._startup_login_required = False
         self._login_username = username
-        self._login_password = password
+        self._login_password = ""
         self._update_init_step("auth", "\u5df2\u767b\u5f55", theme.ACCENT_GREEN)
         if self._main_ui_built:
             self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
@@ -1925,10 +1931,10 @@ class TradingTerminalQt(QMainWindow):
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u8bf7\u8f93\u5165\u4ee3\u7801")
             return
         if qty <= 0:
-            self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u8bf7\u8f93\u5165\u4ee3\u7801")
+            self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0")
             return
         if order_type != "market" and price <= 0:
-            self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0")
+            self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u9650\u4ef7\u5fc5\u987b\u5927\u4e8e 0")
             return
         price_str = "Market" if order_type == "market" else f"${price:.2f}"
         action_label = ACTION_LABELS.get(action, action)
@@ -2080,15 +2086,41 @@ class TradingTerminalQt(QMainWindow):
                     self.session.broker_logout()
                 except Exception:
                     pass
+            self._release_se_occupation(sync=True)
+            if self.session:
                 try:
                     self.session.logout()
                 except Exception:
                     pass
             if self._se_client:
                 self._se_client.stop()
-            self._release_se_occupation(sync=True)
         finally:
             event.accept()
+
+
+class DuplicateLoginDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("登录接管")
+        self.setModal(True)
+        self.setMinimumWidth(420)
+        self.setStyleSheet(theme.APP_QSS)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(18)
+        title = make_label("账号已在其他位置登录", color=theme.TEXT_PRIMARY, font=theme.ui_font(15, bold=True))
+        message = make_label("是否使旧登录失效，并在当前 Client 继续登录？", color=theme.TEXT_DIM, font=theme.ui_font(11))
+        message.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(message)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        buttons.button(QDialogButtonBox.Ok).setText("确认接管")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 
 class ManagerLoginDialog(QDialog):

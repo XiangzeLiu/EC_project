@@ -22,6 +22,7 @@ from ..config import (
     load_register_state, clear_register_state,
     DEFAULT_MANAGER_URL, DEFAULT_NODE_NAME, DEFAULT_REGION,
     DEFAULT_HOST, DEFAULT_CAPABILITIES, DEFAULT_CONTACT, DEFAULT_DESCRIPTION,
+    TS_CADDY_REQUIRED,
 )
 
 log = logging.getLogger("trader_server.registration")
@@ -66,6 +67,7 @@ def submit_registration(
     node_name: str | None = None,
     region: str | None = None,
     host: str | None = None,
+    public_ip: str | None = None,
     capabilities: list[str] | None = None,
     contact: str | None = None,
     description: str | None = None,
@@ -83,10 +85,31 @@ def submit_registration(
         log.warning("submit_registration skipped: node already registered")
         return None
 
+    pending = load_register_state()
+    if pending and pending.get("request_id"):
+        state.manager_url = pending.get("manager_url") or state.manager_url
+        state.node_name = pending.get("node_name") or state.node_name
+        state.status = "registering"
+        log.info("Resuming pending registration: %s", pending["request_id"])
+        return {
+            "ok": True,
+            "request_id": pending["request_id"],
+            "expire_at": pending.get("expire_at", ""),
+            "resumed": True,
+        }
+
+    from .public_ip import detect_public_ipv4, validate_public_ipv4
+
+    resolved_public_ip = (public_ip or state.public_ip or "").strip()
+    if not resolved_public_ip:
+        resolved_public_ip = detect_public_ipv4()
+    resolved_public_ip = validate_public_ipv4(resolved_public_ip)
+
     payload = {
         "node_name": node_name or state.node_name or DEFAULT_NODE_NAME,
         "region": region or state.region or DEFAULT_REGION,
-        "host": host or DEFAULT_HOST,
+        "host": host or resolved_public_ip or DEFAULT_HOST,
+        "public_ip": resolved_public_ip,
         "capabilities": capabilities or DEFAULT_CAPABILITIES,
         "contact": contact or DEFAULT_CONTACT,
         "description": description or DEFAULT_DESCRIPTION,
@@ -95,6 +118,7 @@ def submit_registration(
     # 更新运行时状态
     state.node_name = payload["node_name"]
     state.region = payload["region"]
+    state.public_ip = payload["public_ip"]
     state.status = "registering"
 
 
@@ -238,20 +262,45 @@ def await_approval(
                         if approved:
                             log.info(f"★ APPROVED! server_id={result.get('server_id')}")
                             # 保存凭证
-                            save_config({
+                            config_saved = save_config({
                                 "server_id": result.get("server_id"),
                                 "token": result.get("token"),
                                 "manager_url": state.manager_url,
                                 "node_name": state.node_name,
                                 "region": state.region,
+                                "public_ip": result.get("public_ip") or state.public_ip,
+                                "assigned_domain": result.get("assigned_domain", ""),
+                                "public_endpoint": result.get("public_endpoint", ""),
                             })
                             # 清理临时状态
-                            clear_register_state()
+                            if config_saved:
+                                clear_register_state()
+                            else:
+                                log.error("Approved credentials could not be persisted")
 
                             # 更新运行时状态
                             state.server_id = result.get("server_id", "")
                             state.token = result.get("token", "")
+                            state.public_ip = result.get("public_ip") or state.public_ip
+                            state.assigned_domain = result.get("assigned_domain", "")
+                            state.public_endpoint = result.get("public_endpoint", "")
                             state.status = "approved"
+                            if state.assigned_domain:
+                                try:
+                                    from .caddy_manager import configure_and_start_caddy
+                                    caddy_result = configure_and_start_caddy(state.assigned_domain)
+                                    if caddy_result.get("ok"):
+                                        log.info("Caddy registration result: %s", caddy_result)
+                                    else:
+                                        log.error("Caddy registration setup failed: %s", caddy_result)
+                                        if TS_CADDY_REQUIRED:
+                                            raise RuntimeError(
+                                                f"Required Caddy setup failed: {caddy_result.get('reason', 'unknown error')}"
+                                            )
+                                except Exception as exc:
+                                    if TS_CADDY_REQUIRED:
+                                        raise
+                                    log.warning("Caddy registration setup failed: %s", exc)
 
                         else:
                             reason = result.get("reason", "")
@@ -351,6 +400,9 @@ def check_and_restore_session() -> bool:
         state.manager_url = cfg.get("manager_url", DEFAULT_MANAGER_URL)
         state.node_name = cfg.get("node_name", DEFAULT_NODE_NAME)
         state.region = cfg.get("region", DEFAULT_REGION)
+        state.public_ip = cfg.get("public_ip", "")
+        state.assigned_domain = cfg.get("assigned_domain", "")
+        state.public_endpoint = cfg.get("public_endpoint", "")
         state.status = "approved"
         log.info(f"Restored session: server_id={state.server_id}")
         return True

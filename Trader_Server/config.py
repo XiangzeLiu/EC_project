@@ -32,7 +32,7 @@ log = logging.getLogger("trader_server")
 
 # ── 默认值 ────────────────────────────────────────────────────────────────
 
-DEFAULT_MANAGER_URL = os.getenv("TS_MANAGER_URL", "http://127.0.0.1:8800")
+DEFAULT_MANAGER_URL = os.getenv("TS_MANAGER_URL", "https://scjrdomain.com")
 DEFAULT_NODE_NAME = os.getenv("TS_NODE_NAME", "trader-node-01")
 DEFAULT_REGION = os.getenv("TS_BROKER_TYPE", "TT")  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
 DEFAULT_PUBLIC_ENDPOINT = (
@@ -51,6 +51,15 @@ DEFAULT_HEARTBEAT_INTERVAL = int(os.getenv("TS_HEARTBEAT_INTERVAL", "20"))
 # WebSocket 服务端口（供 Client 连接）
 DEFAULT_BIND_HOST = os.getenv("TS_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
 DEFAULT_WS_PORT = int(os.getenv("TS_WS_PORT", "8900"))
+TS_CADDY_AUTO_MANAGE = os.getenv("TS_CADDY_AUTO_MANAGE", "1").strip().lower() not in {"0", "false", "no", "off"}
+TS_CADDY_REQUIRED = os.getenv("TS_CADDY_REQUIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
+TS_CADDY_EXE = os.getenv("TS_CADDY_EXE", "").strip()
+TS_CADDY_DIR = os.getenv("TS_CADDY_DIR", "").strip()
+TS_CADDY_ADMIN = os.getenv("TS_CADDY_ADMIN", "127.0.0.1:2020").strip() or "127.0.0.1:2020"
+TS_CADDY_START_TIMEOUT = max(
+    1.0,
+    float(os.getenv("TS_CADDY_START_TIMEOUT", "10")),
+)
 DEFAULT_TS_LOGIN_USERNAME = os.getenv("TS_LOGIN_USERNAME", "")
 DEFAULT_TS_LOGIN_PASSWORD = os.getenv("TS_LOGIN_PASSWORD", "")
 DEFAULT_TS_LOGIN_TEST_USERNAME = "test"
@@ -203,6 +212,9 @@ class RuntimeState:
         self.manager_url: str = DEFAULT_MANAGER_URL
         self.node_name: str = DEFAULT_NODE_NAME
         self.region: str = DEFAULT_REGION  # 存储券商类型值 (tastytrade / interactive_brokers)
+        self.public_ip: str = ""
+        self.assigned_domain: str = ""
+        self.public_endpoint: str = ""
         self.status: str = "uninitialized" # uninitialized / registering / approved / running / error
         self.heartbeat_ok: bool = False    # 最近一次心跳是否成功
         self.last_heartbeat_time: float = 0

@@ -356,6 +356,22 @@
     .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; grid-column: 1 / -1; }
     .empty-state i { font-size: 36px; display: block; margin-bottom: 8px; color: #dde1ec; }
 
+    .domain-toolbar { display:flex; gap:10px; align-items:center; padding:16px 24px; border-bottom:1px solid #eef0f6; }
+    .domain-toolbar .inp { flex:1; min-width:180px; }
+    .domain-table-wrap { overflow-x:auto; }
+    .domain-table { width:100%; min-width:980px; border-collapse:collapse; font-size:13px; }
+    .domain-table th { padding:11px 14px; text-align:left; color:#8a93ab; font-weight:500; background:#fafbfe; border-bottom:1px solid #eef0f6; white-space:nowrap; }
+    .domain-table td { padding:12px 14px; color:#3f475f; border-bottom:1px solid #f0f2f7; vertical-align:middle; }
+    .domain-table tr:last-child td { border-bottom:none; }
+    .domain-value { font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace; word-break:break-all; }
+    .domain-tag { display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+    .domain-available { color:#15803d; background:#dcfce7; }
+    .domain-allocating { color:#a16207; background:#fef3c7; }
+    .domain-occupied { color:#6d28d9; background:#ede9fe; }
+    .domain-cooling { color:#1d4ed8; background:#dbeafe; }
+    .domain-error { color:#b91c1c; background:#fee2e2; }
+    .domain-pager { display:flex; justify-content:center; align-items:center; gap:12px; padding:14px 20px; border-top:1px solid #eef0f6; color:#5b6480; font-size:13px; }
+
     /* Sub-section header */
     .subheader { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
     .subheader h3 { font-size: 13px; font-weight: 600; color: #3f475f; }
@@ -526,6 +542,9 @@
     body.sm-dark .ov-name, body.sm-dark .ov-count, body.sm-dark .ov-detail-mid, body.sm-dark .audit-detail, body.sm-dark .srv-name { color:#d1d5db; }
     body.sm-dark input, body.sm-dark select, body.sm-dark textarea, body.sm-dark .inp, body.sm-dark .sel { background:rgba(15,23,42,.72); color:#e5e7eb; border-color:rgba(148,163,184,.22); }
     body.sm-dark .btn-xs, body.sm-dark .btn-primary-lg { border-color:rgba(148,163,184,.22); }
+    body.sm-dark .domain-toolbar, body.sm-dark .domain-pager, body.sm-dark .domain-table th, body.sm-dark .domain-table td { border-color:rgba(148,163,184,.18); }
+    body.sm-dark .domain-table th { background:rgba(15,23,42,.64); color:#94a3b8; }
+    body.sm-dark .domain-table td { color:#d1d5db; }
     @media (max-width: 1180px) { .overview-grid.ov-main { grid-template-columns: 1fr; } }
 
     /* Responsive */
@@ -564,6 +583,9 @@
       </button>
       <button data-module="server-economic" class="nav-item" type="button">
         <i class="ri-node-tree"></i><span>TS 节点管理</span>
+      </button>
+      <button data-module="domain-pool" class="nav-item" type="button">
+        <i class="ri-global-line"></i><span>子域名池</span>
       </button>
 
       <div class="nav-section-title" style="margin-top:8px;">系统工具</div>
@@ -701,13 +723,18 @@
                   <option value="trader" selected>交易员</option>
                   {% if is_super_admin %}<option value="admin">管理员</option>{% endif %}
                 </select>
-                <input class="inp req" id="inp-se-addr" placeholder="TS 地址（WSS URL 或 IP:端口）" autocomplete="off" style="flex:1;min-width:0" />
                 <select class="sel" id="inp-broker" autocomplete="off" style="flex:1;min-width:0">
                   <option value="" disabled selected>选择券商</option>
                   <option value="IB">IB</option>
                   <option value="TT">TT</option>
                   <option value="Test">Test</option>
                 </select>
+              </div>
+              <div class="toolbar-row">
+                <select class="sel" id="inp-se-domain" autocomplete="off" style="flex:1;min-width:0" onchange="onDomainSelectionChanged('inp-se-domain','inp-se-addr')">
+                  <option value="">手工输入 TS 地址</option>
+                </select>
+                <input class="inp req" id="inp-se-addr" placeholder="TS 地址（完整 WSS URL 或 IP:端口）" autocomplete="off" style="flex:1;min-width:0" />
               </div>
               <div class="toolbar-row">
                 <input class="inp opt" id="inp-desc" placeholder="描述（选填）" autocomplete="off" style="flex:1" />
@@ -786,6 +813,32 @@
               <div class="grid-nodes" id="nodes-body"></div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="mod-domain-pool" class="section">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-header-left">
+              <div class="tile-icon ti-blue"><i class="ri-global-line"></i></div>
+              <h2 class="panel-title">TS 子域名池</h2>
+              <span id="domain-pool-count" class="badge" style="background:#eef4ff;color:#3b63f6">0 条</span>
+              <span id="domain-dns-mode" class="badge" style="background:#f1f5f9;color:#64748b">DNS -</span>
+            </div>
+            <button id="btn-refresh-domains" onclick="refreshDomainPool(_domainPage)" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
+          </div>
+          <div class="domain-toolbar">
+            <input class="inp" id="domain-import-input" placeholder="输入域名，多个域名用逗号或换行分隔" autocomplete="off" />
+            <button class="btn-xs btn-pri" onclick="importDomainPool(false)"><i class="ri-download-line"></i> 导入</button>
+            <button class="btn-xs btn-ok" onclick="importDomainPool(true)"><i class="ri-add-line"></i> 初始化20个</button>
+          </div>
+          <div class="domain-table-wrap">
+            <table class="domain-table">
+              <thead><tr><th>域名 / WSS</th><th>状态</th><th>占用 TS</th><th>占用 IP</th><th>DNS</th><th>更新时间</th><th>操作</th></tr></thead>
+              <tbody id="domain-pool-body"><tr><td colspan="7" style="text-align:center;padding:36px;color:#94a3b8">加载中...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="domain-pager" id="domain-pool-pager"></div>
         </div>
       </section>
 
@@ -964,6 +1017,9 @@ var _auditFullLoaded=false;
 var _auditPage=1;
 var _auditLimit=50;
 var _auditTotal=0;
+var _domainPage=1;
+var _domainPages=1;
+var _domainOptions=[];
 document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
   item.addEventListener('click',function(e){
     e.preventDefault();
@@ -971,12 +1027,13 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
     _activeModule=target;
     document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
     this.classList.add('active');
-    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'TS 节点管理','audit':'日志信息','docs':'产品文档'};
+    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'TS 节点管理','domain-pool':'子域名池','audit':'日志信息','docs':'产品文档'};
     document.getElementById('page-title').textContent=titles[target]||'仪表盘';
     document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
     var el=document.getElementById('mod-'+target);
     if(el) el.classList.add('active');
     if(target==='audit' && !_auditFullLoaded){ refreshAuditLogs({full:true,page:_auditPage}); }
+    if(target==='domain-pool'){ refreshDomainPool(_domainPage); }
   });
 });
 
@@ -1006,6 +1063,8 @@ function renderPending(nodes){
       +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">能力</span><div style="display:flex;flex-wrap:wrap;gap:4px">'+capTags+'</div></div>'
       +'  <div class="nc-row"><span class="nc-label">主机</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.host||'-')+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">公网 IP</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.public_ip||'-')+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">来源 IP</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.source_ip||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">联系</span><span class="nc-value">'+escapeHtml(n.contact||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">Request ID</span><span style="color:#b9c0d2;font-family:ui-monospace,monospace;font-size:10px">'+escapeHtml(n.request_id)+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">提交时间</span><span style="color:#5b6480">'+fmtTime(n.created_at)+'</span></div>'
@@ -1123,6 +1182,7 @@ function renderNodes(nodes){
       +'<div class="nc-info">'
       +'  <div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value-mono">'+escapeHtml(n.server_id||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
+      +'  <div class="nc-row"><span class="nc-label">域名</span><span class="nc-value-mono">'+escapeHtml(n.assigned_domain||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">当前 IP</span><span class="nc-value">'+escapeHtml(n.current_ip||n.host||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">最后心跳</span><span class="nc-value">'+hbInfo+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">Token</span><span class="token-copy" title="点击复制 Token" data-token="'+encodeURIComponent(n.token||'')+'" onclick="copyToken(decodeURIComponent(this.dataset.token),this)">'+ts+'</span></div>'
@@ -1279,7 +1339,11 @@ async function deleteNode(sid,b){
   try{
     var r=await fetch('/api/nodes/'+encodeURIComponent(sid)+'/delete',{method:'POST',credentials:'same-origin'});
     var d=await r.json();
-    if(d.ok){toast('节点已删除','ok');refreshNodes();}
+    if(d.ok){
+      if(d.domain_release&&d.domain_release.error)toast('节点已删除，但域名 DNS 释放失败，请到子域名池处理','warn');
+      else toast('节点已删除','ok');
+      refreshNodes();refreshDomainPool(_domainPage);
+    }
     else{toast('删除失败:'+(d.error||d.detail),'err');b.disabled=false;b.innerHTML='删除';}
   }catch(e){toast('网络错误:'+e.message,'err');b.disabled=false;b.innerHTML='删除';}
 }
@@ -1538,6 +1602,49 @@ function copyToken(tok,el){
 }
 
 // ═══════════════════════════════════════════════════
+//  子域名池
+// ═══════════════════════════════════════════════════
+function domainStatusMeta(status){
+  var map={available:['未占用','domain-available'],allocating:['分配中','domain-allocating'],occupied:['已占用','domain-occupied'],cooling:['冷却中','domain-cooling'],error:['异常','domain-error']};
+  return map[status]||[status||'-','domain-error'];
+}
+function renderDomainPool(payload){
+  var data=(payload&&payload.data)||{},items=data.items||[];
+  _domainPage=data.page||1;_domainPages=data.pages||1;
+  document.getElementById('domain-pool-count').textContent=(data.total||0)+' 条';
+  document.getElementById('domain-dns-mode').textContent='DNS '+((payload&&payload.dns_mode)||'-').toUpperCase();
+  var body=document.getElementById('domain-pool-body');
+  if(!items.length){body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:36px;color:#94a3b8">暂无子域名，请先导入或初始化</td></tr>';}
+  else body.innerHTML=items.map(function(item){
+    var meta=domainStatusMeta(item.status),owner=escapeHtml(item.assigned_node_name||'-');
+    if(item.assigned_server_id)owner+='<div class="domain-value" style="font-size:11px;color:#8a93ab">'+escapeHtml(item.assigned_server_id)+'</div>';
+    var dns='<span class="domain-tag '+(item.dns_status==='error'?'domain-error':'domain-available')+'">'+escapeHtml(item.dns_status||'-')+'</span>';
+    if(item.dns_error)dns+='<div style="margin-top:4px;color:#b91c1c;font-size:11px;max-width:180px;word-break:break-word">'+escapeHtml(item.dns_error)+'</div>';
+    var actions='-';
+    if(item.assigned_server_id&&(item.status==='occupied'||item.status==='error'))actions='<button class="btn-xs btn-pri" onclick="refreshDomainDns('+item.id+',this)"><i class="ri-refresh-line"></i> DNS重试</button>';
+    else if(!item.assigned_server_id&&(item.status==='error'||item.status==='allocating'))actions='<button class="btn-xs btn-warn" onclick="releaseDomainEntry('+item.id+',this)">恢复可用</button>';
+    return '<tr><td><div class="domain-value">'+escapeHtml(item.fqdn||'-')+'</div><div class="domain-value" style="font-size:11px;color:#8a93ab;margin-top:3px">'+escapeHtml(item.public_endpoint||'-')+'</div></td>'
+      +'<td><span class="domain-tag '+meta[1]+'">'+meta[0]+'</span></td><td>'+owner+'</td><td class="domain-value">'+escapeHtml(item.assigned_ip||'-')+'</td><td>'+dns+'</td><td>'+fmtTime(item.updated_at)+'</td><td>'+actions+'</td></tr>';
+  }).join('');
+  document.getElementById('domain-pool-pager').innerHTML='<button class="btn-xs" '+(_domainPage<=1?'disabled':'')+' onclick="refreshDomainPool('+(_domainPage-1)+')"><i class="ri-arrow-left-line"></i></button><span>第 '+_domainPage+' / '+_domainPages+' 页</span><button class="btn-xs" '+(_domainPage>=_domainPages?'disabled':'')+' onclick="refreshDomainPool('+(_domainPage+1)+')"><i class="ri-arrow-right-line"></i></button>';
+}
+async function refreshDomainPool(page){
+  try{var r=await fetch('/api/domain-pool/list?page='+Math.max(1,page||1),{credentials:'same-origin'}),d=await r.json();if(!d.ok){toast('域名池加载失败:'+(d.error||''),'err');return;}renderDomainPool(d);await refreshDomainOptions();}
+  catch(e){toast('域名池网络错误:'+e.message,'err');}
+}
+async function importDomainPool(useDefault){
+  var input=document.getElementById('domain-import-input'),raw=(input.value||'').trim();if(!useDefault&&!raw){toast('请输入需要导入的域名','warn');return;}
+  try{var r=await fetch('/api/domain-pool/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(useDefault?{count:20,start:1}:{domains:raw})}),d=await r.json();if(!d.ok){toast('导入失败:'+(d.error||''),'err');return;}input.value='';toast('域名导入完成：新增 '+(d.inserted||0)+'，更新 '+(d.updated||0),'ok');refreshDomainPool(1);}
+  catch(e){toast('导入网络错误:'+e.message,'err');}
+}
+async function refreshDomainDns(id,btn){if(btn)btn.disabled=true;try{var r=await fetch('/api/domain-pool/'+id+'/refresh-dns',{method:'POST',credentials:'same-origin'}),d=await r.json();if(d.ok){toast('DNS 记录已刷新','ok');refreshDomainPool(_domainPage);}else toast('DNS 刷新失败:'+(d.error||''),'err');}catch(e){toast('DNS 刷新网络错误:'+e.message,'err');}finally{if(btn)btn.disabled=false;}}
+async function releaseDomainEntry(id,btn){if(btn)btn.disabled=true;try{var r=await fetch('/api/domain-pool/'+id+'/release',{method:'POST',credentials:'same-origin'}),d=await r.json();if(d.ok){toast('域名已恢复为可用状态','ok');refreshDomainPool(_domainPage);}else toast('恢复失败:'+(d.error||''),'err');}catch(e){toast('恢复网络错误:'+e.message,'err');}finally{if(btn)btn.disabled=false;}}
+async function refreshDomainOptions(){try{var r=await fetch('/api/domain-pool/options',{credentials:'same-origin'}),d=await r.json();if(!d.ok)return;_domainOptions=d.data||[];var select=document.getElementById('inp-se-domain');if(select)populateDomainSelect(select,select.value||'');}catch(e){console.warn('Domain options load failed',e);}}
+function populateDomainSelect(select,selected){if(!select)return;var html='<option value="">手工输入 TS 地址</option>';(_domainOptions||[]).forEach(function(item){var endpoint=item.public_endpoint||'',label=(item.fqdn||endpoint)+' · '+(item.assigned_node_name||'-')+' · '+(item.assigned_ip||'-');html+='<option value="'+escapeHtml(endpoint)+'" '+(endpoint===selected?'selected':'')+'>'+escapeHtml(label)+'</option>';});select.innerHTML=html;}
+function domainOptionsHtml(selected){var html='<option value="">手工输入 TS 地址</option>';(_domainOptions||[]).forEach(function(item){var endpoint=item.public_endpoint||'',label=(item.fqdn||endpoint)+' · '+(item.assigned_node_name||'-');html+='<option value="'+escapeHtml(endpoint)+'" '+(endpoint===selected?'selected':'')+'>'+escapeHtml(label)+'</option>';});return html;}
+function onDomainSelectionChanged(selectId,inputId){var select=document.getElementById(selectId),input=document.getElementById(inputId);if(select&&input&&select.value)input.value=select.value;}
+
+// ═══════════════════════════════════════════════════
 //  账户管理
 // ═══════════════════════════════════════════════════
 async function refreshAccounts(){
@@ -1571,6 +1678,8 @@ function renderAccounts(accounts){
   (_nodesCache||[]).forEach(function(n){
     if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.host,n.occupied_by); }
     if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.current_ip,n.occupied_by); }
+    if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.assigned_domain,n.occupied_by); }
+    if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.public_endpoint,n.occupied_by); }
   });
 
   function renderCards(list){
@@ -1655,14 +1764,17 @@ function renderAccounts(accounts){
 function onCreateRoleChanged(){
   var roleEl=document.getElementById('inp-role');
   var seEl=document.getElementById('inp-se-addr');
+  var domainEl=document.getElementById('inp-se-domain');
   var brokerEl=document.getElementById('inp-broker');
   if(!roleEl||!seEl||!brokerEl) return;
   var isTrader=(roleEl.value==='trader');
   seEl.disabled=!isTrader;
+  if(domainEl)domainEl.disabled=!isTrader;
   brokerEl.disabled=!isTrader;
   seEl.placeholder=isTrader?'TS 地址（WSS URL 或 IP:端口）':'管理员账户无需 TS 地址';
   if(!isTrader){
     seEl.value='';
+    if(domainEl)domainEl.value='';
     brokerEl.value='';
   }
 }
@@ -1812,6 +1924,7 @@ async function createAccount(){
       document.getElementById('inp-username').value='';
       document.getElementById('inp-password').value='';
       document.getElementById('inp-se-addr').value='';
+      document.getElementById('inp-se-domain').value='';
       document.getElementById('inp-broker').value='';
       document.getElementById('inp-desc').value='';
       refreshAccounts();
@@ -1899,6 +2012,7 @@ function showAccountEdit(id,user,seAddr,broker,desc){
     +'      <button class="modal-close-btn" aria-label="close" onclick="document.getElementById(\'acct-edit-modal\').remove()"><i class="ri-close-line"></i></button></div>'
     +'    <div class="modal-body">'
     +'      <div class="field-group"><label class="field-label">用户名（不可修改）</label><div class="field-readonly">'+escapeHtml(user)+'</div></div>'
+    +'      <div class="field-group"><label class="field-label">已分配 TS 域名</label><select class="sel" id="edit-se-domain" onchange="onDomainSelectionChanged(\'edit-se-domain\',\'edit-se-addr\')">'+domainOptionsHtml(seAddr)+'</select></div>'
     +'      <div class="field-group"><label class="field-label">TS 地址 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-se-addr" value="'+escapeHtml(seAddr)+'" placeholder="WSS URL 或 IP:端口" /></div>'
     +'      <div class="field-group"><label class="field-label">券商 <span style="color:#ef4444">*</span></label><input class="inp" id="edit-broker" value="'+escapeHtml(broker)+'" /></div>'
     +'      <div class="field-group"><label class="field-label">描述</label><input class="inp" id="edit-desc" value="'+escapeHtml(desc)+'" /></div>'
@@ -2153,6 +2267,7 @@ function tryRenderOverview(){
 
 /* 初始化创建表单角色联动 */
 onCreateRoleChanged();
+refreshDomainOptions();
 
 /* 初始加载：先加载 nodes（accounts 的状态判断依赖 _nodesCache），再加载 accounts */
 refreshNodes().then(function(){

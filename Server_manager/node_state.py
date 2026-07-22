@@ -12,6 +12,8 @@ Node Runtime State Manager (内存节点状态管理)
 
 import time
 import logging
+import hashlib
+import hmac
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -37,6 +39,7 @@ class NodeState:
     # ── 占用字段（Client 操作时更新）──
     occupied_by: str = ""             # 空字符串表示未被占用
     occupied_at: float = 0.0
+    _occupied_token_hash: str = ""    # 区分同用户名的不同登录会话
 
     # ── 主动探活字段（SM 巡检时使用）──
     _probing: bool = False            # 是否正在主动探活此节点
@@ -47,6 +50,9 @@ class NodeState:
     _node_name: str = ""
     _region: str = ""
     _host: str = ""
+    _public_ip: str = ""
+    _assigned_domain: str = ""
+    _public_endpoint: str = ""
     _capabilities: str = ""
     _description: str = ""
     _token: str = ""
@@ -77,6 +83,8 @@ class NodeState:
         # 去掉内部字段前缀
         result = {}
         for k, v in d.items():
+            if k == "_occupied_token_hash":
+                continue
             if k.startswith("_"):
                 result[k[1:]] = v  # _node_name → node_name
             else:
@@ -126,6 +134,9 @@ class NodeStateManager:
         state._node_name = config_row.get("node_name", "") or ""
         state._region = config_row.get("region", "") or ""
         state._host = config_row.get("host", "") or ""
+        state._public_ip = config_row.get("public_ip", "") or ""
+        state._assigned_domain = config_row.get("assigned_domain", "") or ""
+        state._public_endpoint = config_row.get("public_endpoint", "") or ""
         state._capabilities = config_row.get("capabilities", "") or ""
         state._description = config_row.get("description", "") or ""
         state._token = config_row.get("token", "") or ""
@@ -141,6 +152,7 @@ class NodeStateManager:
         if occ_by and db_status not in ("offline",):
             state.occupied_by = occ_by
             state.occupied_at = 0.0  # 时间戳不可靠，清零让系统重新判定
+            state._occupied_token_hash = ""
 
         # 解析 last_heartbeat
         hb_str = config_row.get("last_heartbeat", "") or ""
@@ -168,6 +180,7 @@ class NodeStateManager:
                 state.status = "offline"
                 state.occupied_by = ""
                 state.occupied_at = 0.0
+                state._occupied_token_hash = ""
                 log.info(
                     f"[NodeState] DB load correction: {sid} marked OFFLINE "
                     f"(heartbeat age={hb_age:.0f}s > {safe_threshold:.0f}s threshold, "
@@ -260,6 +273,7 @@ class NodeStateManager:
             old_occ = state.occupied_by
             state.occupied_by = ""
             state.occupied_at = 0.0
+            state._occupied_token_hash = ""
             state._probing = False  # 清除探测状态
             offline_ids.append(sid)
 
@@ -356,7 +370,7 @@ class NodeStateManager:
                 continue
 
             # 解析目标地址（生产优先使用注册时配置的域名/WSS 入口）
-            target = state._host or state.current_ip or ""
+            target = state._public_endpoint or state._host or state.current_ip or state._public_ip or ""
             if not target:
                 continue
 
@@ -382,6 +396,7 @@ class NodeStateManager:
                     state.status = "offline"
                     state.occupied_by = ""
                     state.occupied_at = 0.0
+                    state._occupied_token_hash = ""
                     offline_ids.append(sid)
 
                     elapsed_hb = now - state.last_heartbeat if state.last_heartbeat > 0 else -1
@@ -398,6 +413,7 @@ class NodeStateManager:
                 state.status = "offline"
                 state.occupied_by = ""
                 state.occupied_at = 0.0
+                state._occupied_token_hash = ""
                 offline_ids.append(sid)
                 log.info(
                     f"[NodeState] PROBE ERROR (treated as dead): {sid} "
@@ -443,7 +459,17 @@ class NodeStateManager:
 
     # ── 占用操作 ───────────────────────────────────────────────────────
 
-    def occupy(self, server_id: str, username: str) -> tuple[bool, str]:
+    @staticmethod
+    def _hash_client_token(client_token: str) -> str:
+        raw = (client_token or "").strip()
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest() if raw else ""
+
+    def occupy(
+        self,
+        server_id: str,
+        username: str,
+        client_token: str = "",
+    ) -> tuple[bool, str]:
         """
         标记节点被账户占用。
         要求节点必须在线（有心跳或刚被恢复）。
@@ -463,7 +489,8 @@ class NodeStateManager:
             )
 
         state.occupied_by = username
-        state.occupied_at = time.monotonic()
+        state.occupied_at = time.time()
+        state._occupied_token_hash = self._hash_client_token(client_token)
         # ★ 关键修复：同步刷新心跳时间戳
         # occupy 后 is_alive 阈值从 60s(空闲) 切换到 15s(占用)，
         # 如果不刷新 last_heartbeat，旧时间戳会立即超过 15s 阈值，
@@ -489,6 +516,7 @@ class NodeStateManager:
         had = state.occupied_by
         state.occupied_by = ""
         state.occupied_at = 0.0
+        state._occupied_token_hash = ""
 
         # ★ 关键修复：释放占用时检查节点是否真的存活
         # 场景：TS 在占用期间掉线 → Client 取消重连 → 释放占用
@@ -514,6 +542,38 @@ class NodeStateManager:
             log.info(f"[NodeState] RELEASED: {server_id} (was '{had}')")
 
         return True
+
+    def bind_occupation_session(
+        self,
+        server_id: str,
+        username: str,
+        client_token: str,
+    ) -> bool:
+        """Attach a token fingerprint to an occupation restored from the DB."""
+        state = self._states.get(server_id)
+        token_hash = self._hash_client_token(client_token)
+        if not state or state.occupied_by != username or not token_hash:
+            return False
+        if not state._occupied_token_hash:
+            state._occupied_token_hash = token_hash
+        return hmac.compare_digest(state._occupied_token_hash, token_hash)
+
+    def occupation_belongs_to_session(
+        self,
+        server_id: str,
+        username: str,
+        client_token: str,
+    ) -> bool:
+        state = self._states.get(server_id)
+        if not state or state.occupied_by != username:
+            return False
+        token_hash = self._hash_client_token(client_token)
+        if not token_hash:
+            return False
+        if not state._occupied_token_hash:
+            # Older/restored occupation snapshots have no session fingerprint.
+            return True
+        return hmac.compare_digest(state._occupied_token_hash, token_hash)
 
     def get_occupation_info(self, server_id: str) -> Optional[dict]:
         """查询占用信息"""

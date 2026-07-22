@@ -12,6 +12,7 @@ TS WebSocket Client
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import queue
@@ -106,8 +107,18 @@ class TSWebSocketClient:
 
         authority, sep, path_part = raw.partition("/")
         path = f"/{path_part}" if sep and path_part else "/ws"
-        if ":" not in authority and default_port:
-            authority = f"{authority}:{default_port}"
+        if authority.lower().endswith(":443"):
+            return f"wss://{authority}{path}"
+        if ":" not in authority:
+            try:
+                ipaddress.ip_address(authority)
+                is_ip = True
+            except ValueError:
+                is_ip = False
+            if not is_ip and "." in authority and authority.lower() != "localhost":
+                return f"wss://{authority}{path}"
+            if default_port:
+                authority = f"{authority}:{default_port}"
         return f"ws://{authority}{path}"
 
     @property

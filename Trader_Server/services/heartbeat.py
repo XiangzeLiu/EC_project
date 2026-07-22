@@ -41,6 +41,7 @@ class HeartbeatSender:
         self._fail_count: int = 0
         self._backoff: float = 1.0
         self._running: bool = False
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def sequence(self) -> int:
@@ -61,6 +62,7 @@ class HeartbeatSender:
         if self._running:
             log.warning("Heartbeat already running")
             return
+        self._event_loop = asyncio.get_running_loop()
         self._running = True
         self._task = asyncio.create_task(self._loop())
         log.info(f"Heartbeat started (interval={self.interval}s)")
@@ -129,7 +131,7 @@ class HeartbeatSender:
         url = f"{state.manager_url.rstrip('/')}/nodes/heartbeat"
         payload = json.dumps({
             "ts": int(time.time()),
-            "ip": "",  # 可扩展为自动检测公网 IP
+            "ip": state.public_ip,
         }).encode("utf-8")
 
         headers = {
@@ -181,19 +183,14 @@ class HeartbeatSender:
                     if remote_ver and remote_ver > 0:
                         try:
                             from .config_sync import check_and_reload
-                            import asyncio
-                            # 获取或创建事件循环（兼容子线程）
-                            try:
-                                loop = asyncio.get_running_loop()
-                            except RuntimeError:
-                                # 当前线程没有事件循环，跳过
-                                log.debug(f"[#{seq}] No event loop in thread, skipping config reload")
-                                pass
+                            loop = self._event_loop
+                            if loop and loop.is_running():
+                                asyncio.run_coroutine_threadsafe(
+                                    check_and_reload(remote_ver, source="heartbeat"),
+                                    loop,
+                                )
                             else:
-                                if loop.is_running():
-                                    asyncio.ensure_future(check_and_reload(remote_ver, source="heartbeat"))
-                                else:
-                                    log.debug(f"[#{seq}] Event loop not running, skipping config reload check")
+                                log.debug(f"[#{seq}] Main event loop unavailable, skipping config reload check")
                         except Exception as cre:
                             log.warning(f"[#{seq}] Config version check error: {cre}")
 

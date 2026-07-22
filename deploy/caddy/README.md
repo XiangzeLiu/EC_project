@@ -1,68 +1,99 @@
 # Caddy Windows Deployment Notes
 
-## Goal
+## Runtime layout
 
-Use Caddy as the public HTTPS/WSS entry on each Windows server.
+SM and TS each own an independent runtime directory in production:
 
-- SM server: public `https://sm.yourdomain.com` -> local `http://127.0.0.1:8800`
-- Each TS server: public `wss://sg-01.ts.yourdomain.com/ws` -> local `http://127.0.0.1:8900/ws`
-- Public firewall opens only `80/tcp` and `443/tcp`.
-- Do not expose `8800/tcp` or `8900/tcp` to the public internet.
-
-## SM Server
-
-1. Put `caddy.exe` and a copied `Caddyfile.sm` on the SM Windows server.
-2. Replace `sm.yourdomain.com` with the real SM domain.
-3. Point DNS `A` record for the SM domain to the SM server public IP.
-4. Start ServerManager with:
-
-```bat
-set SERVER_HOST=127.0.0.1
-set SERVER_PORT=8800
-ServerManager.exe
+```text
+caddy/
+  caddy.exe
+  Caddyfile
+  data/
+  config/
+  logs/
+  caddy.pid
 ```
 
-5. Start Caddy:
+The Python application validates, reloads, or starts Caddy. The Windows batch
+files only provide production environment variables and launch the application.
 
-```bat
-caddy run --config Caddyfile.sm
+## SM
+
+- Public entry: `https://scjrdomain.com`
+- Local upstream: `http://127.0.0.1:8800`
+- Local Caddy admin endpoint: `127.0.0.1:2019`
+- Source runtime executable: `Server_manager/caddy/caddy.exe`
+- Packaged runtime executable: `caddy/caddy.exe` beside `ServerManager.exe`
+
+Direct PyCharm execution and the packaged EXE use the same FastAPI startup
+hook. Set `SM_CADDY_REQUIRED=1` in production so a missing or invalid Caddy
+runtime prevents SM from entering service.
+
+## TS
+
+- Public entry: `wss://<assigned-domain>/ws`
+- Local upstream: `http://127.0.0.1:8900`
+- Local Caddy admin endpoint: `127.0.0.1:2020`
+- Source runtime executable: `Trader_Server/caddy/caddy.exe`
+- Packaged runtime executable: `caddy/caddy.exe` beside `TraderServer.exe`
+
+An unregistered TS does not start Caddy. After SM approval, TS saves the
+assigned domain, generates `caddy/Caddyfile`, and starts or reloads Caddy.
+An already registered TS repeats the same idempotent check during startup.
+
+## Persistent data
+
+The application sets these values for the Caddy subprocess:
+
+```text
+XDG_DATA_HOME=<runtime>/caddy/data
+XDG_CONFIG_HOME=<runtime>/caddy/config
 ```
 
-## TS Server
+Do not delete or replace these directories during an application upgrade.
+They contain automatic certificate and Caddy state data.
 
-1. Put `caddy.exe` and a copied `Caddyfile.ts` on each TS Windows server.
-2. Replace `sg-01.ts.yourdomain.com` with this TS server's real domain.
-3. Point DNS `A` record for this TS domain to this TS server public IP.
-4. Start TraderServer with:
+## Process behavior
+
+Caddy runs as a detached `caddy run` process. Closing SM or TS does not stop
+Caddy. The next application start validates the desired Caddyfile and reloads
+the existing process through its loopback-only admin endpoint.
+
+Manual stop commands:
 
 ```bat
-set TS_BIND_HOST=127.0.0.1
-set TS_WS_PORT=8900
-set TS_MANAGER_URL=https://sm.yourdomain.com
-set TS_PUBLIC_ENDPOINT=wss://sg-01.ts.yourdomain.com/ws
-TraderServer.exe
+caddy\caddy.exe stop --address 127.0.0.1:2019
+caddy\caddy.exe stop --address 127.0.0.1:2020
 ```
 
-5. Start Caddy:
+## Same-machine development
+
+SM and TS production nodes are expected to be on different servers. When both
+run on one development machine, only one Caddy instance can own ports 80/443.
+A typical local setup is:
 
 ```bat
-caddy run --config Caddyfile.ts
+set SM_CADDY_AUTO_MANAGE=1
+set TS_CADDY_AUTO_MANAGE=0
 ```
 
-## Certificate Notes
+The local TS then remains available at `ws://127.0.0.1:8900/ws`.
 
-Caddy obtains and renews HTTPS certificates automatically. Keep the Caddy data
-directory on disk and do not delete it during upgrades. If a TS server IP
-changes, update the DNS `A` record and keep the same TS domain where possible.
+## Firewall and certificates
 
-## Temporary Direct IP Testing
+- Open public TCP ports 80 and 443.
+- Do not expose 8800, 8900, 2019, or 2020 publicly.
+- DNS must point each domain to the correct server before certificate issuance.
+- Caddy obtains and renews the individual SM and TS certificates automatically.
 
-For short functional tests before domains are ready, you may run without Caddy:
+## Temporary direct-IP testing
+
+For short tests without Caddy, explicitly disable automatic management and use
+direct local or public test addresses. This is not the production target.
 
 ```bat
+set SM_CADDY_AUTO_MANAGE=0
+set TS_CADDY_AUTO_MANAGE=0
 set SERVER_HOST=0.0.0.0
 set TS_BIND_HOST=0.0.0.0
 ```
-
-Then use `http://<SM_IP>:8800` and `ws://<TS_IP>:8900/ws`. This is only for
-temporary testing, not the production security target.

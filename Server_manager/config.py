@@ -87,6 +87,18 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("tastytrade").setLevel(logging.WARNING)
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str, default: str = "") -> list[str]:
+    raw = os.environ.get(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
 # ── 服务器认证凭据（客户端连此服务器用）────────────────────────────────
 SERVER_USERNAME = os.environ.get("SERVER_USERNAME", "admin")
 SERVER_PASSWORD = os.environ.get("SERVER_PASSWORD", "changeme123")
@@ -97,6 +109,59 @@ SERVER_TOKEN = hashlib.sha256(
 # ── 服务监听地址 ──────────────────────────────────────────────────────────
 SERVER_HOST = os.environ.get("SERVER_HOST", "127.0.0.1")
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8800"))
+
+# ── Production public entry ──────────────────────────────────────────────
+SM_PUBLIC_BASE_URL = os.environ.get(
+    "SM_PUBLIC_BASE_URL",
+    "https://scjrdomain.com",
+).strip().rstrip("/")
+SM_ALLOWED_HOSTS = _env_csv(
+    "SM_ALLOWED_HOSTS",
+    "scjrdomain.com,127.0.0.1,localhost,testserver",
+)
+SM_CORS_ORIGINS = _env_csv(
+    "SM_CORS_ORIGINS",
+    "https://scjrdomain.com,http://127.0.0.1:8800,http://localhost:8800",
+)
+SM_COOKIE_SECURE = _env_bool("SM_COOKIE_SECURE", False)
+SM_COOKIE_SAMESITE = os.environ.get("SM_COOKIE_SAMESITE", "lax").strip().lower() or "lax"
+CLIENT_TOKEN_TTL_SECONDS = max(60, int(os.environ.get("CLIENT_TOKEN_TTL_SECONDS", "3600")))
+
+# ── Local Caddy process management ──────────────────────────────────────
+SM_CADDY_AUTO_MANAGE = _env_bool("SM_CADDY_AUTO_MANAGE", True)
+SM_CADDY_REQUIRED = _env_bool("SM_CADDY_REQUIRED", False)
+SM_CADDY_EXE = os.environ.get("SM_CADDY_EXE", "").strip()
+SM_CADDY_DIR = os.environ.get("SM_CADDY_DIR", "").strip()
+SM_CADDY_ADMIN = os.environ.get("SM_CADDY_ADMIN", "127.0.0.1:2019").strip() or "127.0.0.1:2019"
+SM_CADDY_START_TIMEOUT = max(
+    1.0,
+    float(os.environ.get("SM_CADDY_START_TIMEOUT", "10")),
+)
+
+# ── TS domain pool and Tencent Cloud DNSPod ─────────────────────────────
+SM_DOMAIN_ROOT = os.environ.get("SM_DOMAIN_ROOT", "scjrdomain.com").strip().lower().strip(".")
+SM_TS_DOMAIN_SUFFIX = os.environ.get(
+    "SM_TS_DOMAIN_SUFFIX",
+    f"ts.{SM_DOMAIN_ROOT}",
+).strip().lower().strip(".")
+SM_TS_WS_PATH = os.environ.get("SM_TS_WS_PATH", "/ws").strip() or "/ws"
+if not SM_TS_WS_PATH.startswith("/"):
+    SM_TS_WS_PATH = f"/{SM_TS_WS_PATH}"
+
+SM_DOMAIN_POOL_REQUIRED = _env_bool("SM_DOMAIN_POOL_REQUIRED", True)
+SM_DOMAIN_COOLDOWN_SECONDS = max(
+    0,
+    int(os.environ.get("SM_DOMAIN_COOLDOWN_SECONDS", "300")),
+)
+
+# Modes: mock (local tests), real (Tencent Cloud API), disabled.
+SM_DNSPOD_MODE = os.environ.get("SM_DNSPOD_MODE", "disabled").strip().lower()
+if SM_DNSPOD_MODE not in {"mock", "real", "disabled"}:
+    SM_DNSPOD_MODE = "disabled"
+SM_DNSPOD_SECRET_ID = os.environ.get("SM_DNSPOD_SECRET_ID", "").strip()
+SM_DNSPOD_SECRET_KEY = os.environ.get("SM_DNSPOD_SECRET_KEY", "").strip()
+SM_DNSPOD_LINE = os.environ.get("SM_DNSPOD_LINE", "\u9ed8\u8ba4").strip() or "\u9ed8\u8ba4"
+SM_DNS_TTL = max(1, int(os.environ.get("SM_DNS_TTL", "600")))
 
 # ── Tastytrade 券商凭据 ──────────────────────────────────────────────────
 _TASTY_SECRET = os.environ.get("TASTY_SECRET", "")

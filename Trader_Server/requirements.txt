@@ -4,7 +4,7 @@ websockets>=12.0
 pydantic>=2.5.0
 httpx>=0.25.0
 
-# 券商 SDK（根据实际需要安装）
-# tastytrade>=8.0  # Tastytrade 券商支持
+# 券商 SDK
+tastytrade>=12.3,<14  # Tastytrade 券商支持（已按 12/13 系列接口验证）
 # ibapi>=9.81  # Interactive Brokers 支持
 PySide6>=6.7

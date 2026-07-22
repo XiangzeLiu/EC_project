@@ -57,6 +57,7 @@ class TradingSession:
         self.mock_mode = False
         self._ET = ZoneInfo(TZ_ET_NAME)
         self._pos_error = ""
+        self.last_login_error: dict = {}
         self.broker_gate = self._default_broker_gate()
         # 登录后从 SM 获取的 TS 地址
         self.se_address: str = ""
@@ -232,6 +233,7 @@ class TradingSession:
         Returns:
             (success, message) 鍏冪粍
         """
+        self.last_login_error = {}
         status, resp = self.http.post("/auth/login", {
             "username": username,
             "password": password,
@@ -249,8 +251,10 @@ class TradingSession:
 
         detail = resp.get("detail", f"Login failed (HTTP {status})")
         if isinstance(detail, dict):
+            self.last_login_error = dict(detail)
             msg = detail.get("message") or detail.get("detail") or f"Login failed (HTTP {status})"
         else:
+            self.last_login_error = {"message": str(detail), "status": status}
             msg = detail
         return False, sanitize(msg)
 

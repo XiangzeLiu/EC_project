@@ -7,7 +7,7 @@ Trader_Server — 交易服务子服务端 主入口
     uvicorn Trader_Server.main:app      # 仅启动 API 服务（无 GUI）
 
 命令行参数:
-    --manager-url   Server_manager 地址 (默认 http://127.0.0.1:8800)
+    --manager-url   Server_manager 地址 (默认 https://scjrdomain.com)
     --node-name     节点名称 (默认 trader-node-01)
     --broker-type   券商类型 (默认 TT)
     --bind-host     本机监听地址 (默认 127.0.0.1)
@@ -56,6 +56,7 @@ from .config import (
     DEFAULT_BIND_HOST,
     DEFAULT_WS_PORT,
     DEFAULT_HEARTBEAT_INTERVAL,
+    TS_CADDY_REQUIRED,
     init_logging,
     read_recent_error_lines,
     LOG_DIR,
@@ -161,6 +162,7 @@ async def api_register_submit(body: dict):
             node_name=body.get("node_name"),
             region=body.get("region"),
             host=body.get("host"),
+            public_ip=body.get("public_ip"),
             capabilities=body.get("capabilities"),
             contact=body.get("contact"),
             description=body.get("description"),
@@ -172,6 +174,7 @@ async def api_register_submit(body: dict):
                 "ok": True,
                 "request_id": result.get("request_id"),
                 "expire_at": result.get("expire_at"),
+                "resumed": bool(result.get("resumed")),
             }
         return {"ok": False, "error": "Registration submission failed (SM returned no result)"}
 
@@ -274,17 +277,45 @@ async def api_await_approval(request_id: str = Query(...)):
                 sid = result.get("server_id", "")
                 tok = result.get("token", "")
                 log.info(f"[Await Approval] APPROVED server_id={sid}")
-                save_config({
+                config_saved = save_config({
                     "server_id": sid,
                     "token": tok,
                     "manager_url": state.manager_url,
                     "node_name": state.node_name,
                     "region": state.region,
+                    "public_ip": result.get("public_ip") or state.public_ip,
+                    "assigned_domain": result.get("assigned_domain", ""),
+                    "public_endpoint": result.get("public_endpoint", ""),
                 })
-                clear_register_state()
+                if config_saved:
+                    clear_register_state()
+                else:
+                    log.error("[Await Approval] Approved credentials could not be persisted")
                 state.server_id = sid
                 state.token = tok
+                state.public_ip = result.get("public_ip") or state.public_ip
+                state.assigned_domain = result.get("assigned_domain", "")
+                state.public_endpoint = result.get("public_endpoint", "")
                 state.status = "approved"
+                if state.assigned_domain:
+                    try:
+                        from .services.caddy_manager import configure_and_start_caddy
+                        caddy_result = await asyncio.to_thread(
+                            configure_and_start_caddy,
+                            state.assigned_domain,
+                        )
+                        if caddy_result.get("ok"):
+                            log.info("[Await Approval] Caddy setup: %s", caddy_result)
+                        else:
+                            log.error("[Await Approval] Caddy setup failed: %s", caddy_result)
+                            if TS_CADDY_REQUIRED:
+                                raise RuntimeError(
+                                    f"Required Caddy setup failed: {caddy_result.get('reason', 'unknown error')}"
+                                )
+                    except Exception as caddy_exc:
+                        if TS_CADDY_REQUIRED:
+                            raise
+                        log.warning("[Await Approval] Caddy setup failed: %s", caddy_exc)
                 global _heartbeat
                 if not _heartbeat:
                     from .services.heartbeat import HeartbeatSender
@@ -379,6 +410,21 @@ async def api_register_clear():
     """清除已保存的注册凭证"""
     from .config import clear_register_state as _clr, CONFIG_FILE
 
+    await force_disconnect_all_clients(reason="ts_credentials_cleared")
+    global _heartbeat
+    if _heartbeat:
+        _heartbeat.stop()
+        await _heartbeat.wait_stopped()
+        _heartbeat = None
+    try:
+        from .services.config_sync import logout_current_broker
+        await logout_current_broker()
+    except Exception as exc:
+        logging.getLogger("trader_server.main").warning(
+            "Broker cleanup before credential clear failed: %s",
+            exc,
+        )
+
     cleared = []
     if CONFIG_FILE.exists():
         try:
@@ -393,6 +439,9 @@ async def api_register_clear():
     # 重置运行时状态
     state.server_id = ""
     state.token = ""
+    state.public_ip = ""
+    state.assigned_domain = ""
+    state.public_endpoint = ""
     state.status = "uninitialized"
     state.heartbeat_ok = False
 
@@ -458,6 +507,9 @@ async def api_status():
             "node_name": state.node_name,
             "region": state.region,
             "manager_url": state.manager_url,
+            "public_ip": state.public_ip,
+            "assigned_domain": state.assigned_domain,
+            "public_endpoint": state.public_endpoint,
             "has_credentials": bool(state.token and state.server_id),
         },
         "heartbeat": hb_data,
@@ -586,6 +638,25 @@ async def on_startup():
             print("  [WARN] SM 暂时不可达 (%s)，稍后重试" % msg)
         else:
             print("  [OK] SM 连通正常")
+        if state.assigned_domain:
+            try:
+                from .services.caddy_manager import configure_and_start_caddy
+                caddy_result = await asyncio.to_thread(
+                    configure_and_start_caddy,
+                    state.assigned_domain,
+                )
+                if caddy_result.get("ok"):
+                    log.info("[Startup] Caddy setup: %s", caddy_result)
+                else:
+                    log.error("[Startup] Caddy setup failed: %s", caddy_result)
+                    if TS_CADDY_REQUIRED:
+                        raise RuntimeError(
+                            f"Required Caddy setup failed: {caddy_result.get('reason', 'unknown error')}"
+                        )
+            except Exception as caddy_exc:
+                if TS_CADDY_REQUIRED:
+                    raise
+                log.warning("[Startup] Caddy setup failed: %s", caddy_exc)
     else:
         print("  [*] 未发现已保存的凭证")
         print("      请通过桌面控制面板完成注册")

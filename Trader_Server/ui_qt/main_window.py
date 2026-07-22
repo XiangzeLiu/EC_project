@@ -42,7 +42,6 @@ else:
     from Trader_Server.ui_qt import theme
 
 from Trader_Server.config import (
-    DEFAULT_HOST,
     DEFAULT_MANAGER_URL,
     DEFAULT_NODE_NAME,
     DEFAULT_REGION,
@@ -50,6 +49,7 @@ from Trader_Server.config import (
     state,
 )
 from Trader_Server.ui_qt.api_client import TSApiClient
+from Trader_Server.services.public_ip import detect_public_ipv4, validate_public_ipv4
 
 
 STATUS_LABELS = {
@@ -461,6 +461,7 @@ class TraderServerWindow(QMainWindow):
         self.cred_info: dict[str, QLabel] = {}
 
         self._build_root()
+        QTimer.singleShot(100, self._start_public_ip_detection)
 
         self._tick_clock()
         self._refresh_status()
@@ -584,14 +585,14 @@ class TraderServerWindow(QMainWindow):
 
         self.fm_host = make_input(
             self._default_public_endpoint(),
-            placeholder="wss://sg-01.ts.yourdomain.com/ws 或 127.0.0.1:8900",
+            placeholder="公网 IPv4 或临时访问地址",
         )
 
         for title, widget in (
             ("管理服务器地址 *", self.fm_mgr_url),
             ("节点名称 *", self.fm_node_name),
             ("券商类型 *", self.fm_region),
-            ("对外访问地址 *", self.fm_host),
+            ("公网 IPv4 *", self.fm_host),
         ):
             layout.addWidget(make_label(title, object_name="caption"))
             layout.addWidget(widget)
@@ -643,7 +644,9 @@ class TraderServerWindow(QMainWindow):
         info_grid.setColumnStretch(0, 1)
         info_grid.setColumnStretch(1, 1)
 
-        for index, label_text in enumerate(("服务端ID", "状态", "令牌", "管理服务器地址")):
+        for index, label_text in enumerate((
+            "服务端ID", "状态", "令牌", "管理服务器地址", "分配域名", "WSS地址"
+        )):
             row, value = self._make_overview_info_card(label_text)
             self.cred_info[label_text] = value
             info_grid.addWidget(row, index // 2, index % 2)
@@ -921,7 +924,37 @@ class TraderServerWindow(QMainWindow):
             return f"127.0.0.1:{DEFAULT_WS_PORT}"
 
     def _default_public_endpoint(self) -> str:
-        return DEFAULT_HOST or self._detect_host()
+        return state.public_ip or ""
+
+    def _start_public_ip_detection(self) -> None:
+        if state.server_id and state.token:
+            return
+        current = self.fm_host.text().strip()
+        if current:
+            try:
+                validate_public_ipv4(current)
+                return
+            except Exception:
+                pass
+        self._append_local_log("正在自动获取当前服务器公网 IPv4...")
+
+        def worker() -> None:
+            try:
+                public_ip = detect_public_ipv4()
+            except Exception as exc:
+                self._ui(lambda msg=str(exc): self._append_local_log(f"[!] 公网 IP 自动获取失败，请手工填写：{msg}"))
+                return
+
+            def apply_result() -> None:
+                if self._registered or (state.server_id and state.token):
+                    return
+                self.fm_host.setText(public_ip)
+                state.public_ip = public_ip
+                self._append_local_log(f"公网 IPv4 已获取：{public_ip}")
+
+            self._ui(apply_result)
+
+        self._run_bg(worker)
 
     def _append_local_log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
@@ -998,6 +1031,10 @@ class TraderServerWindow(QMainWindow):
         self.cred_info["服务端ID"].setText(server_id or "-")
         self.cred_info["令牌"].setText("(已保存)" if has_credentials else "-")
         self.cred_info["管理服务器地址"].setText(self._current_manager_url or "-")
+        self.cred_info["分配域名"].setText(registration.get("assigned_domain") or "-")
+        self.cred_info["WSS地址"].setText(registration.get("public_endpoint") or "-")
+        if registration.get("public_ip") and not self.fm_host.text().strip():
+            self.fm_host.setText(registration.get("public_ip"))
 
         cred_status = STATUS_LABELS.get(status_val, status_val)
         cred_color = STATUS_COLORS.get(status_val, theme.TEXT_LOW)
@@ -1124,6 +1161,7 @@ class TraderServerWindow(QMainWindow):
             "node_name": self.fm_node_name.text().strip(),
             "region": self.fm_region.currentText().strip(),
             "host": self.fm_host.text().strip(),
+            "public_ip": self.fm_host.text().strip(),
         }
         if not payload["manager_url"] or not payload["node_name"] or not payload["region"] or not payload["host"]:
             self._show_message_dialog(
@@ -1220,6 +1258,7 @@ class TraderServerWindow(QMainWindow):
                 node_name=payload.get("node_name"),
                 region=payload.get("region"),
                 host=payload.get("host"),
+                public_ip=payload.get("public_ip"),
             )
             if not result:
                 self._ui(lambda: self._append_local_log("[2/3] 失败: Registration submission failed"))
@@ -1256,6 +1295,8 @@ class TraderServerWindow(QMainWindow):
             self.cred_info["服务端ID"].setText(server_id)
             self.cred_info["令牌"].setText("(已保存)")
             self.cred_info["管理服务器地址"].setText(self._current_manager_url or self.fm_mgr_url.text().strip() or "-")
+            self.cred_info["分配域名"].setText(event.get("assigned_domain") or "-")
+            self.cred_info["WSS地址"].setText(event.get("public_endpoint") or "-")
             self.cred_info["状态"].setText("已批准，正在建立管理连接")
             self.cred_info["状态"].setStyleSheet(f"color: {theme.ACCENT_YELLOW};")
             self._registered = True
@@ -1396,7 +1437,7 @@ class TraderServerWindow(QMainWindow):
     def _do_reregister(self) -> None:
         answer = self._show_message_dialog(
             "重新注册",
-            "此操作将清除当前已保存的凭证。\n你需要重新提交注册并等待审批。\n\n是否继续？",
+            "此操作只清除当前服务器上的本地凭证。\n请先在 SM 中删除当前 TS 节点，确保旧域名进入释放流程；否则旧节点和域名会继续保留。\n\n确认已在 SM 删除后继续？",
             tone="danger",
             confirm_text="确认重置",
             cancel_text="返回",
@@ -1417,6 +1458,8 @@ class TraderServerWindow(QMainWindow):
             self.cred_info["服务端ID"].setText("-")
             self.cred_info["令牌"].setText("-")
             self.cred_info["管理服务器地址"].setText("-")
+            self.cred_info["分配域名"].setText("-")
+            self.cred_info["WSS地址"].setText("-")
             self.cred_info["状态"].setText("-")
             self.local_log.setPlainText("")
             self._append_local_log(f"======== 凭证已清除（{detail}） ========")

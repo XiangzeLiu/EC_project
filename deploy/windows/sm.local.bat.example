@@ -1,0 +1,6 @@
+@echo off
+rem Rename this file to sm.local.bat on the SM server and fill real secrets.
+set "SM_DNSPOD_SECRET_ID="
+set "SM_DNSPOD_SECRET_KEY="
+set "SM_DNSPOD_LINE="
+set "SM_DNS_TTL=600"

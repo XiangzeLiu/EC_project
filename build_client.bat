@@ -23,14 +23,14 @@ if exist "%cd%\Client\requirements.txt" (
   if errorlevel 1 goto :fail
 )
 
-%PY_CMD% -c "import websockets,zoneinfo,tzdata" >nul 2>nul
+%PY_CMD% -c "import websockets,zoneinfo,tzdata,PySide6" >nul 2>nul
 if errorlevel 1 (
   echo [Client] 关键依赖校验失败，尝试补装...
-  %PY_CMD% -m pip install -U websockets tzdata
+  %PY_CMD% -m pip install -U websockets tzdata PySide6
   if errorlevel 1 goto :fail
 )
 
-%PY_CMD% -m PyInstaller --noconfirm --clean --onedir --name Client --distpath "%cd%\dist\Client" --workpath "%cd%\build\Client" --specpath "%cd%\build\Client" --paths "%cd%" --collect-all Client --collect-all tzdata "%cd%\Client\main.py"
+%PY_CMD% -m PyInstaller --noconfirm --clean --onedir --name Client --distpath "%cd%\dist\Client" --workpath "%cd%\build\Client" --specpath "%cd%\build\Client" --paths "%cd%" --collect-all Client --collect-all PySide6 --collect-all tzdata "%cd%\Client\main.py"
 if errorlevel 1 goto :fail
 
 echo [Client] 打包完成：%cd%\dist\Client\Client\Client.exe

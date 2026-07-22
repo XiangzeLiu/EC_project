@@ -22,6 +22,8 @@ _connections: dict[WebSocket, dict[str, Any]] = {}
 _send_locks: dict[WebSocket, asyncio.Lock] = {}
 _WS_HEARTBEAT_TIMEOUT = 90
 _FORCE_DISCONNECT_CODE = 4008
+_AUTH_RECHECK_INTERVAL = 15.0
+_TRANSIENT_AUTH_ERRORS = {"verify_failed"}
 
 
 def secrets_token(n: int = 16) -> str:
@@ -51,8 +53,20 @@ def _cleanup_connection_artifacts(conn: dict[str, Any]) -> None:
     username = conn.get('username', '')
     server_id = conn.get('server_id', state.server_id)
 
-    if username and server_id and _owner_connection_count(username, server_id) == 0:
+    owner_disconnected = bool(
+        username
+        and server_id
+        and _owner_connection_count(username, server_id) == 0
+    )
+    if owner_disconnected:
         broker_gate.start_grace(username, server_id)
+        if conn.get('token_type', 'client') == 'client' and conn.get('client_token'):
+            try:
+                asyncio.get_running_loop().create_task(
+                    _notify_sm_connection_closed(conn)
+                )
+            except RuntimeError:
+                pass
 
     if sid:
         from ..services.message_log import on_disconnect
@@ -62,6 +76,35 @@ def _cleanup_connection_artifacts(conn: dict[str, Any]) -> None:
         on_disconnect(sid)
 
     broker_gate.clear_expired()
+
+
+async def _notify_sm_connection_closed(conn: dict[str, Any]) -> None:
+    if not state.manager_url or not state.token:
+        return
+    url = f"{state.manager_url.rstrip('/')}/nodes/release-occupation"
+    body = json.dumps({
+        'server_id': str(conn.get('server_id') or state.server_id),
+        'username': str(conn.get('username') or ''),
+        'client_token': str(conn.get('client_token') or ''),
+    }).encode('utf-8')
+    req = urllib.request.Request(url, data=body, method='POST')
+    req.add_header('Content-Type', 'application/json')
+    req.add_header('Authorization', f'Bearer {state.token}')
+
+    def release_request() -> dict[str, Any]:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+
+    try:
+        result = await asyncio.to_thread(release_request)
+        if result.get('released'):
+            log.info(
+                'Released SM occupation after WS close: node=%s user=%s',
+                conn.get('server_id', state.server_id),
+                conn.get('username', ''),
+            )
+    except Exception as exc:
+        log.warning('Failed to release SM occupation after WS close: %s', exc)
 
 
 async def handle_client_connection(ws: WebSocket):
@@ -113,13 +156,6 @@ async def handle_client_connection(ws: WebSocket):
 
         username = str(auth_ctx.get('username') or '')
         server_id = str(auth_ctx.get('server_id') or state.server_id)
-        gate_status = broker_gate.restore_gate(username, server_id)
-
-        from ..services.message_log import on_auth, on_connect
-
-        on_connect(session_id, f"{client_host}:{client_port}", trace_id=trace_id)
-        on_auth(session_id, True, trace_id=trace_id)
-
         _connections[ws] = {
             'session_id': session_id,
             'connected_at': connected_at,
@@ -127,9 +163,18 @@ async def handle_client_connection(ws: WebSocket):
             'last_pong': time.time(),
             'username': username,
             'server_id': server_id,
+            'client_token': client_token,
+            'last_auth_check': time.time(),
             'token_type': auth_ctx.get('token_type', 'client'),
         }
         state.ws_clients.append(ws)
+        await _replace_existing_node_connections(ws, username, server_id)
+        gate_status = broker_gate.restore_gate(username, server_id)
+
+        from ..services.message_log import on_auth, on_connect
+
+        on_connect(session_id, f"{client_host}:{client_port}", trace_id=trace_id)
+        on_auth(session_id, True, trace_id=trace_id)
 
         ack = {
             'type': 'CONNECT_ACK',
@@ -166,6 +211,8 @@ async def handle_client_connection(ws: WebSocket):
                 continue
 
             msg_type = msg.get('type', '')
+            if not await _revalidate_connection(ws):
+                return
             if msg_type == 'PING':
                 if ws in _connections:
                     _connections[ws]['last_pong'] = time.time()
@@ -235,7 +282,11 @@ async def _route_and_send(
         await _send_json_locked(ws, response)
 
 
-async def _validate_client_token(token: str, server_id: str = '') -> dict[str, Any]:
+async def _validate_client_token(
+    token: str,
+    server_id: str = '',
+    recheck_username: str = '',
+) -> dict[str, Any]:
     if not token:
         return {'valid': False, 'reason': 'missing_token'}
     if not state.manager_url or not state.token:
@@ -243,15 +294,22 @@ async def _validate_client_token(token: str, server_id: str = '') -> dict[str, A
         return {'valid': False, 'reason': 'manager_auth_missing'}
 
     url = f"{state.manager_url.rstrip('/')}/auth/verify-token"
-    body = json.dumps({'token': token, 'server_id': (server_id or state.server_id)}).encode('utf-8')
+    body = json.dumps({
+        'token': token,
+        'server_id': (server_id or state.server_id),
+        'recheck': bool(recheck_username),
+        'username': (recheck_username or ''),
+    }).encode('utf-8')
     req = urllib.request.Request(url, data=body, method='POST')
     req.add_header('Content-Type', 'application/json')
     req.add_header('Authorization', f'Bearer {state.token}')
 
-    try:
+    def verify_request() -> dict[str, Any]:
         with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            return json.loads(resp.read().decode('utf-8'))
 
+    try:
+        data = await asyncio.to_thread(verify_request)
         if not data.get('ok'):
             return {'valid': False, 'reason': data.get('reason', 'verify_failed')}
         if not data.get('valid'):
@@ -277,6 +335,61 @@ async def _validate_client_token(token: str, server_id: str = '') -> dict[str, A
     except Exception as exc:
         log.warning('token verify failed: %s', exc)
         return {'valid': False, 'reason': 'verify_failed'}
+
+
+async def _replace_existing_node_connections(ws: WebSocket, username: str, server_id: str) -> None:
+    targets = [
+        existing
+        for existing, meta in list(_connections.items())
+        if existing is not ws and (meta.get('server_id') or '') == server_id
+    ]
+    if not targets:
+        return
+    notice = {
+        'type': 'FORCE_DISCONNECT',
+        'id': f"replace_{int(time.time() * 1000)}",
+        'timestamp': int(time.time() * 1000),
+        'payload': {
+            'code': 'CONNECTION_REPLACED',
+            'reason': 'new_client_connection',
+            'message': 'Connection replaced by a newer client session',
+        },
+    }
+    for existing in targets:
+        await _send_json_locked(existing, notice)
+        try:
+            await existing.close(code=_FORCE_DISCONNECT_CODE, reason='new_client_connection')
+        except Exception:
+            pass
+    log.warning('Replaced %s existing connection(s) on %s for %s', len(targets), server_id, username)
+
+
+async def _revalidate_connection(ws: WebSocket) -> bool:
+    meta = _connections.get(ws)
+    if not meta:
+        return False
+    now = time.time()
+    if now - float(meta.get('last_auth_check') or 0) < _AUTH_RECHECK_INTERVAL:
+        return True
+    meta['last_auth_check'] = now
+    result = await _validate_client_token(
+        str(meta.get('client_token') or ''),
+        str(meta.get('server_id') or state.server_id),
+        recheck_username=str(meta.get('username') or ''),
+    )
+    if result.get('valid') and result.get('allowed', True):
+        return True
+    reason = str(result.get('reason') or 'invalid_or_expired')
+    if reason in _TRANSIENT_AUTH_ERRORS or reason.startswith('http_5'):
+        log.warning('Client token recheck deferred after transient error: %s', reason)
+        return True
+    await _send_error(ws, 'ACCESS_REVOKED', 'Client access is no longer valid')
+    try:
+        await ws.close(code=4004, reason=reason[:120])
+    except Exception:
+        pass
+    log.warning('Client access revoked during WS session: %s', reason)
+    return False
 
 
 async def _send_error(ws: WebSocket, code: str, message: str, trace_id: str = ''):
@@ -487,6 +600,20 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
     from ..services.quote_provider import handle_subscribe, handle_unsubscribe
 
     payload = msg.get('payload', {})
+    username = (conn or {}).get('username', '')
+    server_id = (conn or {}).get('server_id', state.server_id)
+    if not broker_gate.is_gate_active(username, server_id):
+        return {
+            'type': 'QUOTE_ACK',
+            'id': msg.get('id', ''),
+            'timestamp': int(time.time() * 1000),
+            'payload': {
+                'success': False,
+                'code': 'BROKER_LOGIN_REQUIRED',
+                'message': 'Trade service login required',
+                'trace_id': trace_id,
+            },
+        }
     action = payload.get('action', 'subscribe')
     symbols = payload.get('symbols', [])
     result = await handle_unsubscribe(symbols=symbols, session_id=sid) if action == 'unsubscribe' else await handle_subscribe(symbols=symbols, session_id=sid)
