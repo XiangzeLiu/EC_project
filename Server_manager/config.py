@@ -154,9 +154,9 @@ SM_DOMAIN_COOLDOWN_SECONDS = max(
     int(os.environ.get("SM_DOMAIN_COOLDOWN_SECONDS", "300")),
 )
 
-# Modes: mock (local tests), real (Tencent Cloud API), disabled.
-SM_DNSPOD_MODE = os.environ.get("SM_DNSPOD_MODE", "disabled").strip().lower()
-if SM_DNSPOD_MODE not in {"mock", "real", "disabled"}:
+# Modes: mock (tests), manual (verify existing DNS), real (Tencent API), disabled.
+SM_DNSPOD_MODE = os.environ.get("SM_DNSPOD_MODE", "manual").strip().lower()
+if SM_DNSPOD_MODE not in {"mock", "manual", "real", "disabled"}:
     SM_DNSPOD_MODE = "disabled"
 SM_DNSPOD_SECRET_ID = os.environ.get("SM_DNSPOD_SECRET_ID", "").strip()
 SM_DNSPOD_SECRET_KEY = os.environ.get("SM_DNSPOD_SECRET_KEY", "").strip()

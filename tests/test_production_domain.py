@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,7 @@ os.environ.setdefault("SM_LOG_LEVEL", "CRITICAL")
 
 import database
 import domain_pool
+from dnspod_client import DNSPodClient, DNSPodError
 from Client.constants import DEFAULT_SM_BASE_URL
 from Trader_Server.config import DEFAULT_MANAGER_URL
 from Trader_Server.services.caddy_manager import render_ts_caddyfile
@@ -76,6 +78,59 @@ class ProductionDomainTests(unittest.TestCase):
         caddyfile = render_ts_caddyfile("ts-01.ts.scjrdomain.com")
         self.assertIn("ts-01.ts.scjrdomain.com", caddyfile)
         self.assertIn("127.0.0.1:8900", caddyfile)
+
+    def test_custom_ts_domain_under_root_is_supported(self):
+        entry = domain_pool.normalize_domain("www.ts01.scjrdomain.com")
+        self.assertEqual(entry["root_domain"], "scjrdomain.com")
+        self.assertEqual(entry["record_name"], "www.ts01")
+        self.assertEqual(
+            entry["public_endpoint"],
+            "wss://www.ts01.scjrdomain.com/ws",
+        )
+        imported = domain_pool.import_domains(["www.ts01.scjrdomain.com"])
+        self.assertEqual(imported["inserted"], 1)
+        self.assertEqual(imported["errors"], [])
+        database.create_node_request(
+            "req_custom_domain",
+            "ts01-205",
+            "TT",
+            host="47.239.106.205",
+            public_ip="47.239.106.205",
+            source_ip="47.239.106.205",
+        )
+        assignment = domain_pool.allocate_domain("ts01-205", "47.239.106.205")
+        approved = database.approve_node_request(
+            "req_custom_domain",
+            domain_assignment=assignment,
+        )
+        self.assertEqual(approved["assigned_domain"], "www.ts01.scjrdomain.com")
+        self.assertEqual(
+            approved["public_endpoint"],
+            "wss://www.ts01.scjrdomain.com/ws",
+        )
+        with self.assertRaises(domain_pool.DomainPoolError):
+            domain_pool.normalize_domain("www.ts01.example.com")
+
+    def test_manual_dns_mode_requires_expected_public_ip(self):
+        client = DNSPodClient()
+        client.mode = "manual"
+        with patch("dnspod_client.socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("47.239.106.205", 443)),
+        ]):
+            result = client.upsert_a_record(
+                "www.ts01.scjrdomain.com",
+                "47.239.106.205",
+            )
+        self.assertEqual(result.mode, "manual")
+        self.assertEqual(result.action, "manual-verified")
+        with patch("dnspod_client.socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("1.1.1.1", 443)),
+        ]):
+            with self.assertRaises(DNSPodError):
+                client.upsert_a_record(
+                    "www.ts01.scjrdomain.com",
+                    "47.239.106.205",
+                )
 
     def test_concurrent_allocations_are_unique(self):
         domain_pool.import_domains([

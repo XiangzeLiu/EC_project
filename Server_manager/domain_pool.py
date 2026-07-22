@@ -10,7 +10,6 @@ import database
 from config import (
     SM_DOMAIN_COOLDOWN_SECONDS,
     SM_DOMAIN_ROOT,
-    SM_TS_DOMAIN_SUFFIX,
     SM_TS_WS_PATH,
 )
 from dnspod_client import DNSPodClient, DNSPodError
@@ -37,12 +36,11 @@ def normalize_public_ipv4(value: str) -> str:
 
 def normalize_domain(fqdn: str) -> dict:
     domain = (fqdn or "").strip().lower().strip(".")
-    suffix = SM_TS_DOMAIN_SUFFIX.strip().lower().strip(".")
     root = SM_DOMAIN_ROOT.strip().lower().strip(".")
     if not domain or len(domain) > 253:
         raise DomainPoolError("invalid domain name")
-    if domain == suffix or not domain.endswith(f".{suffix}"):
-        raise DomainPoolError(f"TS domain must be under {suffix}")
+    if domain == root or not domain.endswith(f".{root}"):
+        raise DomainPoolError(f"TS domain must be a subdomain of {root}")
     labels = domain.split(".")
     for label in labels:
         if not label or len(label) > 63 or label.startswith("-") or label.endswith("-"):
@@ -99,7 +97,10 @@ def allocate_domain(node_name: str, public_ip: str) -> dict:
             normalized_ip,
             reserved.get("dns_record_id", ""),
         )
-        dns_status = "mock" if dns_result.mode == "mock" else "active"
+        dns_status = {
+            "mock": "mock",
+            "manual": "manual",
+        }.get(dns_result.mode, "active")
         if not database.update_reserved_domain_dns(domain_id, dns_result.record_id, dns_status):
             try:
                 dns.delete_a_record(reserved["fqdn"], dns_result.record_id)
@@ -117,7 +118,10 @@ def allocate_domain(node_name: str, public_ip: str) -> dict:
     except DomainPoolError:
         raise
     except Exception as exc:
-        database.mark_ts_domain_error(domain_id, str(exc))
+        if dns.mode == "manual":
+            database.abort_reserved_domain(domain_id, str(exc), reusable=True)
+        else:
+            database.mark_ts_domain_error(domain_id, str(exc))
         log.exception("DNSPod allocation failed for %s", reserved.get("fqdn"))
         raise DomainPoolError(f"DNSPod update failed: {exc}") from exc
 
@@ -155,7 +159,10 @@ def release_server_domain(server_id: str) -> dict:
             assigned.get("dns_record_id", ""),
         )
         action = result.action
-        dns_status = "mock-released" if result.mode == "mock" else "released"
+        dns_status = {
+            "mock": "mock-released",
+            "manual": "manual-released",
+        }.get(result.mode, "released")
     except Exception as exc:
         error = str(exc)
         dns_status = "error"
@@ -193,7 +200,11 @@ def refresh_domain_dns(domain_id: int) -> dict:
     except Exception as exc:
         database.mark_ts_domain_error(domain_id, str(exc))
         raise DomainPoolError(f"DNSPod refresh failed: {exc}") from exc
-    database.update_reserved_domain_dns(domain_id, result.record_id, "mock" if result.mode == "mock" else "active")
+    dns_status = {
+        "mock": "mock",
+        "manual": "manual",
+    }.get(result.mode, "active")
+    database.update_reserved_domain_dns(domain_id, result.record_id, dns_status)
     return {"ok": True, "record_id": result.record_id, "action": result.action}
 
 

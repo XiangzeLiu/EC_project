@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
 from dataclasses import dataclass
 
 from config import (
@@ -39,7 +40,7 @@ class DNSPodClient:
         self._models = None
 
     def ensure_ready(self) -> None:
-        if self.mode == "mock":
+        if self.mode in {"mock", "manual"}:
             return
         if self.mode == "disabled":
             raise DNSPodError("DNSPod is disabled")
@@ -68,6 +69,22 @@ class DNSPodClient:
         if self.mode == "mock":
             digest = hashlib.sha256(f"{fqdn}:{value}".encode("utf-8")).hexdigest()[:16]
             return DNSRecordResult(f"mock-{digest}", "mock-upsert", self.mode)
+        if self.mode == "manual":
+            try:
+                resolved = {
+                    item[4][0]
+                    for item in socket.getaddrinfo(fqdn, 443, type=socket.SOCK_STREAM)
+                    if item and item[4]
+                }
+            except OSError as exc:
+                raise DNSPodError(f"manual DNS lookup failed for {fqdn}: {exc}") from exc
+            if value not in resolved:
+                actual = ", ".join(sorted(resolved)) or "no A record"
+                raise DNSPodError(
+                    f"manual DNS verification failed: {fqdn} resolves to {actual}, expected {value}"
+                )
+            digest = hashlib.sha256(f"manual:{fqdn}:{value}".encode("utf-8")).hexdigest()[:16]
+            return DNSRecordResult(f"manual-{digest}", "manual-verified", self.mode)
 
         client, models = self._get_sdk()
         resolved_id = (record_id or "").strip() or self._find_a_record_id(record_name)
@@ -105,6 +122,8 @@ class DNSPodClient:
         record_name = self.record_name_for(fqdn)
         if self.mode == "mock":
             return DNSRecordResult((record_id or "mock-released"), "mock-delete", self.mode)
+        if self.mode == "manual":
+            return DNSRecordResult((record_id or "manual-preserved"), "manual-preserved", self.mode)
 
         client, models = self._get_sdk()
         resolved_id = (record_id or "").strip() or self._find_a_record_id(record_name)
