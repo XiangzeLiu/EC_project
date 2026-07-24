@@ -2142,11 +2142,22 @@ def import_ts_domain_pool(entries: list[dict]) -> dict:
             else:
                 inserted += 1
         conn.commit()
-        return {"ok": True, "inserted": inserted, "updated": updated}
+        return {
+            "ok": True,
+            "inserted": inserted,
+            "updated": updated,
+            "existing": updated,
+        }
     except Exception as e:
         conn.rollback()
         log.error(f"import_ts_domain_pool failed: {e}")
-        return {"ok": False, "error": str(e), "inserted": inserted, "updated": updated}
+        return {
+            "ok": False,
+            "error": str(e),
+            "inserted": inserted,
+            "updated": updated,
+            "existing": updated,
+        }
     finally:
         conn.close()
 
@@ -2342,8 +2353,8 @@ def release_ts_domain_for_server(
         conn.execute(
             """
             UPDATE ts_domain_pool
-            SET status=?, assigned_server_id='', dns_record_id='', dns_status=?, dns_error=?,
-                cooldown_until=?, updated_at=?
+            SET status=?, assigned_server_id='', assigned_node_name='', assigned_ip='',
+                dns_record_id='', dns_status=?, dns_error=?, cooldown_until=?, updated_at=?
             WHERE id=?
             """,
             (
@@ -2360,6 +2371,8 @@ def release_ts_domain_for_server(
         result.update({
             "status": next_status,
             "assigned_server_id": "",
+            "assigned_node_name": "",
+            "assigned_ip": "",
             "dns_status": dns_status,
             "dns_error": dns_error,
             "cooldown_until": cooldown_until,
@@ -2403,6 +2416,104 @@ def reset_ts_domain_entry(domain_id: int) -> bool:
             WHERE id=? AND assigned_server_id=''
             """,
             (datetime.now(timezone.utc).isoformat(), int(domain_id)),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
+def begin_delete_ts_domain(domain_id: int) -> dict:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM ts_domain_pool WHERE id = ?",
+            (int(domain_id),),
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return {"ok": False, "error": "domain not found"}
+
+        entry = dict(row)
+        if (entry.get("assigned_server_id") or "").strip():
+            conn.rollback()
+            return {
+                "ok": False,
+                "error": "domain is assigned; delete the TS node first",
+                "entry": entry,
+            }
+
+        status = (entry.get("status") or "").strip().lower()
+        if status not in {"available", "cooling", "error"}:
+            conn.rollback()
+            return {
+                "ok": False,
+                "error": f"domain cannot be deleted while status is {status or '-'}",
+                "entry": entry,
+            }
+
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status='deleting', dns_status='deleting', dns_error='', updated_at=?
+            WHERE id=? AND assigned_server_id='' AND status=?
+            """,
+            (now, int(domain_id), status),
+        )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return {
+                "ok": False,
+                "error": "domain state changed before deletion",
+                "entry": entry,
+            }
+        conn.commit()
+        entry.update({
+            "status": "deleting",
+            "previous_status": status,
+            "dns_status": "deleting",
+            "updated_at": now,
+        })
+        return {"ok": True, "entry": entry}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def complete_delete_ts_domain(domain_id: int) -> bool:
+    conn = _get_conn()
+    try:
+        cursor = conn.execute(
+            """
+            DELETE FROM ts_domain_pool
+            WHERE id=? AND status='deleting' AND assigned_server_id=''
+            """,
+            (int(domain_id),),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
+def fail_delete_ts_domain(domain_id: int, error: str) -> bool:
+    conn = _get_conn()
+    try:
+        cursor = conn.execute(
+            """
+            UPDATE ts_domain_pool
+            SET status='error', dns_status='error', dns_error=?, updated_at=?
+            WHERE id=? AND status='deleting' AND assigned_server_id=''
+            """,
+            (
+                (error or "domain deletion failed").strip(),
+                datetime.now(timezone.utc).isoformat(),
+                int(domain_id),
+            ),
         )
         conn.commit()
         return cursor.rowcount == 1

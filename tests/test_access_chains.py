@@ -81,7 +81,10 @@ class AccessChainTests(unittest.TestCase):
     def test_account_cannot_cross_query_occupy_or_verify_another_node(self):
         imported = self.client.post(
             "/api/domain-pool/import",
-            json={"count": 2, "start": 1},
+            json={"domains": [
+                "ts-01.ts.scjrdomain.com",
+                "ts-02.ts.scjrdomain.com",
+            ]},
         ).json()
         self.assertTrue(imported["ok"])
         first, first_row = self._create_online_node(1, "8.8.8.8")
@@ -142,6 +145,41 @@ class AccessChainTests(unittest.TestCase):
         ).json()
         self.assertTrue(own_verify["valid"])
 
+    def test_domain_delete_requires_bound_node_to_be_deleted_first(self):
+        imported = self.client.post("/api/domain-pool/import", json={
+            "domains": ["www.ts01.scjrdomain.com"],
+        }).json()
+        self.assertTrue(imported["ok"], imported)
+
+        approved, _row = self._create_online_node(1, "8.8.8.8")
+        entry = database.list_ts_domain_pool()["items"][0]
+        self.assertEqual(entry["status"], "occupied")
+
+        blocked = self.client.post(
+            f"/api/domain-pool/{entry['id']}/delete"
+        ).json()
+        self.assertFalse(blocked["ok"])
+        self.assertIn("delete the TS node first", blocked["error"])
+
+        deleted_node = self.client.post(
+            f"/api/nodes/{approved['server_id']}/delete"
+        ).json()
+        self.assertTrue(deleted_node["ok"], deleted_node)
+        self.assertEqual(
+            database.get_ts_domain_pool_entry(entry["id"])["status"],
+            "cooling",
+        )
+        released_entry = database.get_ts_domain_pool_entry(entry["id"])
+        self.assertEqual(released_entry["assigned_server_id"], "")
+        self.assertEqual(released_entry["assigned_node_name"], "")
+        self.assertEqual(released_entry["assigned_ip"], "")
+
+        deleted_domain = self.client.post(
+            f"/api/domain-pool/{entry['id']}/delete"
+        ).json()
+        self.assertTrue(deleted_domain["ok"], deleted_domain)
+        self.assertIsNone(database.get_ts_domain_pool_entry(entry["id"]))
+
     def test_expired_client_token_is_pruned(self):
         token = auth.generate_client_token("expired-user")
         sm_config.active_client_tokens[token]["created_at"] = (
@@ -151,7 +189,9 @@ class AccessChainTests(unittest.TestCase):
         self.assertNotIn(token, sm_config.active_client_tokens)
 
     def test_expired_connection_recheck_releases_stale_occupation(self):
-        self.client.post("/api/domain-pool/import", json={"count": 1, "start": 1})
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
         approved, node_row = self._create_online_node(1, "8.8.8.8")
         database.create_account(
             "expiring-user",
@@ -193,7 +233,9 @@ class AccessChainTests(unittest.TestCase):
         )
 
     def test_invalid_initial_token_cannot_release_occupation(self):
-        self.client.post("/api/domain-pool/import", json={"count": 1, "start": 1})
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
         approved, node_row = self._create_online_node(1, "8.8.8.8")
         state = node_state.manager.get(approved["server_id"])
         state.occupied_by = "current-user"
@@ -214,7 +256,9 @@ class AccessChainTests(unittest.TestCase):
         )
 
     def test_suspended_node_revokes_existing_client_connection(self):
-        self.client.post("/api/domain-pool/import", json={"count": 1, "start": 1})
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
         approved, node_row = self._create_online_node(1, "8.8.8.8")
         database.create_account(
             "suspended-node-user",
@@ -286,7 +330,9 @@ class AccessChainTests(unittest.TestCase):
         self.assertEqual(auth.get_client_username(first_token), "")
 
     def test_stale_recheck_cannot_release_takeover_session(self):
-        self.client.post("/api/domain-pool/import", json={"count": 1, "start": 1})
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
         approved, node_row = self._create_online_node(1, "8.8.8.8")
         database.create_account(
             "takeover-user",
@@ -341,7 +387,9 @@ class AccessChainTests(unittest.TestCase):
         self.assertTrue(current["valid"])
 
     def test_ts_disconnect_releases_only_matching_session(self):
-        self.client.post("/api/domain-pool/import", json={"count": 1, "start": 1})
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
         approved, node_row = self._create_online_node(1, "8.8.8.8")
         database.create_account(
             "disconnect-user",
@@ -389,7 +437,9 @@ class AccessChainTests(unittest.TestCase):
         )
 
     def test_admin_force_release_prefers_public_wss_endpoint(self):
-        self.client.post("/api/domain-pool/import", json={"count": 1, "start": 1})
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
         approved, _row = self._create_online_node(1, "8.8.8.8")
         state = node_state.manager.get(approved["server_id"])
         state.occupied_by = "trader-a"
@@ -641,13 +691,39 @@ class AdminManagementTests(unittest.TestCase):
         dashboard = self.client.get("/admin/dashboard")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn("domain-pool-body", dashboard.text)
+        self.assertIn("deleteDomainEntry", dashboard.text)
+        self.assertNotIn("初始化20个", dashboard.text)
 
-        imported = self.client.post(
+        generated = self.client.post(
             "/api/domain-pool/import",
             json={"count": 20, "start": 1},
         ).json()
+        self.assertFalse(generated["ok"])
+
+        imported = self.client.post(
+            "/api/domain-pool/import",
+            json={
+                "domains": "，".join([
+                    "ts-01.ts.scjrdomain.com",
+                    "ts-02.ts.scjrdomain.com",
+                ]) + "\n" + "\n".join(
+                    f"ts-{index:02d}.ts.scjrdomain.com"
+                    for index in range(3, 21)
+                ),
+            },
+        ).json()
         self.assertTrue(imported["ok"])
         self.assertEqual(imported["inserted"], 20)
+
+        last_domain = database.list_ts_domain_pool(
+            page=1,
+            page_size=20,
+        )["items"][-1]
+        deleted = self.client.post(
+            f"/api/domain-pool/{last_domain['id']}/delete"
+        ).json()
+        self.assertTrue(deleted["ok"], deleted)
+        self.assertEqual(database.list_ts_domain_pool()["total"], 19)
 
         created = self.client.post("/api/accounts/create", json={
             "username": "managed-trader",

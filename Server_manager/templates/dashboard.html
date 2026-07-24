@@ -356,8 +356,9 @@
     .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; grid-column: 1 / -1; }
     .empty-state i { font-size: 36px; display: block; margin-bottom: 8px; color: #dde1ec; }
 
-    .domain-toolbar { display:flex; gap:10px; align-items:center; padding:16px 24px; border-bottom:1px solid #eef0f6; }
+    .domain-toolbar { display:flex; gap:10px; align-items:flex-end; padding:16px 24px; border-bottom:1px solid #eef0f6; }
     .domain-toolbar .inp { flex:1; min-width:180px; }
+    .domain-import-input { min-height:68px; max-height:180px; resize:vertical; line-height:1.5; }
     .domain-table-wrap { overflow-x:auto; }
     .domain-table { width:100%; min-width:980px; border-collapse:collapse; font-size:13px; }
     .domain-table th { padding:11px 14px; text-align:left; color:#8a93ab; font-weight:500; background:#fafbfe; border-bottom:1px solid #eef0f6; white-space:nowrap; }
@@ -369,6 +370,7 @@
     .domain-allocating { color:#a16207; background:#fef3c7; }
     .domain-occupied { color:#6d28d9; background:#ede9fe; }
     .domain-cooling { color:#1d4ed8; background:#dbeafe; }
+    .domain-deleting { color:#475569; background:#e2e8f0; }
     .domain-error { color:#b91c1c; background:#fee2e2; }
     .domain-pager { display:flex; justify-content:center; align-items:center; gap:12px; padding:14px 20px; border-top:1px solid #eef0f6; color:#5b6480; font-size:13px; }
 
@@ -828,9 +830,8 @@
             <button id="btn-refresh-domains" onclick="refreshDomainPool(_domainPage)" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
           </div>
           <div class="domain-toolbar">
-            <input class="inp" id="domain-import-input" placeholder="输入域名，多个域名用逗号或换行分隔" autocomplete="off" />
-            <button class="btn-xs btn-pri" onclick="importDomainPool(false)"><i class="ri-download-line"></i> 导入</button>
-            <button class="btn-xs btn-ok" onclick="importDomainPool(true)"><i class="ri-add-line"></i> 初始化20个</button>
+            <textarea class="inp domain-import-input" id="domain-import-input" placeholder="输入域名，多个域名用逗号或换行分隔" autocomplete="off"></textarea>
+            <button class="btn-xs btn-pri" onclick="importDomainPool()"><i class="ri-download-line"></i> 导入</button>
           </div>
           <div class="domain-table-wrap">
             <table class="domain-table">
@@ -1020,6 +1021,8 @@ var _auditTotal=0;
 var _domainPage=1;
 var _domainPages=1;
 var _domainOptions=[];
+var _domainItemCount=0;
+var _domainDnsMode='';
 document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
   item.addEventListener('click',function(e){
     e.preventDefault();
@@ -1605,24 +1608,33 @@ function copyToken(tok,el){
 //  子域名池
 // ═══════════════════════════════════════════════════
 function domainStatusMeta(status){
-  var map={available:['未占用','domain-available'],allocating:['分配中','domain-allocating'],occupied:['已占用','domain-occupied'],cooling:['冷却中','domain-cooling'],error:['异常','domain-error']};
+  var map={available:['未占用','domain-available'],allocating:['分配中','domain-allocating'],occupied:['已占用','domain-occupied'],cooling:['冷却中','domain-cooling'],deleting:['删除中','domain-deleting'],error:['异常','domain-error']};
   return map[status]||[status||'-','domain-error'];
 }
 function renderDomainPool(payload){
   var data=(payload&&payload.data)||{},items=data.items||[];
   _domainPage=data.page||1;_domainPages=data.pages||1;
+  _domainItemCount=items.length;
+  _domainDnsMode=((payload&&payload.dns_mode)||'').toLowerCase();
   document.getElementById('domain-pool-count').textContent=(data.total||0)+' 条';
   document.getElementById('domain-dns-mode').textContent='DNS '+((payload&&payload.dns_mode)||'-').toUpperCase();
   var body=document.getElementById('domain-pool-body');
-  if(!items.length){body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:36px;color:#94a3b8">暂无子域名，请先导入或初始化</td></tr>';}
+  if(!items.length){body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:36px;color:#94a3b8">暂无子域名，请先导入</td></tr>';}
   else body.innerHTML=items.map(function(item){
     var meta=domainStatusMeta(item.status),owner=escapeHtml(item.assigned_node_name||'-');
     if(item.assigned_server_id)owner+='<div class="domain-value" style="font-size:11px;color:#8a93ab">'+escapeHtml(item.assigned_server_id)+'</div>';
     var dns='<span class="domain-tag '+(item.dns_status==='error'?'domain-error':'domain-available')+'">'+escapeHtml(item.dns_status||'-')+'</span>';
     if(item.dns_error)dns+='<div style="margin-top:4px;color:#b91c1c;font-size:11px;max-width:180px;word-break:break-word">'+escapeHtml(item.dns_error)+'</div>';
-    var actions='-';
-    if(item.assigned_server_id&&(item.status==='occupied'||item.status==='error'))actions='<button class="btn-xs btn-pri" onclick="refreshDomainDns('+item.id+',this)"><i class="ri-refresh-line"></i> DNS重试</button>';
-    else if(!item.assigned_server_id&&(item.status==='error'||item.status==='allocating'))actions='<button class="btn-xs btn-warn" onclick="releaseDomainEntry('+item.id+',this)">恢复可用</button>';
+    var actionItems=[];
+    if(item.assigned_server_id&&(item.status==='occupied'||item.status==='error'))actionItems.push('<button class="btn-xs btn-pri" onclick="refreshDomainDns('+item.id+',this)"><i class="ri-refresh-line"></i> DNS重试</button>');
+    else if(!item.assigned_server_id&&(item.status==='error'||item.status==='allocating'||item.status==='deleting'))actionItems.push('<button class="btn-xs btn-warn" onclick="releaseDomainEntry('+item.id+',this)">恢复可用</button>');
+    var deleteReason='';
+    if(item.assigned_server_id)deleteReason='该域名已被 TS 占用，请先删除对应 TS 节点';
+    else if(item.status==='allocating')deleteReason='域名正在分配，暂时不能删除';
+    else if(item.status==='deleting')deleteReason='域名正在删除，请勿重复操作';
+    var deleteAttrs=deleteReason?'disabled title="'+escapeHtml(deleteReason)+'"':'onclick="deleteDomainEntry('+item.id+',decodeURIComponent(\''+encodeURIComponent(item.fqdn||'')+'\'),this)"';
+    actionItems.push('<button class="btn-xs btn-del" '+deleteAttrs+'><i class="ri-delete-bin-line"></i> 删除</button>');
+    var actions='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+actionItems.join('')+'</div>';
     return '<tr><td><div class="domain-value">'+escapeHtml(item.fqdn||'-')+'</div><div class="domain-value" style="font-size:11px;color:#8a93ab;margin-top:3px">'+escapeHtml(item.public_endpoint||'-')+'</div></td>'
       +'<td><span class="domain-tag '+meta[1]+'">'+meta[0]+'</span></td><td>'+owner+'</td><td class="domain-value">'+escapeHtml(item.assigned_ip||'-')+'</td><td>'+dns+'</td><td>'+fmtTime(item.updated_at)+'</td><td>'+actions+'</td></tr>';
   }).join('');
@@ -1632,13 +1644,37 @@ async function refreshDomainPool(page){
   try{var r=await fetch('/api/domain-pool/list?page='+Math.max(1,page||1),{credentials:'same-origin'}),d=await r.json();if(!d.ok){toast('域名池加载失败:'+(d.error||''),'err');return;}renderDomainPool(d);await refreshDomainOptions();}
   catch(e){toast('域名池网络错误:'+e.message,'err');}
 }
-async function importDomainPool(useDefault){
-  var input=document.getElementById('domain-import-input'),raw=(input.value||'').trim();if(!useDefault&&!raw){toast('请输入需要导入的域名','warn');return;}
-  try{var r=await fetch('/api/domain-pool/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(useDefault?{count:20,start:1}:{domains:raw})}),d=await r.json();if(!d.ok){toast('导入失败:'+(d.error||''),'err');return;}input.value='';toast('域名导入完成：新增 '+(d.inserted||0)+'，更新 '+(d.updated||0),'ok');refreshDomainPool(1);}
-  catch(e){toast('导入网络错误:'+e.message,'err');}
+async function importDomainPool(){
+  var input=document.getElementById('domain-import-input'),raw=(input.value||'').trim();if(!raw){toast('请输入需要导入的域名','warn');return;}
+  try{
+    var r=await fetch('/api/domain-pool/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({domains:raw})}),d=await r.json();
+    if(!d.ok){toast('导入失败:'+(d.error||''),'err');return;}
+    input.value='';
+    var summary='新增 '+(d.inserted||0)+'，已存在 '+(d.existing||0)+'，输入重复 '+(d.duplicates||0)+'，失败 '+(d.invalid||0);
+    toast('域名导入完成：'+summary,(d.invalid||0)?'warn':'ok');
+    if(d.errors&&d.errors.length){
+      var details=d.errors.slice(0,8).map(function(item){return (item.domain||'-')+'：'+(item.error||'格式错误');}).join('；');
+      if(d.errors.length>8)details+='；其余 '+(d.errors.length-8)+' 条未显示';
+      await alertDlg('部分域名未导入',details);
+    }
+    refreshDomainPool(1);
+  }catch(e){toast('导入网络错误:'+e.message,'err');}
 }
 async function refreshDomainDns(id,btn){if(btn)btn.disabled=true;try{var r=await fetch('/api/domain-pool/'+id+'/refresh-dns',{method:'POST',credentials:'same-origin'}),d=await r.json();if(d.ok){toast('DNS 记录已刷新','ok');refreshDomainPool(_domainPage);}else toast('DNS 刷新失败:'+(d.error||''),'err');}catch(e){toast('DNS 刷新网络错误:'+e.message,'err');}finally{if(btn)btn.disabled=false;}}
 async function releaseDomainEntry(id,btn){if(btn)btn.disabled=true;try{var r=await fetch('/api/domain-pool/'+id+'/release',{method:'POST',credentials:'same-origin'}),d=await r.json();if(d.ok){toast('域名已恢复为可用状态','ok');refreshDomainPool(_domainPage);}else toast('恢复失败:'+(d.error||''),'err');}catch(e){toast('恢复网络错误:'+e.message,'err');}finally{if(btn)btn.disabled=false;}}
+async function deleteDomainEntry(id,domain,btn){
+  var msg='确认从域名池删除 '+domain+'？此操作不可恢复。';
+  if(_domainDnsMode==='manual')msg+=' 当前为 MANUAL 模式，腾讯云 DNS 记录需要手工清理。';
+  var ok=await confirmDlg('删除域名',msg);if(!ok)return;
+  var old=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 删除中...';
+  try{
+    var r=await fetch('/api/domain-pool/'+id+'/delete',{method:'POST',credentials:'same-origin'}),d=await r.json();
+    if(!d.ok){toast('删除失败:'+(d.error||''),'err');btn.disabled=false;btn.innerHTML=old;return;}
+    if(d.manual_cleanup_required)toast('域名池记录已删除，请同步删除腾讯云 DNS 解析','warn');else toast('域名已删除','ok');
+    var nextPage=(_domainItemCount<=1&&_domainPage>1)?_domainPage-1:_domainPage;
+    refreshDomainPool(nextPage);
+  }catch(e){toast('删除网络错误:'+e.message,'err');btn.disabled=false;btn.innerHTML=old;}
+}
 async function refreshDomainOptions(){try{var r=await fetch('/api/domain-pool/options',{credentials:'same-origin'}),d=await r.json();if(!d.ok)return;_domainOptions=d.data||[];var select=document.getElementById('inp-se-domain');if(select)populateDomainSelect(select,select.value||'');}catch(e){console.warn('Domain options load failed',e);}}
 function populateDomainSelect(select,selected){if(!select)return;var html='<option value="">手工输入 TS 地址</option>';(_domainOptions||[]).forEach(function(item){var endpoint=item.public_endpoint||'',label=(item.fqdn||endpoint)+' · '+(item.assigned_node_name||'-')+' · '+(item.assigned_ip||'-');html+='<option value="'+escapeHtml(endpoint)+'" '+(endpoint===selected?'selected':'')+'>'+escapeHtml(label)+'</option>';});select.innerHTML=html;}
 function domainOptionsHtml(selected){var html='<option value="">手工输入 TS 地址</option>';(_domainOptions||[]).forEach(function(item){var endpoint=item.public_endpoint||'',label=(item.fqdn||endpoint)+' · '+(item.assigned_node_name||'-');html+='<option value="'+escapeHtml(endpoint)+'" '+(endpoint===selected?'selected':'')+'>'+escapeHtml(label)+'</option>';});return html;}

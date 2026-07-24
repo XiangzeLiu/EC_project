@@ -202,6 +202,60 @@ class ProductionDomainTests(unittest.TestCase):
             "available",
         )
 
+    def test_import_reports_existing_duplicates_and_invalid_domains(self):
+        first = domain_pool.import_domains([
+            "www.ts01.scjrdomain.com",
+            "www.ts01.scjrdomain.com",
+            "www.ts01.example.com",
+        ])
+        self.assertEqual(first["inserted"], 1)
+        self.assertEqual(first["existing"], 0)
+        self.assertEqual(first["duplicates"], 1)
+        self.assertEqual(first["invalid"], 1)
+
+        second = domain_pool.import_domains(["www.ts01.scjrdomain.com"])
+        self.assertEqual(second["inserted"], 0)
+        self.assertEqual(second["existing"], 1)
+
+    def test_available_domain_can_be_deleted(self):
+        domain_pool.import_domains(["www.ts01.scjrdomain.com"])
+        entry = database.list_ts_domain_pool()["items"][0]
+
+        deleted = domain_pool.delete_domain(entry["id"])
+
+        self.assertTrue(deleted["deleted"])
+        self.assertEqual(deleted["domain"], "www.ts01.scjrdomain.com")
+        self.assertIsNone(database.get_ts_domain_pool_entry(entry["id"]))
+
+    def test_allocating_domain_cannot_be_deleted(self):
+        domain_pool.import_domains(["www.ts01.scjrdomain.com"])
+        assignment = domain_pool.allocate_domain("pending-node", "8.8.8.8")
+
+        with self.assertRaises(domain_pool.DomainPoolError):
+            domain_pool.delete_domain(assignment["id"])
+
+        self.assertEqual(
+            database.get_ts_domain_pool_entry(assignment["id"])["status"],
+            "allocating",
+        )
+
+    def test_dns_cleanup_failure_keeps_domain_as_error(self):
+        domain_pool.import_domains(["www.ts01.scjrdomain.com"])
+        entry = database.list_ts_domain_pool()["items"][0]
+
+        with patch.object(
+            DNSPodClient,
+            "delete_a_record",
+            side_effect=DNSPodError("cleanup failed"),
+        ):
+            with self.assertRaises(domain_pool.DomainPoolError):
+                domain_pool.delete_domain(entry["id"])
+
+        failed = database.get_ts_domain_pool_entry(entry["id"])
+        self.assertEqual(failed["status"], "error")
+        self.assertEqual(failed["dns_status"], "error")
+        self.assertIn("cleanup failed", failed["dns_error"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -62,6 +62,7 @@ def import_domains(domains: list[str]) -> dict:
     entries = []
     errors = []
     seen = set()
+    duplicates = 0
     for raw in domains:
         try:
             entry = normalize_domain(raw)
@@ -69,12 +70,16 @@ def import_domains(domains: list[str]) -> dict:
             errors.append({"domain": (raw or "").strip(), "error": str(exc)})
             continue
         if entry["fqdn"] in seen:
+            duplicates += 1
             continue
         seen.add(entry["fqdn"])
         entries.append(entry)
     result = database.import_ts_domain_pool(entries)
     result["errors"] = errors
     result["accepted"] = len(entries)
+    result["duplicates"] = duplicates
+    result["invalid"] = len(errors)
+    result.setdefault("existing", result.get("updated", 0))
     return result
 
 
@@ -235,3 +240,38 @@ def release_orphan_domain(domain_id: int) -> dict:
     if not database.reset_ts_domain_entry(domain_id):
         raise DomainPoolError("domain state changed before release")
     return {"ok": True, "action": result.action}
+
+
+def delete_domain(domain_id: int) -> dict:
+    reserved = database.begin_delete_ts_domain(domain_id)
+    if not reserved.get("ok"):
+        raise DomainPoolError(reserved.get("error") or "domain cannot be deleted")
+
+    entry = reserved["entry"]
+    dns = DNSPodClient()
+    try:
+        result = dns.delete_a_record(
+            entry["fqdn"],
+            entry.get("dns_record_id", ""),
+        )
+    except Exception as exc:
+        database.fail_delete_ts_domain(domain_id, str(exc))
+        log.exception("DNS cleanup failed before deleting %s", entry.get("fqdn"))
+        raise DomainPoolError(f"DNS cleanup failed: {exc}") from exc
+
+    if not database.complete_delete_ts_domain(domain_id):
+        database.mark_ts_domain_error(
+            domain_id,
+            "DNS was cleaned up, but the domain row changed before deletion",
+        )
+        raise DomainPoolError("domain state changed before deletion completed")
+
+    return {
+        "ok": True,
+        "deleted": True,
+        "domain": entry.get("fqdn", ""),
+        "previous_status": entry.get("previous_status", ""),
+        "dns_action": result.action,
+        "dns_mode": result.mode,
+        "manual_cleanup_required": result.mode == "manual",
+    }

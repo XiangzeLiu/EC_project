@@ -33,6 +33,7 @@ if _SCRIPT_DIR not in sys.path:
 
 import asyncio
 import logging
+import re
 import uuid
 
 
@@ -1045,20 +1046,21 @@ async def import_domain_pool(request: Request):
         body = await request.json() if await request.body() else {}
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "request body must be a JSON object"}
     raw_domains = body.get("domains") or []
     if isinstance(raw_domains, str):
-        raw_domains = raw_domains.replace(",", "\n").splitlines()
+        raw_domains = re.split(r"[,，\r\n]+", raw_domains)
+    elif not isinstance(raw_domains, list):
+        return {"ok": False, "error": "domains must be a string or a list"}
     domains = [str(item).strip() for item in raw_domains if str(item).strip()]
     if not domains:
-        try:
-            count = max(1, min(int(body.get("count") or 20), 200))
-            start = max(1, int(body.get("start") or 1))
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "count/start must be integers"}
-        domains = [
-            f"ts-{index:02d}.{SM_TS_DOMAIN_SUFFIX}"
-            for index in range(start, start + count)
-        ]
+        return {
+            "ok": False,
+            "error": "domains is required; automatic initialization is not supported",
+        }
+    if len(domains) > 200:
+        return {"ok": False, "error": "at most 200 domains can be imported at once"}
     result = domain_pool.import_domains(domains)
     if result.get("ok"):
         _record_admin_event(
@@ -1067,6 +1069,27 @@ async def import_domain_pool(request: Request):
             "domain_pool",
             f"导入域名：{result.get('accepted', 0)} 条",
         )
+    return result
+
+
+@app.post("/api/domain-pool/{domain_id}/delete")
+async def delete_domain_pool_entry(request: Request, domain_id: int):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: domain_pool.delete_domain(domain_id),
+        )
+    except domain_pool.DomainPoolError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    _record_admin_event(
+        request,
+        "DELETE_TS_DOMAIN",
+        "domain_pool",
+        f"删除域名：{result.get('domain', '')}",
+    )
     return result
 
 
