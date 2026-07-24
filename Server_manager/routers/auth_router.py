@@ -151,6 +151,7 @@ async def verify_client_token(request: Request):
     node_server_id = str(node.get("server_id") or "")
     requested_server_id = str(body.get("server_id") or "").strip()
     recheck_username = str(body.get("username") or "").strip()
+    connection_id = str(body.get("connection_id") or "").strip()
     is_connection_recheck = body.get("recheck") is True
 
     def deny(reason: str, username: str = "", **extra) -> dict:
@@ -171,6 +172,7 @@ async def verify_client_token(request: Request):
                     node_server_id,
                     recheck_username,
                     client_token,
+                    connection_id,
                 )
             ):
                 released = node_state.manager.release(node_server_id, check_offline=False)
@@ -208,6 +210,9 @@ async def verify_client_token(request: Request):
             "allowed": True,
         }
 
+    if not connection_id:
+        return deny("connection_id_required")
+
     if str(node.get("status") or "").strip().lower() == "suspended":
         return deny("node_suspended")
 
@@ -236,11 +241,17 @@ async def verify_client_token(request: Request):
             occupied_by=occupied_by,
         )
 
-    node_state.manager.bind_occupation_session(
+    if not node_state.manager.bind_occupation_session(
         node_server_id,
         username,
         client_token,
-    )
+        connection_id,
+    ):
+        return deny(
+            "occupation_connection_mismatch",
+            username,
+            token_type="client",
+        )
 
     return {
         "ok": True,

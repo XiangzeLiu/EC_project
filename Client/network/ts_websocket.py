@@ -28,6 +28,10 @@ import websockets
 
 log = logging.getLogger("client.ts_websocket")
 
+
+class TSAuthenticationError(Exception):
+    """Raised when TS explicitly rejects the Client CONNECT request."""
+
 # 导入重连配置常量（从 constants 模块）
 try:
     from ..constants import (TS_RECONNECT_BASE_INTERVAL, TS_RECONNECT_MAX_INTERVAL,
@@ -47,7 +51,8 @@ class TSWebSocketClient:
                  on_message_callback: Callable[[dict], None] = None,
                  on_status_callback: Callable[[str], None] = None,
                  on_latency_callback: Callable[[int], None] = None,
-                 on_reconnect_prepare_callback: Callable[[int], bool] | None = None,
+                 on_reconnect_prepare_callback: Callable[[int, str], bool] | None = None,
+                 on_state_callback: Callable[[str, dict], None] | None = None,
                  reconnect_enabled: bool = False,
                  ws_url: str = ""):
 
@@ -61,6 +66,7 @@ class TSWebSocketClient:
         self.on_status = on_status_callback
         self.on_latency = on_latency_callback
         self.on_reconnect_prepare = on_reconnect_prepare_callback
+        self.on_state = on_state_callback
         self._active = False
         self._connected = False
         self._reconnect_enabled = reconnect_enabled   # 是否启用自动重连
@@ -80,6 +86,10 @@ class TSWebSocketClient:
         self._send_wakeup: asyncio.Event | None = None
         self._send_lock: asyncio.Lock | None = None
         self._ping_sent_at: dict[str, float] = {}
+        self._connection_id = self._new_connection_id()
+        self._stop_event = threading.Event()
+        self._authenticated_event = threading.Event()
+        self._stopped_event = threading.Event()
 
         try:
             parsed = urlsplit(self.ws_url)
@@ -141,6 +151,22 @@ class TSWebSocketClient:
     def node_info(self) -> dict:
         return self._node_info.copy()
 
+    @property
+    def connection_id(self) -> str:
+        return self._connection_id
+
+    @staticmethod
+    def _new_connection_id() -> str:
+        return f"wsc_{uuid.uuid4().hex}"
+
+    def _emit_state(self, state: str, **detail) -> None:
+        if not self.on_state:
+            return
+        try:
+            self.on_state(state, detail)
+        except Exception:
+            log.debug("TS state callback failed", exc_info=True)
+
     @staticmethod
     def _is_ws_open(ws) -> bool:
         """
@@ -163,25 +189,39 @@ class TSWebSocketClient:
         """启动 WebSocket 连接线程"""
         if self._active:
             return
+        self._stop_event.clear()
+        self._authenticated_event.clear()
+        self._stopped_event.clear()
         self._active = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
-    def stop(self):
-        """停止连接"""
+    def stop(self, wait: bool = True, timeout: float = 3.0):
+        """停止连接，并在非 WS 线程中等待后台线程完成。"""
         self._active = False
         self._connected = False
+        self._stop_event.set()
         if self._loop and self._loop.is_running():
             try:
                 self._loop.call_soon_threadsafe(self._do_stop)
             except Exception:
                 pass
+        thread = self._thread
+        if wait and thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=max(0.0, timeout))
 
     def _do_stop(self):
         """在 event loop 内执行停止"""
+        if self._conn_lost is not None:
+            self._conn_lost.set()
         if self._ws:
-            # 使用 run_coroutine_threadsafe 避免未等待的协程警告
-            asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)
+            asyncio.create_task(self._ws.close())
+
+    def wait_until_authenticated(self, timeout: float | None = None) -> bool:
+        return self._authenticated_event.wait(timeout)
+
+    def wait_until_stopped(self, timeout: float | None = None) -> bool:
+        return self._stopped_event.wait(timeout)
 
     def _enqueue_message(self, msg: dict):
         with self._req_lock:
@@ -321,11 +361,13 @@ class TSWebSocketClient:
         last_error = ""
 
         # ── 重连循环：当启用重连且未被显式 stop 时持续尝试 ──
-        while True:
+        while self._active:
             try:
+                if reconnect_attempts > 0:
+                    self._connection_id = self._new_connection_id()
                 if reconnect_attempts > 0 and self.on_reconnect_prepare:
                     try:
-                        if not self.on_reconnect_prepare(reconnect_attempts):
+                        if not self.on_reconnect_prepare(reconnect_attempts, self._connection_id):
                             raise ConnectionRefusedError("reconnect_prepare_failed")
                     except Exception as prep_exc:
                         last_error = f"reconnect_prepare_failed: {prep_exc}"
@@ -336,7 +378,11 @@ class TSWebSocketClient:
                     self._loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(self._loop)
 
-                connected_this_run = bool(self._loop.run_until_complete(self._connect_and_run()))
+                connected_this_run = bool(
+                    self._loop.run_until_complete(
+                        self._connect_and_run(self._connection_id)
+                    )
+                )
                 # 正常退出（async with 结束或认证失败返回）→ 检查是否继续重连
                 if not self._reconnect_enabled or not self._active:
                     break
@@ -344,9 +390,19 @@ class TSWebSocketClient:
                     reconnect_attempts = 0
                 last_error = "connection_lost"
                 reconnect_attempts += 1
+                self._emit_state(
+                    "reconnecting",
+                    attempt=reconnect_attempts,
+                    reason="connection_lost",
+                )
                 if self.on_status:
                     self.on_status(f"Reconnecting ({reconnect_attempts})... | connection_lost")
 
+            except TSAuthenticationError as exc:
+                last_error = str(exc) or "authentication_failed"
+                self._active = False
+                self._emit_state("auth_failed", message=last_error)
+                break
             except websockets.exceptions.ConnectionClosed as e:
                 # 管理端强制断开：不进行自动重连
                 if getattr(e, "code", None) == 4008:
@@ -355,12 +411,18 @@ class TSWebSocketClient:
                     self._active = False
                     if self.on_status:
                         self.on_status(last_error)
+                    self._emit_state("force_disconnected", reason=last_error)
                     break
 
                 last_error = str(e)
                 if not self._reconnect_enabled or not self._active:
                     break
                 reconnect_attempts += 1
+                self._emit_state(
+                    "reconnecting",
+                    attempt=reconnect_attempts,
+                    reason=type(e).__name__,
+                )
                 if self.on_status:
                     self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
 
@@ -372,6 +434,11 @@ class TSWebSocketClient:
                 if not self._reconnect_enabled or not self._active:
                     break
                 reconnect_attempts += 1
+                self._emit_state(
+                    "reconnecting",
+                    attempt=reconnect_attempts,
+                    reason=type(e).__name__,
+                )
                 if self.on_status:
                     self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
 
@@ -382,6 +449,11 @@ class TSWebSocketClient:
                 if not self._reconnect_enabled or not self._active:
                     break
                 reconnect_attempts += 1
+                self._emit_state(
+                    "reconnecting",
+                    attempt=reconnect_attempts,
+                    reason=str(e),
+                )
                 if self.on_status:
                     self.on_status(f"Reconnecting ({reconnect_attempts})... | {e}")
 
@@ -399,11 +471,17 @@ class TSWebSocketClient:
             if TS_RECONNECT_MAX_ATTEMPTS > 0 and reconnect_attempts >= TS_RECONNECT_MAX_ATTEMPTS:
                 if self.on_status:
                     self.on_status(f"Reconnect failed after {reconnect_attempts} attempts: {last_error}")
+                self._emit_state(
+                    "retry_exhausted",
+                    attempt=reconnect_attempts,
+                    reason=last_error,
+                )
                 break
 
 
-            # sleep 在 loop 外部进行，不阻塞 event loop
-            time.sleep(delay)
+            # 可中断等待，stop() 后不再多发起一次连接。
+            if self._stop_event.wait(delay):
+                break
 
         # 完全退出循环后的最终清理
         self._active = False
@@ -416,11 +494,17 @@ class TSWebSocketClient:
                 self._loop.close()
         except Exception:
             pass
+        finally:
+            self._loop = None
+            self._thread = None
+            self._stopped_event.set()
+            self._emit_state("stopped", reason=last_error, explicit=self._stop_event.is_set())
 
-    async def _connect_and_run(self):
+    async def _connect_and_run(self, connection_id: str):
         """建立连接并运行主循环"""
         uri = self.ws_url
 
+        self._emit_state("connecting", connection_id=connection_id, endpoint=uri)
         if self.on_status:
             self.on_status(f"Connecting to {uri}...")
 
@@ -438,11 +522,12 @@ class TSWebSocketClient:
             # 阶段1: 发送 CONNECT 认证
             connect_msg = {
                 "type": "CONNECT",
-                "id": f"conn_{int(time.time() * 1000)}",
+                "id": connection_id,
                 "timestamp": int(time.time() * 1000),
                 "payload": {
                     "token": self.token,
                     "server_id": self.server_id,
+                    "connection_id": connection_id,
                     "trace_id": f"trc_{uuid.uuid4().hex[:16]}"
                 },
             }
@@ -458,15 +543,21 @@ class TSWebSocketClient:
                 err_msg = ack.get("payload", {}).get("message", "Auth failed")
                 if self.on_status:
                     self.on_status(f"Auth failed: {err_msg}")
-                return
+                raise TSAuthenticationError(err_msg)
 
             self._connected = True
+            self._authenticated_event.set()
             payload = ack.get("payload", {})
             self._session_id = payload.get("session_id", "")
             self._node_info = payload.get("node_info", {})
 
             if self.on_status:
                 self.on_status(f"Authenticated! Session: {self._session_id}")
+            self._emit_state(
+                "authenticated",
+                connection_id=connection_id,
+                session_id=self._session_id,
+            )
             if self.on_message:
                 self.on_message({"event": "connected", "data": ack})
 

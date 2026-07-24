@@ -1,9 +1,14 @@
+import asyncio
+import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +29,7 @@ import node_state
 from fastapi.testclient import TestClient
 
 from Client.network.ts_websocket import TSWebSocketClient
+from Client.ui_qt import main_window as client_main_window
 from Trader_Server import config as ts_config
 from Trader_Server.services import registration
 from Trader_Server.services.trading_svc import _validate_order_params
@@ -114,7 +120,7 @@ class AccessChainTests(unittest.TestCase):
         other_occupy = self.client.post(
             f"/api/nodes/{second['server_id']}/occupy",
             headers=headers,
-            json={"username": "trader-a"},
+            json={"username": "trader-a", "connection_id": "conn-other"},
         ).json()
         self.assertFalse(other_occupy["ok"])
         self.assertEqual(other_occupy["error"], "node_not_bound_to_account")
@@ -122,7 +128,11 @@ class AccessChainTests(unittest.TestCase):
         other_verify = self.client.post(
             "/auth/verify-token",
             headers={"Authorization": f"Bearer {second_row['token']}"},
-            json={"token": login["token"], "server_id": second["server_id"]},
+            json={
+                "token": login["token"],
+                "server_id": second["server_id"],
+                "connection_id": "conn-other",
+            },
         ).json()
         self.assertFalse(other_verify["valid"])
         self.assertEqual(other_verify["reason"], "node_not_bound_to_account")
@@ -135,13 +145,17 @@ class AccessChainTests(unittest.TestCase):
         own_occupy = self.client.post(
             f"/api/nodes/{first['server_id']}/occupy",
             headers=headers,
-            json={"username": "trader-a"},
+            json={"username": "trader-a", "connection_id": "conn-own"},
         ).json()
         self.assertTrue(own_occupy["ok"])
         own_verify = self.client.post(
             "/auth/verify-token",
             headers={"Authorization": f"Bearer {first_row['token']}"},
-            json={"token": login["token"], "server_id": first["server_id"]},
+            json={
+                "token": login["token"],
+                "server_id": first["server_id"],
+                "connection_id": "conn-own",
+            },
         ).json()
         self.assertTrue(own_verify["valid"])
 
@@ -209,7 +223,7 @@ class AccessChainTests(unittest.TestCase):
         occupied = self.client.post(
             f"/api/nodes/{approved['server_id']}/occupy",
             headers=headers,
-            json={"username": "expiring-user"},
+            json={"username": "expiring-user", "connection_id": "conn-expiring"},
         ).json()
         self.assertTrue(occupied["ok"])
 
@@ -224,6 +238,7 @@ class AccessChainTests(unittest.TestCase):
                 "server_id": approved["server_id"],
                 "recheck": True,
                 "username": "expiring-user",
+                "connection_id": "conn-expiring",
             },
         ).json()
         self.assertFalse(rechecked["valid"])
@@ -239,6 +254,7 @@ class AccessChainTests(unittest.TestCase):
         approved, node_row = self._create_online_node(1, "8.8.8.8")
         state = node_state.manager.get(approved["server_id"])
         state.occupied_by = "current-user"
+        state._connection_id = "conn-invalid"
         response = self.client.post(
             "/auth/verify-token",
             headers={"Authorization": f"Bearer {node_row['token']}"},
@@ -246,6 +262,7 @@ class AccessChainTests(unittest.TestCase):
                 "token": "invalid-token",
                 "server_id": approved["server_id"],
                 "username": "current-user",
+                "connection_id": "conn-invalid",
             },
         ).json()
         self.assertFalse(response["valid"])
@@ -275,7 +292,7 @@ class AccessChainTests(unittest.TestCase):
         occupied = self.client.post(
             f"/api/nodes/{approved['server_id']}/occupy",
             headers={"Authorization": f"Bearer {login['token']}"},
-            json={"username": "suspended-node-user"},
+            json={"username": "suspended-node-user", "connection_id": "conn-suspended"},
         ).json()
         self.assertTrue(occupied["ok"])
         suspended = self.client.post(
@@ -291,6 +308,7 @@ class AccessChainTests(unittest.TestCase):
                 "server_id": approved["server_id"],
                 "recheck": True,
                 "username": "suspended-node-user",
+                "connection_id": "conn-suspended",
             },
         ).json()
         self.assertFalse(rechecked["valid"])
@@ -349,7 +367,7 @@ class AccessChainTests(unittest.TestCase):
         self.assertTrue(self.client.post(
             f"/api/nodes/{approved['server_id']}/occupy",
             headers={"Authorization": f"Bearer {first['token']}"},
-            json={"username": "takeover-user"},
+            json={"username": "takeover-user", "connection_id": "conn-takeover-old"},
         ).json()["ok"])
 
         second = self.client.post("/auth/login", json={
@@ -360,7 +378,7 @@ class AccessChainTests(unittest.TestCase):
         self.assertTrue(self.client.post(
             f"/api/nodes/{approved['server_id']}/occupy",
             headers={"Authorization": f"Bearer {second['token']}"},
-            json={"username": "takeover-user"},
+            json={"username": "takeover-user", "connection_id": "conn-takeover-new"},
         ).json()["ok"])
 
         stale = self.client.post(
@@ -371,6 +389,7 @@ class AccessChainTests(unittest.TestCase):
                 "server_id": approved["server_id"],
                 "recheck": True,
                 "username": "takeover-user",
+                "connection_id": "conn-takeover-old",
             },
         ).json()
         self.assertFalse(stale["valid"])
@@ -382,6 +401,7 @@ class AccessChainTests(unittest.TestCase):
             json={
                 "token": second["token"],
                 "server_id": approved["server_id"],
+                "connection_id": "conn-takeover-new",
             },
         ).json()
         self.assertTrue(current["valid"])
@@ -406,7 +426,7 @@ class AccessChainTests(unittest.TestCase):
         self.assertTrue(self.client.post(
             f"/api/nodes/{approved['server_id']}/occupy",
             headers={"Authorization": f"Bearer {first['token']}"},
-            json={"username": "disconnect-user"},
+            json={"username": "disconnect-user", "connection_id": "conn-disconnect"},
         ).json()["ok"])
 
         wrong = self.client.post(
@@ -416,6 +436,7 @@ class AccessChainTests(unittest.TestCase):
                 "server_id": approved["server_id"],
                 "username": "disconnect-user",
                 "client_token": "another-session-token",
+                "connection_id": "conn-disconnect",
             },
         ).json()
         self.assertTrue(wrong["ok"])
@@ -428,6 +449,7 @@ class AccessChainTests(unittest.TestCase):
                 "server_id": approved["server_id"],
                 "username": "disconnect-user",
                 "client_token": first["token"],
+                "connection_id": "conn-disconnect",
             },
         ).json()
         self.assertTrue(released["ok"])
@@ -435,6 +457,140 @@ class AccessChainTests(unittest.TestCase):
         self.assertIsNone(
             node_state.manager.get_occupation_info(approved["server_id"])
         )
+
+    def test_old_connection_cannot_release_new_reconnect(self):
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
+        approved, node_row = self._create_online_node(1, "8.8.8.8")
+        database.create_account(
+            "reconnect-user",
+            "pw",
+            "wss://ts-01.ts.scjrdomain.com/ws",
+            "TT",
+            role="trader",
+        )
+        login = self.client.post("/auth/login", json={
+            "username": "reconnect-user",
+            "password": "pw",
+            "force": False,
+        }).json()
+        client_headers = {"Authorization": f"Bearer {login['token']}"}
+        node_headers = {"Authorization": f"Bearer {node_row['token']}"}
+
+        first_connection = "conn-reconnect-old"
+        second_connection = "conn-reconnect-new"
+        self.assertTrue(self.client.post(
+            f"/api/nodes/{approved['server_id']}/occupy",
+            headers=client_headers,
+            json={"username": "reconnect-user", "connection_id": first_connection},
+        ).json()["ok"])
+        self.assertTrue(self.client.post(
+            "/auth/verify-token",
+            headers=node_headers,
+            json={
+                "token": login["token"],
+                "server_id": approved["server_id"],
+                "connection_id": first_connection,
+            },
+        ).json()["valid"])
+
+        self.assertTrue(self.client.post(
+            f"/api/nodes/{approved['server_id']}/occupy",
+            headers=client_headers,
+            json={"username": "reconnect-user", "connection_id": second_connection},
+        ).json()["ok"])
+        self.assertTrue(self.client.post(
+            "/auth/verify-token",
+            headers=node_headers,
+            json={
+                "token": login["token"],
+                "server_id": approved["server_id"],
+                "connection_id": second_connection,
+            },
+        ).json()["valid"])
+
+        stale_release = self.client.post(
+            "/nodes/release-occupation",
+            headers=node_headers,
+            json={
+                "server_id": approved["server_id"],
+                "username": "reconnect-user",
+                "client_token": login["token"],
+                "connection_id": first_connection,
+            },
+        ).json()
+        self.assertFalse(stale_release["released"])
+        occupation = node_state.manager.get_occupation_info(approved["server_id"])
+        self.assertEqual(occupation["occupied_by"], "reconnect-user")
+        self.assertTrue(occupation["connection_confirmed"])
+
+        current_release = self.client.post(
+            "/nodes/release-occupation",
+            headers=node_headers,
+            json={
+                "server_id": approved["server_id"],
+                "username": "reconnect-user",
+                "client_token": login["token"],
+                "connection_id": second_connection,
+            },
+        ).json()
+        self.assertTrue(current_release["released"])
+
+    def test_unconfirmed_connection_reservation_expires_without_offlining_ts(self):
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
+        approved, _node_row = self._create_online_node(1, "8.8.8.8")
+        state = node_state.manager.get(approved["server_id"])
+        ok, error = node_state.manager.occupy(
+            approved["server_id"],
+            "reserved-user",
+            "reserved-token",
+            "conn-never-arrived",
+        )
+        self.assertTrue(ok, error)
+        state._reservation_deadline = time.time() - 1
+
+        expired = node_state.manager.expire_unconfirmed_occupations()
+        self.assertEqual(expired, [approved["server_id"]])
+        self.assertEqual(state.status, "online")
+        self.assertIsNone(node_state.manager.get_occupation_info(approved["server_id"]))
+
+    def test_occupied_heartbeat_uses_transition_window_until_real_heartbeat(self):
+        self.client.post("/api/domain-pool/import", json={
+            "domains": ["ts-01.ts.scjrdomain.com"],
+        })
+        approved, _node_row = self._create_online_node(1, "8.8.8.8")
+        state = node_state.manager.get(approved["server_id"])
+        state.last_heartbeat = time.time() - 50
+        ok, error = node_state.manager.occupy(
+            approved["server_id"],
+            "heartbeat-user",
+            "heartbeat-token",
+            "conn-heartbeat",
+        )
+        self.assertTrue(ok, error)
+        self.assertGreater(state.heartbeat_timeout, 75)
+        self.assertTrue(state.is_alive)
+
+        node_state.manager.update_heartbeat(approved["server_id"], "8.8.8.8")
+        self.assertEqual(state.heartbeat_timeout, node_state.OCCUPIED_HEARTBEAT_TIMEOUT)
+        self.assertTrue(state._occupied_hb_confirmed)
+
+    def test_db_load_never_restores_client_occupation(self):
+        manager = node_state.NodeStateManager()
+        manager.register({
+            "server_id": "node-restarted",
+            "node_name": "Restarted node",
+            "req_status": "online",
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+            "occupied_by": "stale-client",
+        })
+        self.assertIsNone(manager.get_occupation_info("node-restarted"))
+        snapshot = manager.prepare_db_sync_data()[0]
+        self.assertEqual(snapshot["occupied_by"], "")
+        self.assertEqual(snapshot["occupied_at"], "")
 
     def test_admin_force_release_prefers_public_wss_endpoint(self):
         self.client.post("/api/domain-pool/import", json={
@@ -515,6 +671,87 @@ class AccessChainTests(unittest.TestCase):
             self.assertEqual(normalized["tif"], tif)
 
 
+class ClientConnectionLifecycleTests(unittest.TestCase):
+    def test_main_connection_flow_creates_one_durable_websocket(self):
+        instances = []
+        occupied = []
+
+        class FakeWebSocketClient:
+            @staticmethod
+            def normalize_endpoint(endpoint, default_port=8900):
+                return f"wss://{endpoint}/ws"
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.connection_id = "conn-single-durable"
+                self.started = False
+                instances.append(self)
+
+            def start(self):
+                self.started = True
+
+        fake_window = SimpleNamespace(
+            _last_connected_se="",
+            _se_generation=0,
+            _se_server_id="node-1",
+            _se_client=None,
+            _se_connection_id="",
+            http=SimpleNamespace(token="client-token"),
+        )
+        fake_window._wrap_se_message_handler = lambda generation: None
+        fake_window._wrap_se_status_handler = lambda generation: None
+        fake_window._wrap_ts_latency_handler = lambda generation: None
+        fake_window._wrap_se_state_handler = lambda generation: None
+        fake_window._prepare_ts_reconnect = lambda generation, attempt, connection_id: True
+
+        def occupy(connection_id="", **_kwargs):
+            occupied.append(connection_id)
+            return True
+
+        fake_window._occupy_se_node = occupy
+
+        original_client = client_main_window.TSWebSocketClient
+        try:
+            client_main_window.TSWebSocketClient = FakeWebSocketClient
+            client_main_window.TradingTerminalQt._connect_ts_with_retry(
+                fake_window,
+                "ts-01.ts.scjrdomain.com",
+            )
+        finally:
+            client_main_window.TSWebSocketClient = original_client
+
+        self.assertEqual(len(instances), 1)
+        self.assertTrue(instances[0].started)
+        self.assertIs(fake_window._se_client, instances[0])
+        self.assertEqual(occupied, ["conn-single-durable"])
+
+    def test_stop_interrupts_retry_wait_without_extra_connection(self):
+        reconnecting = threading.Event()
+        attempts = []
+
+        def on_state(state, _detail):
+            if state == "reconnecting":
+                reconnecting.set()
+
+        client = TSWebSocketClient(
+            ws_url="ws://127.0.0.1:1/ws",
+            reconnect_enabled=True,
+            on_reconnect_prepare_callback=lambda _attempt, _connection_id: True,
+            on_state_callback=on_state,
+        )
+
+        async def fake_connect(connection_id):
+            attempts.append(connection_id)
+            return True
+
+        client._connect_and_run = fake_connect
+        client.start()
+        self.assertTrue(reconnecting.wait(1.0))
+        client.stop(wait=True, timeout=1.0)
+        self.assertTrue(client.wait_until_stopped(1.0))
+        self.assertEqual(len(attempts), 1)
+
+
 class _FakeWebSocket:
     def __init__(self):
         self.sent = []
@@ -525,6 +762,22 @@ class _FakeWebSocket:
 
     async def close(self, code=1000, reason=""):
         self.closed.append((code, reason))
+
+
+class _ScriptedWebSocket(_FakeWebSocket):
+    def __init__(self, messages):
+        super().__init__()
+        self.messages = list(messages)
+        self.client = SimpleNamespace(host="127.0.0.1", port=12345)
+        self.accepted = False
+
+    async def accept(self):
+        self.accepted = True
+
+    async def receive_text(self):
+        if self.messages:
+            return self.messages.pop(0)
+        raise ts_ws_server.WebSocketDisconnect()
 
 
 class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
@@ -547,17 +800,52 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(old.closed[0][0], ts_ws_server._FORCE_DISCONNECT_CODE)
         self.assertFalse(new.closed)
 
+    async def test_connect_propagates_physical_connection_id_to_sm_verification(self):
+        captured = []
+        connection_id = "conn-propagated-to-sm"
+        ws = _ScriptedWebSocket([json.dumps({
+            "type": "CONNECT",
+            "payload": {
+                "token": "client-token",
+                "server_id": "node-1",
+                "connection_id": connection_id,
+                "trace_id": "trace-1",
+            },
+        })])
+        original_validate = ts_ws_server._validate_client_token
+        try:
+            async def fake_validate(token, server_id="", recheck_username="", connection_id=""):
+                captured.append((token, server_id, connection_id))
+                return {
+                    "valid": True,
+                    "allowed": True,
+                    "username": "user",
+                    "server_id": "node-1",
+                    "token_type": "client",
+                }
+
+            ts_ws_server._validate_client_token = fake_validate
+            await ts_ws_server.handle_client_connection(ws)
+        finally:
+            ts_ws_server._validate_client_token = original_validate
+            ts_ws_server._cancel_pending_releases("user", "node-1")
+
+        self.assertTrue(ws.accepted)
+        self.assertEqual(captured, [("client-token", "node-1", connection_id)])
+        self.assertEqual(ws.sent[0]["type"], "CONNECT_ACK")
+
     async def test_revoked_token_closes_existing_connection(self):
         ws = _FakeWebSocket()
         ts_ws_server._connections[ws] = {
             "server_id": "node-1",
             "username": "user",
             "client_token": "expired-token",
+            "connection_id": "conn-expired",
             "last_auth_check": 0,
         }
         original_validate = ts_ws_server._validate_client_token
         try:
-            async def fake_validate(token, server_id="", recheck_username=""):
+            async def fake_validate(token, server_id="", recheck_username="", connection_id=""):
                 return {"valid": False, "allowed": False, "reason": "invalid_or_expired"}
 
             ts_ws_server._validate_client_token = fake_validate
@@ -565,6 +853,34 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ws.closed[0][0], 4004)
         finally:
             ts_ws_server._validate_client_token = original_validate
+
+    async def test_pending_disconnect_release_is_cancelled_by_reconnect(self):
+        called = []
+        original_notify = ts_ws_server._notify_sm_connection_closed
+        original_grace = ts_ws_server._RELEASE_GRACE_SECONDS
+        try:
+            async def fake_notify(conn):
+                called.append(conn["connection_id"])
+                return True
+
+            ts_ws_server._notify_sm_connection_closed = fake_notify
+            ts_ws_server._RELEASE_GRACE_SECONDS = 0.05
+            conn = {
+                "session_id": "session-old",
+                "username": "user",
+                "server_id": "node-1",
+                "client_token": "token",
+                "connection_id": "conn-old",
+                "token_type": "client",
+            }
+            ts_ws_server._cleanup_connection_artifacts(conn)
+            ts_ws_server._cancel_pending_releases("user", "node-1")
+            await asyncio.sleep(0.1)
+            self.assertEqual(called, [])
+            self.assertNotIn("conn-old", ts_ws_server._pending_release_tasks)
+        finally:
+            ts_ws_server._notify_sm_connection_closed = original_notify
+            ts_ws_server._RELEASE_GRACE_SECONDS = original_grace
 
     async def test_quotes_require_runtime_broker_login_gate(self):
         response = await ts_ws_server._handle_quote_subscribe(

@@ -358,6 +358,7 @@ class TradingTerminalQt(QMainWindow):
         self._se_connected = False
         self._se_target_address = ""
         self._se_server_id = ""
+        self._se_connection_id = ""
         self._quote_requested_symbols: set[str] = set()
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
@@ -1100,6 +1101,7 @@ class TradingTerminalQt(QMainWindow):
         self._se_connected = False
         self._se_target_address = ""
         self._se_server_id = ""
+        self._se_connection_id = ""
         self._quote_requested_symbols.clear()
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
@@ -1444,9 +1446,6 @@ class TradingTerminalQt(QMainWindow):
                     return
                 self._se_server_id = resp_data.get("server_id", "")
                 self._se_target_address = target_addr
-                if not self._occupy_se_node(sync=True):
-                    self._ui(lambda: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u9501\u5b9a\u5931\u8d25", "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002"))
-                    return
             else:
                 self._ui(lambda: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25", ""))
                 return
@@ -1455,42 +1454,6 @@ class TradingTerminalQt(QMainWindow):
             self._ui(lambda e=exc: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25", str(e)))
 
     def _connect_ts_with_retry(self, target_addr: str) -> None:
-        target = target_addr or default_ts_target()
-        endpoint = TSWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_TS_PORT)
-        self._last_connected_se = endpoint
-        max_retries = 5
-        for attempt in range(1, max_retries + 1):
-            self._ui(lambda a=attempt: self._update_init_step("se", f"\u8fde\u63a5\u4e2d ({a}/{max_retries})...", theme.ACCENT_YELLOW))
-            client = TSWebSocketClient(
-                ws_url=endpoint,
-                port=DEFAULT_TS_PORT,
-                token=self.http.token,
-                server_id=self._se_server_id,
-                on_message_callback=None,
-                on_status_callback=self._on_probe_se_status,
-                on_latency_callback=self._on_ts_latency,
-                reconnect_enabled=False,
-            )
-            self._se_client = client
-            client.start()
-            for _ in range(100):
-                time.sleep(0.1)
-                if client.is_connected:
-                    client.stop()
-                    self._do_ws_connect(target_addr)
-                    return
-                if not client.is_active:
-                    break
-            try:
-                client.stop()
-            except Exception:
-                pass
-            self._se_client = None
-            if attempt < max_retries:
-                time.sleep(min(2 * attempt, 8))
-        self._ui(lambda: (self._release_se_occupation(), self._on_init_failed("se", "\u65e0\u6cd5\u8fde\u63a5\u5230\u4ea4\u6613\u670d\u52a1\u5668", "\u8fde\u63a5\u5931\u8d25\uff0c\u53ef\u80fd\u4ea4\u6613\u670d\u52a1\u5668\u7aef\u53e3\u5c1a\u672a\u5c31\u7eea\u3002")))
-
-    def _do_ws_connect(self, target_addr: str) -> None:
         target = target_addr or default_ts_target()
         endpoint = TSWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_TS_PORT)
         self._last_connected_se = endpoint
@@ -1504,17 +1467,22 @@ class TradingTerminalQt(QMainWindow):
             on_message_callback=self._wrap_se_message_handler(generation),
             on_status_callback=self._wrap_se_status_handler(generation),
             on_latency_callback=self._wrap_ts_latency_handler(generation),
-            on_reconnect_prepare_callback=lambda attempt, gen=generation: self._prepare_ts_reconnect(gen, attempt),
+            on_reconnect_prepare_callback=lambda attempt, connection_id, gen=generation: self._prepare_ts_reconnect(gen, attempt, connection_id),
+            on_state_callback=self._wrap_se_state_handler(generation),
             reconnect_enabled=TS_RECONNECT_ENABLED,
         )
         self._se_client = client
-        client.start()
-
-    def _on_probe_se_status(self, msg: str) -> None:
-        if self._init_ready or self._main_ui_built:
+        self._se_connection_id = client.connection_id
+        if not self._occupy_se_node(connection_id=client.connection_id, sync=True):
+            self._se_client = None
+            self._ui(lambda: self._on_init_failed(
+                "se",
+                "\u4ea4\u6613\u670d\u52a1\u5668\u9501\u5b9a\u5931\u8d25",
+                "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
+                release_occupation=False,
+            ))
             return
-        if "Connecting" in msg or "Connected" in msg or "Authenticated" in msg:
-            self._ui(lambda: self._update_init_step("se", "连接中...", theme.ACCENT_YELLOW))
+        client.start()
 
     def _wrap_se_status_handler(self, generation: int):
         def handler(msg: str) -> None:
@@ -1525,6 +1493,15 @@ class TradingTerminalQt(QMainWindow):
                     self._handle_se_status_ui(msg)
                 else:
                     self._handle_init_se_status_ui(msg)
+            self._ui(apply)
+        return handler
+
+    def _wrap_se_state_handler(self, generation: int):
+        def handler(state: str, detail: dict) -> None:
+            def apply() -> None:
+                if generation != self._se_generation:
+                    return
+                self._handle_se_connection_state_ui(state, detail or {})
             self._ui(apply)
         return handler
 
@@ -1551,7 +1528,7 @@ class TradingTerminalQt(QMainWindow):
             self._ui(apply)
         return handler
 
-    def _prepare_ts_reconnect(self, generation: int, attempt: int) -> bool:
+    def _prepare_ts_reconnect(self, generation: int, attempt: int, connection_id: str) -> bool:
         if generation != self._se_generation or self._reconnect_failed:
             return False
         if not self.session or not self.session.connected:
@@ -1574,20 +1551,52 @@ class TradingTerminalQt(QMainWindow):
             self._se_target_address = target
         if not self._se_server_id:
             return False
-        return self._occupy_se_node(sync=True)
+        return self._occupy_se_node(connection_id=connection_id, sync=True)
+
+    def _handle_se_connection_state_ui(self, state: str, detail: dict) -> None:
+        if state == "authenticated":
+            if self._init_ready:
+                was_reconnecting = self._last_reconnect_notice_attempt > 0
+                self._set_se_connection_ui(True)
+                if self.session:
+                    self.session.bind_se_client(self._se_client)
+                self._append_log("交易服务器重连成功" if was_reconnecting else "交易服务器已连接", "ok", dedupe=True)
+                self._refresh_broker_gate_async(log_errors=False)
+                self._sync_quote_subscriptions_async()
+            else:
+                self._update_init_step("se", "已连接", theme.ACCENT_GREEN)
+                self._se_connected = True
+                if self.session:
+                    self.session.bind_se_client(self._se_client)
+                QTimer.singleShot(400, lambda gen=self._se_generation: self._enter_main_interface(gen))
+            return
+
+        if state == "connecting":
+            if not self._init_ready:
+                self._update_init_step("se", "连接中...", theme.ACCENT_YELLOW)
+            return
+
+        if state == "reconnecting":
+            attempt = int(detail.get("attempt") or 0)
+            if self._init_ready:
+                self._handle_ts_reconnecting(f"Reconnecting ({attempt})")
+            else:
+                self._update_init_step("se", f"连接中 ({attempt}/{TS_RECONNECT_MAX_ATTEMPTS})...", theme.ACCENT_YELLOW)
+            return
+
+        if state in ("auth_failed", "retry_exhausted"):
+            reason = str(detail.get("message") or detail.get("reason") or "连接失败")
+            if self._init_ready:
+                self._start_reconnect_failure_recovery(reason)
+            else:
+                self._on_init_failed("se", "无法连接到交易服务器", reason)
+            return
+
+        if state == "force_disconnected":
+            self._set_ts_connection_state("offline")
 
     def _handle_init_se_status_ui(self, msg: str) -> None:
-        if "Auth failed" in msg or "error" in msg.lower() or "Connection error" in msg:
-            self._release_se_occupation()
-            self._on_init_failed("se", "无法连接到交易服务器", "请确保交易服务器已启动并重试。")
-            return
-        if "Authenticated" in msg:
-            self._update_init_step("se", "已连接", theme.ACCENT_GREEN)
-            self._se_connected = True
-            if self.session:
-                self.session.bind_se_client(self._se_client)
-            QTimer.singleShot(400, lambda gen=self._se_generation: self._enter_main_interface(gen))
-        elif "Connecting" in msg or "连接" in msg:
+        if "Connecting" in msg or "连接" in msg:
             self._update_init_step("se", "连接中...", theme.ACCENT_YELLOW)
 
     def _handle_init_se_message_ui(self, msg: dict) -> None:
@@ -1601,24 +1610,7 @@ class TradingTerminalQt(QMainWindow):
                 self.session._set_broker_gate(gate)
 
     def _handle_se_status_ui(self, msg: str) -> None:
-        if "Authenticated" in msg:
-            was_reconnecting = self._last_reconnect_notice_attempt > 0
-            self._set_se_connection_ui(True)
-            if self.session:
-                self.session.bind_se_client(self._se_client)
-            self._append_log("交易服务器重连成功" if was_reconnecting else "交易服务器已连接", "ok", dedupe=True)
-            self._refresh_broker_gate_async(log_errors=False)
-            self._sync_quote_subscriptions_async()
-        elif "Reconnect failed after" in msg:
-            self._start_reconnect_failure_recovery(msg)
-        elif "Reconnecting" in msg or "reconnecting" in msg.lower():
-            self._handle_ts_reconnecting(msg)
-        elif self._reconnect_failed and msg.startswith("Disconnected:"):
-            return
-        elif "Auth failed" in msg or "Connection error" in msg or msg.startswith("Disconnected:"):
-            self._set_ts_connection_state("offline")
-            self._log_user_error_once(msg)
-        else:
+        if not any(key in msg for key in ("Authenticated", "Reconnect failed after", "Reconnecting", "Connecting", "Disconnected:")):
             self._append_log(msg, "inf", dedupe=True)
 
     def _handle_se_message_ui(self, msg: dict) -> None:
@@ -1655,8 +1647,10 @@ class TradingTerminalQt(QMainWindow):
     def _on_init_se_message(self, msg: dict) -> None:
         self._ui(lambda: self._handle_init_se_message_ui(msg))
 
-    def _on_init_failed(self, step_key: str, reason: str, hint: str = "") -> None:
-        self._release_se_occupation()
+    def _on_init_failed(self, step_key: str, reason: str, hint: str = "", release_occupation: bool = True) -> None:
+        self._se_generation += 1
+        if release_occupation:
+            self._release_se_occupation()
         self._update_init_step(step_key, "\u5931\u8d25", theme.ACCENT_RED)
         msg = localize_user_message(reason)
         if hint:
@@ -1668,7 +1662,7 @@ class TradingTerminalQt(QMainWindow):
             self._set_init_actions_visible(True)
         if self._se_client:
             try:
-                self._se_client.stop()
+                self._se_client.stop(wait=False)
             except Exception:
                 pass
             self._se_client = None
@@ -1692,17 +1686,24 @@ class TradingTerminalQt(QMainWindow):
         self._update_init_step("se", "\u7b49\u5f85\u4e2d", theme.TEXT_MUTED)
         QTimer.singleShot(80, self._show_startup_login)
 
-    def _occupy_se_node(self, max_retries: int = 3, sync: bool = True) -> bool:
+    def _occupy_se_node(self, connection_id: str = "", max_retries: int = 3, sync: bool = True) -> bool:
         sid = self._se_server_id
         if not sid:
             return False
         username = self._login_username
+        requested_connection_id = (connection_id or self._se_connection_id or "").strip()
+        if not requested_connection_id:
+            return False
 
         def do_with_retry() -> bool:
             for attempt in range(1, max_retries + 1):
                 try:
-                    code, resp = self.http.post(f"/api/nodes/{sid}/occupy", {"username": username})
+                    code, resp = self.http.post(f"/api/nodes/{sid}/occupy", {
+                        "username": username,
+                        "connection_id": requested_connection_id,
+                    })
                     if code == 200 and (resp or {}).get("ok"):
+                        self._se_connection_id = requested_connection_id
                         return True
                     err_msg = (resp or {}).get("error", "") or (resp or {}).get("message", "") or f"HTTP {code}"
                     lower_msg = err_msg.lower()
@@ -1723,13 +1724,18 @@ class TradingTerminalQt(QMainWindow):
         sid = self._se_server_id
         if not sid:
             return True
+        connection_id = self._se_connection_id
+        generation = self._se_generation
 
         def do_release() -> bool:
             try:
-                code, _resp = self.http.post(f"/api/nodes/{sid}/release", {})
+                code, _resp = self.http.post(f"/api/nodes/{sid}/release", {
+                    "connection_id": connection_id,
+                })
                 if code == 200:
-                    if clear_server_id:
+                    if clear_server_id and generation == self._se_generation and connection_id == self._se_connection_id:
                         self._se_server_id = ""
+                        self._se_connection_id = ""
                     return True
             except Exception:
                 pass
@@ -1775,9 +1781,10 @@ class TradingTerminalQt(QMainWindow):
                 pass
             self.session.bind_se_client(None)
         if self._se_client:
-            self._se_client.stop()
-            self._se_client = None
             self._se_generation += 1
+            self._se_client.stop(wait=False)
+            self._se_client = None
+        self._se_connection_id = ""
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
         self._last_reconnect_notice_attempt = 0

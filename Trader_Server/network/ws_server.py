@@ -24,6 +24,9 @@ _WS_HEARTBEAT_TIMEOUT = 90
 _FORCE_DISCONNECT_CODE = 4008
 _AUTH_RECHECK_INTERVAL = 15.0
 _TRANSIENT_AUTH_ERRORS = {"verify_failed"}
+_RELEASE_GRACE_SECONDS = 5.0
+_RELEASE_RETRY_DELAYS = (0.0, 1.0, 2.0)
+_pending_release_tasks: dict[str, tuple[str, str, asyncio.Task]] = {}
 
 
 def secrets_token(n: int = 16) -> str:
@@ -62,9 +65,11 @@ def _cleanup_connection_artifacts(conn: dict[str, Any]) -> None:
         broker_gate.start_grace(username, server_id)
         if conn.get('token_type', 'client') == 'client' and conn.get('client_token'):
             try:
-                asyncio.get_running_loop().create_task(
-                    _notify_sm_connection_closed(conn)
+                connection_id = str(conn.get('connection_id') or '')
+                task = asyncio.get_running_loop().create_task(
+                    _release_after_disconnect_grace(conn)
                 )
+                _pending_release_tasks[connection_id] = (username, server_id, task)
             except RuntimeError:
                 pass
 
@@ -78,14 +83,42 @@ def _cleanup_connection_artifacts(conn: dict[str, Any]) -> None:
     broker_gate.clear_expired()
 
 
-async def _notify_sm_connection_closed(conn: dict[str, Any]) -> None:
+def _cancel_pending_releases(username: str, server_id: str) -> None:
+    for connection_id, (pending_user, pending_server, task) in list(_pending_release_tasks.items()):
+        if pending_user == username and pending_server == server_id:
+            if not task.done():
+                task.cancel()
+            _pending_release_tasks.pop(connection_id, None)
+
+
+async def _release_after_disconnect_grace(conn: dict[str, Any]) -> None:
+    connection_id = str(conn.get('connection_id') or '')
+    username = str(conn.get('username') or '')
+    server_id = str(conn.get('server_id') or state.server_id)
+    try:
+        await asyncio.sleep(_RELEASE_GRACE_SECONDS)
+        if _owner_connection_count(username, server_id) > 0:
+            return
+        await _notify_sm_connection_closed(conn)
+    except asyncio.CancelledError:
+        log.debug(
+            'Cancelled pending occupation release after reconnect: node=%s user=%s',
+            server_id,
+            username,
+        )
+    finally:
+        _pending_release_tasks.pop(connection_id, None)
+
+
+async def _notify_sm_connection_closed(conn: dict[str, Any]) -> bool:
     if not state.manager_url or not state.token:
-        return
+        return False
     url = f"{state.manager_url.rstrip('/')}/nodes/release-occupation"
     body = json.dumps({
         'server_id': str(conn.get('server_id') or state.server_id),
         'username': str(conn.get('username') or ''),
         'client_token': str(conn.get('client_token') or ''),
+        'connection_id': str(conn.get('connection_id') or ''),
     }).encode('utf-8')
     req = urllib.request.Request(url, data=body, method='POST')
     req.add_header('Content-Type', 'application/json')
@@ -95,16 +128,34 @@ async def _notify_sm_connection_closed(conn: dict[str, Any]) -> None:
         with urllib.request.urlopen(req, timeout=8) as resp:
             return json.loads(resp.read().decode('utf-8'))
 
-    try:
-        result = await asyncio.to_thread(release_request)
-        if result.get('released'):
-            log.info(
-                'Released SM occupation after WS close: node=%s user=%s',
-                conn.get('server_id', state.server_id),
-                conn.get('username', ''),
+    for attempt, delay in enumerate(_RELEASE_RETRY_DELAYS, start=1):
+        if delay:
+            await asyncio.sleep(delay)
+        if _owner_connection_count(
+            str(conn.get('username') or ''),
+            str(conn.get('server_id') or state.server_id),
+        ) > 0:
+            return False
+        try:
+            result = await asyncio.to_thread(release_request)
+            if result.get('released'):
+                log.info(
+                    'Released SM occupation after WS close: node=%s user=%s connection=%s',
+                    conn.get('server_id', state.server_id),
+                    conn.get('username', ''),
+                    conn.get('connection_id', ''),
+                )
+                return True
+            if result.get('reason') == 'occupation_changed':
+                return False
+        except Exception as exc:
+            log.warning(
+                'Failed to release SM occupation after WS close (%s/%s): %s',
+                attempt,
+                len(_RELEASE_RETRY_DELAYS),
+                exc,
             )
-    except Exception as exc:
-        log.warning('Failed to release SM occupation after WS close: %s', exc)
+    return False
 
 
 async def handle_client_connection(ws: WebSocket):
@@ -134,13 +185,27 @@ async def handle_client_connection(ws: WebSocket):
         trace_id = str(first_payload.get('trace_id') or f"trc_{uuid.uuid4().hex[:16]}")
         client_token = first_payload.get('token', '')
         requested_server_id = str(first_payload.get('server_id') or '').strip()
-        auth_ctx = await _validate_client_token(client_token, requested_server_id)
+        connection_id = str(first_payload.get('connection_id') or '').strip()
+        if len(connection_id) > 128:
+            await _send_error(ws, 'INVALID_CONNECTION_ID', 'connection_id is too long', trace_id=trace_id)
+            await ws.close(code=4001)
+            return
+        auth_ctx = await _validate_client_token(
+            client_token,
+            requested_server_id,
+            connection_id=connection_id,
+        )
 
         if not auth_ctx.get('valid'):
             from ..services.message_log import on_auth
 
             on_auth(session_id, False, auth_ctx.get('reason', 'invalid_token'), trace_id=trace_id)
-            await _send_error(ws, 'TOKEN_INVALID', 'Client token is invalid', trace_id=trace_id)
+            await _send_error(
+                ws,
+                'TOKEN_INVALID',
+                auth_ctx.get('reason', 'Client token is invalid'),
+                trace_id=trace_id,
+            )
             await ws.close(code=4003)
             log.warning("[%s] Auth failed: %s", session_id, auth_ctx.get('reason', 'invalid_token'))
             return
@@ -164,10 +229,12 @@ async def handle_client_connection(ws: WebSocket):
             'username': username,
             'server_id': server_id,
             'client_token': client_token,
+            'connection_id': connection_id or session_id,
             'last_auth_check': time.time(),
             'token_type': auth_ctx.get('token_type', 'client'),
         }
         state.ws_clients.append(ws)
+        _cancel_pending_releases(username, server_id)
         await _replace_existing_node_connections(ws, username, server_id)
         gate_status = broker_gate.restore_gate(username, server_id)
 
@@ -286,6 +353,7 @@ async def _validate_client_token(
     token: str,
     server_id: str = '',
     recheck_username: str = '',
+    connection_id: str = '',
 ) -> dict[str, Any]:
     if not token:
         return {'valid': False, 'reason': 'missing_token'}
@@ -299,6 +367,7 @@ async def _validate_client_token(
         'server_id': (server_id or state.server_id),
         'recheck': bool(recheck_username),
         'username': (recheck_username or ''),
+        'connection_id': (connection_id or ''),
     }).encode('utf-8')
     req = urllib.request.Request(url, data=body, method='POST')
     req.add_header('Content-Type', 'application/json')
@@ -376,6 +445,7 @@ async def _revalidate_connection(ws: WebSocket) -> bool:
         str(meta.get('client_token') or ''),
         str(meta.get('server_id') or state.server_id),
         recheck_username=str(meta.get('username') or ''),
+        connection_id=str(meta.get('connection_id') or ''),
     )
     if result.get('valid') and result.get('allowed', True):
         return True

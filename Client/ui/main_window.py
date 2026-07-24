@@ -286,6 +286,7 @@ class TradingTerminal(tk.Tk):
         self._node_info: dict = {}
         self._se_target_address: str = ""  # 鐧诲綍鍚庡姩鎬佽幏鍙栫殑 SE 鍦板潃
         self._se_server_id: str = ""       # 褰撳墠 SE 瀵瑰簲鐨?server_id锛堢敤浜庡崰鐢?閲婃斁锛?
+        self._se_connection_id: str = ""
         self._last_connected_se: str = ""   # 鏈杩戜竴娆¤繛鎺ョ殑 SE 鍦板潃
         self._login_username: str = ""      # 褰撳墠鐧诲綍鐢ㄦ埛鍚?
         self._login_password: str = ""      # 褰撳墠鐧诲綍瀵嗙爜锛堝彇娑堣繑鍥炴椂鍥炲～锛?
@@ -514,17 +515,6 @@ class TradingTerminal(tk.Tk):
                             node_name = resp_data.get("node_name", "")
                             self._se_target_address = se_address
                             self._se_server_id = resp_data.get("server_id", "")
-                            # 璇婃柇锛氳褰?server_id锛屼究浜庢帓鏌ュ崰鐢ㄦ敞鍐屽け璐?
-                            # 鈿?鍚屾娉ㄥ唽鑺傜偣鍗犵敤锛堥樆濉炵瓑寰呮垚鍔燂紝娑堥櫎绔炴佺獥鍙ｏ級
-                            occ_ok = self._occupy_se_node(sync=True)
-                            if not occ_ok:
-                                # 鍗犵敤澶辫触锛屼笉缁х画杩炴帴锛坃occupy_se_node 鍐呴儴宸茶褰曡缁嗘棩蹇楋級
-                                self.after(0, lambda: self._on_init_failed(
-                                    "se",
-                                    "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
-                                    "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
-                                ))
-                                return
                             self.after(0, lambda: self._update_init_step(
                                 "se", f"SE OK ({node_name})", ACCENT_GREEN))
                             # 鈽?蹇呴』鍦ㄥ悗鍙扮嚎绋嬩腑鎵ц WS 杩炴帴锛堝惈閲嶈瘯锛夛紝
@@ -564,10 +554,22 @@ class TradingTerminal(tk.Tk):
                     ws_url=endpoint, port=DEFAULT_TS_PORT, token=token, server_id=self._se_server_id,
                     on_message_callback=self._on_init_se_msg,
                     on_status_callback=self._on_init_se_status,
+                    on_reconnect_prepare_callback=lambda _attempt, connection_id: self._occupy_se_node(
+                        connection_id=connection_id,
+                        sync=True,
+                    ),
                     reconnect_enabled=False,
                 )
 
                 self._se_client = ts_client
+                if not self._occupy_se_node(connection_id=ts_client.connection_id, sync=True):
+                    self._se_client = None
+                    self.after(0, lambda: self._on_init_failed(
+                        "se",
+                        "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
+                        "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
+                    ))
+                    return
                 ts_client.start()
 
                 # 绛夊緟杩炴帴缁撴灉锛堟渶澶?10 绉掞級
@@ -582,21 +584,7 @@ class TradingTerminal(tk.Tk):
                         break
 
                 if connected:
-                    # 杩炴帴鎴愬姛锛佸仠姝㈡棫瀹㈡埛绔?鍒涘缓鍚敤閲嶈繛鐨勬柊瀹㈡埛绔?
-                    ts_client.stop()
-                    ts_client = TSWebSocketClient(
-                        ws_url=endpoint, port=DEFAULT_TS_PORT, token=token, server_id=self._se_server_id,
-                        on_message_callback=self._on_init_se_msg,
-                        on_status_callback=self._on_init_se_status,
-                        reconnect_enabled=TS_RECONNECT_ENABLED,
-                    )
-                    self._se_client = ts_client
-                    ts_client.start()
-                    # 绛夊緟鏂板鎴风杩炴帴灏辩华
-                    for _ in range(50):
-                        _time.sleep(0.1)
-                        if ts_client.is_connected:
-                            break
+                    ts_client._reconnect_enabled = TS_RECONNECT_ENABLED
                     return
 
                 # 澶辫触娓呯悊
@@ -719,15 +707,6 @@ class TradingTerminal(tk.Tk):
                     node_name = resp_data.get("node_name", "")
                     self._se_target_address = target_addr
                     self._se_server_id = resp_data.get("server_id", "")
-                    # 鈿?鍚屾娉ㄥ唽鑺傜偣鍗犵敤锛堥樆濉炵瓑寰呮垚鍔燂紝娑堥櫎绔炴佺獥鍙ｏ級
-                    occ_ok = self._occupy_se_node(sync=True)
-                    if not occ_ok:
-                        self.after(0, lambda: self._on_init_failed(
-                            "se",
-                            "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
-                            "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
-                        ))
-                        return
                     self.after(0, lambda: self._update_init_step(
                         "se", f"SE OK ({node_name})", ACCENT_GREEN))
                     # 鈽?鍦ㄥ悗鍙扮嚎绋嬫墽琛?WS 杩炴帴锛堝惈閲嶈瘯锛夛紝閬垮厤鍐荤粨 UI
@@ -761,10 +740,22 @@ class TradingTerminal(tk.Tk):
                 ws_url=endpoint, port=DEFAULT_SE_PORT, token=token, server_id=self._se_server_id,
                 on_message_callback=self._on_init_se_msg,
                 on_status_callback=self._on_init_se_status,
+                on_reconnect_prepare_callback=lambda _attempt, connection_id: self._occupy_se_node(
+                    connection_id=connection_id,
+                    sync=True,
+                ),
                 reconnect_enabled=False,
             )
 
             self._se_client = se_client
+            if not self._occupy_se_node(connection_id=se_client.connection_id, sync=True):
+                self._se_client = None
+                self.after(0, lambda: self._on_init_failed(
+                    "se",
+                    "\u5360\u7528\u6ce8\u518c\u5931\u8d25",
+                    "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
+                ))
+                return
             se_client.start()
 
             # 绛夊緟杩炴帴缁撴灉锛堟渶澶?10 绉掞級
@@ -779,21 +770,7 @@ class TradingTerminal(tk.Tk):
                     break
 
             if connected:
-                # 杩炴帴鎴愬姛锛佸仠姝㈡棫瀹㈡埛绔?鍒涘缓鍚敤閲嶈繛鐨勬柊瀹㈡埛绔?
-                se_client.stop()
-                se_client = SEWebSocketClient(
-                    ws_url=endpoint, port=DEFAULT_SE_PORT, token=token, server_id=self._se_server_id,
-                    on_message_callback=self._on_init_se_msg,
-                    on_status_callback=self._on_init_se_status,
-                    reconnect_enabled=SE_RECONNECT_ENABLED,
-                )
-                self._se_client = se_client
-                se_client.start()
-                # 绛夊緟鏂板鎴风杩炴帴灏辩华
-                for _ in range(50):
-                    _time.sleep(0.1)
-                    if se_client.is_connected:
-                        break
+                se_client._reconnect_enabled = SE_RECONNECT_ENABLED
                 return
 
             self._se_client = None
@@ -839,12 +816,15 @@ class TradingTerminal(tk.Tk):
         # 閲嶆柊寮瑰嚭鐧诲綍瀵硅瘽妗?
         self.after(0, self._show_login_first)
 
-    def _occupy_se_node(self, max_retries: int = 3, sync: bool = True):
+    def _occupy_se_node(self, connection_id: str = "", max_retries: int = 3, sync: bool = True):
         """Register node occupation in SM."""
         sid = getattr(self, '_se_server_id', '')
         if not sid:
             return False
         username = self._login_username
+        requested_connection_id = (connection_id or self._se_connection_id or "").strip()
+        if not requested_connection_id:
+            return False
 
         def _do_with_retry():
             last_err = ""
@@ -852,9 +832,13 @@ class TradingTerminal(tk.Tk):
                 try:
                     code, resp = self.http.post(
                         f"/api/nodes/{sid}/occupy",
-                        {"username": username},
+                        {
+                            "username": username,
+                            "connection_id": requested_connection_id,
+                        },
                     )
                     if code == 200 and (resp or {}).get("ok"):
+                        self._se_connection_id = requested_connection_id
                         return True
 
                     err_msg = (resp or {}).get("error", "") or (resp or {}).get("message", "") or f"HTTP {code}"
@@ -884,12 +868,18 @@ class TradingTerminal(tk.Tk):
         sid = getattr(self, '_se_server_id', '')
         if not sid:
             return True
+        connection_id = self._se_connection_id
 
         def _do() -> bool:
             try:
-                code, _resp = self.http.post(f"/api/nodes/{sid}/release", {})
+                code, _resp = self.http.post(
+                    f"/api/nodes/{sid}/release",
+                    {"connection_id": connection_id},
+                )
                 if code == 200:
-                    self._se_server_id = ""
+                    if connection_id == self._se_connection_id:
+                        self._se_server_id = ""
+                        self._se_connection_id = ""
                     return True
                 return False
             except Exception:
@@ -2007,12 +1997,20 @@ class TradingTerminal(tk.Tk):
                 ))
 
                 client = SEWebSocketClient(
-                    ws_url=endpoint, port=DEFAULT_SE_PORT, token=token,
+                    ws_url=endpoint, port=DEFAULT_SE_PORT, token=token, server_id=self._se_server_id,
                     on_message_callback=self._on_se_message,
                     on_status_callback=self._on_se_status,
+                    on_reconnect_prepare_callback=lambda _attempt, connection_id: self._occupy_se_node(
+                        connection_id=connection_id,
+                        sync=True,
+                    ),
                     reconnect_enabled=False,
                 )
                 self._se_client = client
+                if not self._occupy_se_node(connection_id=client.connection_id, sync=True):
+                    self._se_client = None
+                    last_err = "trade server occupation failed"
+                    return
                 client.start()
 
                 connected = False
@@ -2055,13 +2053,6 @@ class TradingTerminal(tk.Tk):
                         return
                     self._se_target_address = target_addr
                     self._se_server_id = resp_data.get("server_id", "")
-                    occ_ok = self._occupy_se_node(sync=True)
-                    if not occ_ok:
-                        self.after(0, lambda: (
-                            self._log_user_error_once("Trade server lock failed; connection aborted"),
-                            self._set_se_connection_ui(False),
-                        ))
-                        return
                     threading.Thread(target=_do_connect_with_retry, daemon=True).start()
                 else:
                     self.after(0, lambda: (
@@ -2114,8 +2105,6 @@ class TradingTerminal(tk.Tk):
                 if self._init_ready and self.log_area:
                     self.log_area.log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
                 self._sync_quote_subscriptions_async()
-                if self._se_server_id:
-                    self._occupy_se_node(sync=False)
                 self._refresh_broker_gate_async(log_errors=False)
                 if self._reconnecting and self._reconnect_dialog:
                     self._hide_reconnect_dialog()
@@ -2289,12 +2278,21 @@ class TradingTerminal(tk.Tk):
 
         # 鍒涘缓鍚敤閲嶈繛鐨?SE 瀹㈡埛绔?
         se_client = SEWebSocketClient(
-            ws_url=endpoint, port=DEFAULT_SE_PORT, token=token,
+            ws_url=endpoint, port=DEFAULT_SE_PORT, token=token, server_id=self._se_server_id,
             on_message_callback=self._on_se_message,
             on_status_callback=self._on_se_status,
+            on_reconnect_prepare_callback=lambda _attempt, connection_id: self._occupy_se_node(
+                connection_id=connection_id,
+                sync=True,
+            ),
             reconnect_enabled=SE_RECONNECT_ENABLED,
         )
         self._se_client = se_client
+        if not self._occupy_se_node(connection_id=se_client.connection_id, sync=True):
+            self._se_client = None
+            self._reconnecting = False
+            self.after(0, lambda: self._log_user_error_once("Trade server lock failed; reconnection aborted"))
+            return
         se_client.start()
 
 

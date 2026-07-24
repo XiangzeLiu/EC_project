@@ -966,6 +966,7 @@ async def release_node_occupation_from_ts(request: Request):
     server_id = str(body.get("server_id") or "").strip()
     username = str(body.get("username") or "").strip()
     client_token = str(body.get("client_token") or "").strip()
+    connection_id = str(body.get("connection_id") or "").strip()
     node_server_id = str(node_info.get("server_id") or "")
     if server_id != node_server_id:
         return {
@@ -973,28 +974,31 @@ async def release_node_occupation_from_ts(request: Request):
             "released": False,
             "error": "node_server_mismatch",
         }
-    if not username or not client_token:
+    if not username or not client_token or not connection_id:
         return {
             "ok": False,
             "released": False,
             "error": "session_identity_required",
         }
 
-    if not node_state.manager.occupation_belongs_to_session(
+    released = node_state.manager.release_session(
         server_id,
         username,
         client_token,
-    ):
-        return {"ok": True, "released": False, "reason": "occupation_changed"}
-
-    released = node_state.manager.release(server_id, check_offline=False)
+        connection_id,
+        check_offline=False,
+    )
     if released:
         log.info(
             "Released Client occupation after TS connection closed: node=%s user=%s",
             server_id,
             username,
         )
-    return {"ok": True, "released": bool(released)}
+    return {
+        "ok": True,
+        "released": bool(released),
+        "reason": "" if released else "occupation_changed",
+    }
 
 
 # ── 节点管理 API（管理员用）───────────────────────────────────────────────
@@ -1413,8 +1417,11 @@ async def occupy_node(request: Request, server_id: str):
 
     body = await request.json() if await request.body() else {}
     username = (body.get("username") or "").strip()
+    connection_id = (body.get("connection_id") or "").strip()
     if not username:
         return {"ok": False, "error": "username_required"}
+    if not connection_id:
+        return {"ok": False, "error": "connection_id_required"}
     if username != token_user:
         return {
             "ok": False,
@@ -1443,7 +1450,12 @@ async def occupy_node(request: Request, server_id: str):
             "message": f"\u8282\u70b9\u5df2\u88ab\u8d26\u6237 '{occ['occupied_by']}' \u5360\u7528",
         }
 
-    ok, err_msg = node_state.manager.occupy(server_id, token_user, token)
+    ok, err_msg = node_state.manager.occupy(
+        server_id,
+        token_user,
+        token,
+        connection_id,
+    )
     if not ok:
         return {"ok": False, "error": err_msg}
     return {"ok": True, "message": f"\u8282\u70b9\u5df2\u88ab '{token_user}' \u5360\u7528"}
@@ -1461,6 +1473,11 @@ async def release_node(request: Request, server_id: str):
     if not token_user:
         return {"ok": False, "error": "Unauthorized"}
 
+    body = await request.json() if await request.body() else {}
+    connection_id = str(body.get("connection_id") or "").strip()
+    if not connection_id:
+        return {"ok": False, "error": "connection_id_required"}
+
     occ = node_state.manager.get_occupation_info(server_id)
     if occ and occ.get("occupied_by") and occ["occupied_by"] != token_user:
         return {
@@ -1469,8 +1486,18 @@ async def release_node(request: Request, server_id: str):
             "message": f"节点当前由 '{occ['occupied_by']}' 占用，不能由 '{token_user}' 释放",
         }
 
-    node_state.manager.release(server_id)
-    return {"ok": True, "message": "\u5df2\u91ca\u653e\u8282\u70b9"}
+    released = node_state.manager.release_session(
+        server_id,
+        token_user,
+        token,
+        connection_id,
+        check_offline=False,
+    )
+    return {
+        "ok": True,
+        "released": bool(released),
+        "message": "\u5df2\u91ca\u653e\u8282\u70b9" if released else "\u8282\u70b9\u5360\u7528\u5df2\u53d8\u66f4",
+    }
 
 
 @app.post("/api/nodes/{server_id}/force-release")
@@ -2164,8 +2191,8 @@ async def _node_expire_cleanup_loop():
             _push_sse_result(req["request_id"], data)
 
 
-# 心跳超时检测间隔（每30秒巡检一次）
-_HEARTBEAT_CHECK_INTERVAL = 30
+# 纯内存巡检，5 秒一次可让 15 秒占用心跳阈值及时生效。
+_HEARTBEAT_CHECK_INTERVAL = 5
 
 
 async def _heartbeat_monitor_loop():
@@ -2186,6 +2213,13 @@ async def _heartbeat_monitor_loop():
             offline_ids = node_state.manager.check_offline_nodes()
             if offline_ids:
                 log.info(f"Heartbeat monitor: {len(offline_ids)} node(s) marked as OFFLINE")
+
+            expired_reservations = node_state.manager.expire_unconfirmed_occupations()
+            if expired_reservations:
+                log.info(
+                    "Heartbeat monitor: %s unconfirmed occupation reservation(s) released",
+                    len(expired_reservations),
+                )
             
             # 2. 对接近超时的占用节点发起主动探活
             probe_targets = node_state.manager.get_nodes_need_probe()
@@ -2252,6 +2286,8 @@ async def startup():
         db_rows = database.get_approved_nodes_for_memory_load()
         loaded = node_state.manager.load_from_db_rows(db_rows)
         log.info(f"[Startup] loaded {loaded} approved nodes into memory state")
+        # Client Token 与 connection_id 都是进程内状态，清除 DB 中的历史占用快照。
+        _sync_node_state_to_db()
         
         # ★ 启动后立即执行一次离线检测
         # 防止 DB 中残留的 online/occupied 状态被错误展示

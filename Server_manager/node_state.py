@@ -2,10 +2,10 @@
 Node Runtime State Manager (内存节点状态管理)
 
 设计原则:
-  - 实时信号（心跳/在线/占用）只存内存，不写 SQLite
+  - 实时信号（心跳/在线/占用）以内存为准
   - 配置数据（server_id/token/node_name 等）留在数据库
   - 启动时从 DB 加载初始状态到内存
-  - 定期将关键状态同步回 DB（用于崩溃恢复）
+  - 定期同步节点状态；Client 占用永不作为重启恢复依据
 
 状态优先级: suspended > offline > occupied > online/approved
 """
@@ -23,6 +23,8 @@ log = logging.getLogger("node_state")
 
 HEARTBEAT_TIMEOUT = 60  # 默认心跳超时秒数（空闲节点）
 OCCUPIED_HEARTBEAT_TIMEOUT = 15  # 占用状态下心跳超时秒数（快速检测掉线）
+OCCUPIED_HEARTBEAT_TRANSITION_TIMEOUT = 30  # 等待 TS 切换到快速心跳的过渡窗口
+OCCUPATION_RESERVATION_TIMEOUT = 30  # Client 占用后等待 WSS 鉴权确认的时间
 PROBE_ADVANCE_SECONDS = 8  # 提前多少秒开始主动探测（在超时前 N 秒）
 
 
@@ -40,6 +42,11 @@ class NodeState:
     occupied_by: str = ""             # 空字符串表示未被占用
     occupied_at: float = 0.0
     _occupied_token_hash: str = ""    # 区分同用户名的不同登录会话
+    _connection_id: str = ""          # 当前物理 WSS 连接标识
+    _connection_confirmed: bool = False
+    _reservation_deadline: float = 0.0
+    _occupied_hb_confirmed: bool = False
+    _occupied_transition_until: float = 0.0
 
     # ── 主动探活字段（SM 巡检时使用）──
     _probing: bool = False            # 是否正在主动探活此节点
@@ -64,13 +71,21 @@ class NodeState:
         if self.last_heartbeat <= 0:
             return False
         # 被占用的节点使用短超时（15秒），空闲节点使用默认超时（60秒）
-        timeout = OCCUPIED_HEARTBEAT_TIMEOUT if self.occupied_by else HEARTBEAT_TIMEOUT
+        timeout = self.heartbeat_timeout
         return (time.time() - self.last_heartbeat) < timeout
 
     @property
     def heartbeat_timeout(self) -> float:
         """返回当前适用的超时阈值"""
-        return OCCUPIED_HEARTBEAT_TIMEOUT if self.occupied_by else HEARTBEAT_TIMEOUT
+        if not self.occupied_by:
+            return HEARTBEAT_TIMEOUT
+        if not self._occupied_hb_confirmed and time.time() < self._occupied_transition_until:
+            # 将超时边界锚定在 occupy 后的 transition_until，而不是旧心跳时间。
+            return max(
+                OCCUPIED_HEARTBEAT_TIMEOUT,
+                self._occupied_transition_until - self.last_heartbeat,
+            )
+        return OCCUPIED_HEARTBEAT_TIMEOUT
 
     @property
     def is_online(self) -> bool:
@@ -83,7 +98,14 @@ class NodeState:
         # 去掉内部字段前缀
         result = {}
         for k, v in d.items():
-            if k == "_occupied_token_hash":
+            if k in {
+                "_occupied_token_hash",
+                "_connection_id",
+                "_connection_confirmed",
+                "_reservation_deadline",
+                "_occupied_hb_confirmed",
+                "_occupied_transition_until",
+            }:
                 continue
             if k.startswith("_"):
                 result[k[1:]] = v  # _node_name → node_name
@@ -147,12 +169,7 @@ class NodeStateManager:
         if db_status in ("online", "offline", "suspended", "approved"):
             state.status = db_status
 
-        # 如果有占用记录且状态是 online，恢复它（但会在巡检时重新判断）
-        occ_by = (config_row.get("occupied_by") or "").strip()
-        if occ_by and db_status not in ("offline",):
-            state.occupied_by = occ_by
-            state.occupied_at = 0.0  # 时间戳不可靠，清零让系统重新判定
-            state._occupied_token_hash = ""
+        # Client Token 只存在于 SM 进程内存，重启后旧占用不能恢复。
 
         # 解析 last_heartbeat
         hb_str = config_row.get("last_heartbeat", "") or ""
@@ -176,11 +193,8 @@ class NodeStateManager:
             hb_age = time.time() - state.last_heartbeat
             safe_threshold = HEARTBEAT_TIMEOUT / 3  # 30 秒安全阈值
             if hb_age > safe_threshold:
-                old_occ = state.occupied_by
                 state.status = "offline"
-                state.occupied_by = ""
-                state.occupied_at = 0.0
-                state._occupied_token_hash = ""
+                old_occ = self._clear_occupation(state)
                 log.info(
                     f"[NodeState] DB load correction: {sid} marked OFFLINE "
                     f"(heartbeat age={hb_age:.0f}s > {safe_threshold:.0f}s threshold, "
@@ -236,6 +250,9 @@ class NodeStateManager:
         state.status = "online"
         state.last_heartbeat = now
         state.current_ip = current_ip
+        if state.occupied_by:
+            state._occupied_hb_confirmed = True
+            state._occupied_transition_until = 0.0
         return True, "ok"
 
     # ── 巡检操作 ───────────────────────────────────────────────────────
@@ -270,10 +287,7 @@ class NodeStateManager:
 
             # 心跳超时 → 标记离线 + 自动释放占用
             state.status = "offline"
-            old_occ = state.occupied_by
-            state.occupied_by = ""
-            state.occupied_at = 0.0
-            state._occupied_token_hash = ""
+            old_occ = self._clear_occupation(state)
             state._probing = False  # 清除探测状态
             offline_ids.append(sid)
 
@@ -392,11 +406,8 @@ class NodeStateManager:
 
                 if result != 0:
                     # TCP 连接失败 → 进程已死，立即标记离线
-                    old_occ = state.occupied_by
                     state.status = "offline"
-                    state.occupied_by = ""
-                    state.occupied_at = 0.0
-                    state._occupied_token_hash = ""
+                    old_occ = self._clear_occupation(state)
                     offline_ids.append(sid)
 
                     elapsed_hb = now - state.last_heartbeat if state.last_heartbeat > 0 else -1
@@ -409,11 +420,8 @@ class NodeStateManager:
                     )
             except Exception as e:
                 # 探活异常也视为不可达
-                old_occ = state.occupied_by
                 state.status = "offline"
-                state.occupied_by = ""
-                state.occupied_at = 0.0
-                state._occupied_token_hash = ""
+                old_occ = self._clear_occupation(state)
                 offline_ids.append(sid)
                 log.info(
                     f"[NodeState] PROBE ERROR (treated as dead): {sid} "
@@ -464,11 +472,25 @@ class NodeStateManager:
         raw = (client_token or "").strip()
         return hashlib.sha256(raw.encode("utf-8")).hexdigest() if raw else ""
 
+    @staticmethod
+    def _clear_occupation(state: NodeState) -> str:
+        previous_owner = state.occupied_by
+        state.occupied_by = ""
+        state.occupied_at = 0.0
+        state._occupied_token_hash = ""
+        state._connection_id = ""
+        state._connection_confirmed = False
+        state._reservation_deadline = 0.0
+        state._occupied_hb_confirmed = False
+        state._occupied_transition_until = 0.0
+        return previous_owner
+
     def occupy(
         self,
         server_id: str,
         username: str,
         client_token: str = "",
+        connection_id: str = "",
     ) -> tuple[bool, str]:
         """
         标记节点被账户占用。
@@ -477,6 +499,9 @@ class NodeStateManager:
         state = self._states.get(server_id)
         if not state:
             return False, f"node '{server_id}' not found"
+        connection_id = (connection_id or "").strip()
+        if not connection_id:
+            return False, "connection_id_required"
 
         # 必须是在线状态才能被占用
         if state.status not in ("online", "approved"):
@@ -488,14 +513,15 @@ class NodeStateManager:
                 f"already occupied by '{state.occupied_by}'"
             )
 
+        now = time.time()
         state.occupied_by = username
-        state.occupied_at = time.time()
+        state.occupied_at = now
         state._occupied_token_hash = self._hash_client_token(client_token)
-        # ★ 关键修复：同步刷新心跳时间戳
-        # occupy 后 is_alive 阈值从 60s(空闲) 切换到 15s(占用)，
-        # 如果不刷新 last_heartbeat，旧时间戳会立即超过 15s 阈值，
-        # 导致 refresh-status 时 check_offline_nodes 误判为离线并自动释放占用
-        state.last_heartbeat = time.time()
+        state._connection_id = connection_id
+        state._connection_confirmed = False
+        state._reservation_deadline = now + OCCUPATION_RESERVATION_TIMEOUT
+        state._occupied_hb_confirmed = False
+        state._occupied_transition_until = now + OCCUPIED_HEARTBEAT_TRANSITION_TIMEOUT
         log.info(f"[NodeState] OCCUPIED: {server_id} by '{username}'")
         return True, "ok"
 
@@ -513,10 +539,7 @@ class NodeStateManager:
         state = self._states.get(server_id)
         if not state:
             return False
-        had = state.occupied_by
-        state.occupied_by = ""
-        state.occupied_at = 0.0
-        state._occupied_token_hash = ""
+        had = self._clear_occupation(state)
 
         # ★ 关键修复：释放占用时检查节点是否真的存活
         # 场景：TS 在占用期间掉线 → Client 取消重连 → 释放占用
@@ -548,32 +571,78 @@ class NodeStateManager:
         server_id: str,
         username: str,
         client_token: str,
+        connection_id: str,
     ) -> bool:
-        """Attach a token fingerprint to an occupation restored from the DB."""
+        """Confirm that the exact reserved Client connection reached TS."""
         state = self._states.get(server_id)
         token_hash = self._hash_client_token(client_token)
-        if not state or state.occupied_by != username or not token_hash:
+        connection_id = (connection_id or "").strip()
+        if (
+            not state
+            or state.occupied_by != username
+            or not token_hash
+            or not connection_id
+            or state._connection_id != connection_id
+        ):
             return False
-        if not state._occupied_token_hash:
-            state._occupied_token_hash = token_hash
-        return hmac.compare_digest(state._occupied_token_hash, token_hash)
+        if not hmac.compare_digest(state._occupied_token_hash, token_hash):
+            return False
+        state._connection_confirmed = True
+        state._reservation_deadline = 0.0
+        return True
 
     def occupation_belongs_to_session(
         self,
         server_id: str,
         username: str,
         client_token: str,
+        connection_id: str,
     ) -> bool:
         state = self._states.get(server_id)
         if not state or state.occupied_by != username:
             return False
         token_hash = self._hash_client_token(client_token)
-        if not token_hash:
+        connection_id = (connection_id or "").strip()
+        if not token_hash or not connection_id or state._connection_id != connection_id:
             return False
-        if not state._occupied_token_hash:
-            # Older/restored occupation snapshots have no session fingerprint.
-            return True
         return hmac.compare_digest(state._occupied_token_hash, token_hash)
+
+    def release_session(
+        self,
+        server_id: str,
+        username: str,
+        client_token: str,
+        connection_id: str,
+        check_offline: bool = False,
+    ) -> bool:
+        if not self.occupation_belongs_to_session(
+            server_id,
+            username,
+            client_token,
+            connection_id,
+        ):
+            return False
+        return self.release(server_id, check_offline=check_offline)
+
+    def expire_unconfirmed_occupations(self) -> list[str]:
+        """Release reservations whose WSS CONNECT never reached SM verification."""
+        now = time.time()
+        expired: list[str] = []
+        for server_id, state in self._states.items():
+            if (
+                state.occupied_by
+                and not state._connection_confirmed
+                and state._reservation_deadline > 0
+                and now >= state._reservation_deadline
+            ):
+                owner = self._clear_occupation(state)
+                expired.append(server_id)
+                log.warning(
+                    "[NodeState] RESERVATION EXPIRED: %s (was '%s')",
+                    server_id,
+                    owner,
+                )
+        return expired
 
     def get_occupation_info(self, server_id: str) -> Optional[dict]:
         """查询占用信息"""
@@ -583,6 +652,7 @@ class NodeStateManager:
         return {
             "occupied_by": state.occupied_by,
             "occupied_at": state.occupied_at,
+            "connection_confirmed": state._connection_confirmed,
         }
 
     # ── 查询接口 ───────────────────────────────────────────────────────
@@ -637,7 +707,7 @@ class NodeStateManager:
     def prepare_db_sync_data(self) -> list[dict]:
         """
         准备需要回写到 DB 的状态快照。
-        返回 [(server_id, status, last_heartbeat, current_ip, occupied_by, occupied_at), ...]
+        Client 占用字段始终写空，避免 SM 重启后恢复无效租约。
         
         由调用方决定何时写入（定期同步或关闭时）。
         """
@@ -650,18 +720,14 @@ class NodeStateManager:
                 hb_iso = datetime.fromtimestamp(
                     state.last_heartbeat, tz=timezone.utc
                 ).isoformat()
-            occ_at_iso = ""
-            if state.occupied_at > 0:
-                occ_at_iso = datetime.fromtimestamp(
-                    state.occupied_at, tz=timezone.utc
-                ).isoformat()
             rows.append({
                 "server_id": state.server_id,
                 "status": state.status,
                 "last_heartbeat": hb_iso,
                 "current_ip": state.current_ip,
-                "occupied_by": state.occupied_by,
-                "occupied_at": occ_at_iso,
+                # Client occupations are volatile and must never be restored after SM restart.
+                "occupied_by": "",
+                "occupied_at": "",
                 "_sync_time": now_iso,
             })
         return rows
