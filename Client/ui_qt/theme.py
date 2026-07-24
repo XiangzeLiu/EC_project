@@ -132,6 +132,13 @@ QPushButton#sellButton {{
     font-weight: 700;
 }}
 
+QPushButton#buyButton:disabled,
+QPushButton#sellButton:disabled {{
+    background: {PANEL_ALT_BG};
+    border: 1px solid {BORDER};
+    color: {TEXT_LOW};
+}}
+
 QPushButton#loginButton {{
     background: {ACCENT_BLUE};
     color: #07121B;

@@ -306,7 +306,7 @@ class TradingSlot:
             return 0.0
 
     def set_trade_enabled(self, enabled: bool) -> None:
-        for widget in (self.symbol, self.order_type, self.tif, self.price, self.buy, self.sell, self.minus, self.plus):
+        for widget in (self.buy, self.sell):
             if widget:
                 widget.setEnabled(enabled)
 
@@ -701,8 +701,8 @@ class TradingTerminalQt(QMainWindow):
 
         slot_row = QHBoxLayout()
         slot_row.setSpacing(20)
-        slot_row.addWidget(self._build_slot(1, "AAPL", "100", "189.50", -10, 10))
-        slot_row.addWidget(self._build_slot(2, "BTCUSD", "1", "68420.0", -1, 1))
+        slot_row.addWidget(self._build_slot(1, "", "100", "", -10, 10))
+        slot_row.addWidget(self._build_slot(2, "", "1", "", -1, 1))
         layout.addLayout(slot_row)
 
         middle = QHBoxLayout()
@@ -1248,15 +1248,13 @@ class TradingTerminalQt(QMainWindow):
         return {"active": False, "status": "not_logged_in", "display": "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55"}
 
     def _trade_controls_enabled(self) -> bool:
-        if self._ui_backdoor_mode:
-            return True
         return bool(self.session and self.session.connected and self._se_connected and getattr(self.session, "broker_gate_active", False))
 
     def _apply_broker_gate_ui(self) -> None:
         if not self._main_ui_built:
             return
         gate = self._broker_gate_state()
-        active = bool(self._ui_backdoor_mode or (gate.get("active") and self.session and self.session.connected and self._se_connected))
+        active = bool(gate.get("active") and self.session and self.session.connected and self._se_connected)
         enabled = self._trade_controls_enabled()
         display = "DEV UI 后门已解锁" if self._ui_backdoor_mode else (gate.get("display") or ("\u4ea4\u6613\u670d\u52a1\u5df2\u767b\u5f55" if active else "\u4ea4\u6613\u670d\u52a1\u672a\u767b\u5f55"))
         if hasattr(self, "account_state"):
@@ -1767,9 +1765,6 @@ class TradingTerminalQt(QMainWindow):
             self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
             self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
         self._apply_broker_gate_ui()
-        if self._ui_backdoor_mode:
-            for slot in self.slots.values():
-                slot.set_trade_enabled(True)
         self._refresh_broker_gate_async(log_errors=False)
         self._sync_quote_subscriptions_async()
 
@@ -1914,7 +1909,7 @@ class TradingTerminalQt(QMainWindow):
         slot = self.slots[pid]
         is_market = slot.order_type.currentText() == "Market" if slot.order_type else False
         if slot.price:
-            slot.price.setEnabled(not is_market and self._trade_controls_enabled())
+            slot.price.setEnabled(not is_market)
             if is_market:
                 slot.price.setText("Market")
             elif slot.price.text() == "Market":

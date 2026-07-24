@@ -672,6 +672,45 @@ class AccessChainTests(unittest.TestCase):
 
 
 class ClientConnectionLifecycleTests(unittest.TestCase):
+    def test_broker_gate_only_disables_order_submission_buttons(self):
+        class FakeWidget:
+            def __init__(self):
+                self.enabled = True
+
+            def setEnabled(self, enabled):
+                self.enabled = enabled
+
+        slot = client_main_window.TradingSlot(1)
+        slot.symbol = FakeWidget()
+        slot.order_type = FakeWidget()
+        slot.tif = FakeWidget()
+        slot.price = FakeWidget()
+        slot.minus = FakeWidget()
+        slot.plus = FakeWidget()
+        slot.buy = FakeWidget()
+        slot.sell = FakeWidget()
+
+        slot.set_trade_enabled(False)
+        self.assertFalse(slot.buy.enabled)
+        self.assertFalse(slot.sell.enabled)
+        for widget in (slot.symbol, slot.order_type, slot.tif, slot.price, slot.minus, slot.plus):
+            self.assertTrue(widget.enabled)
+
+        slot.set_trade_enabled(True)
+        self.assertTrue(slot.buy.enabled)
+        self.assertTrue(slot.sell.enabled)
+
+    def test_dev_ui_backdoor_does_not_bypass_broker_trade_gate(self):
+        fake_window = SimpleNamespace(
+            _ui_backdoor_mode=True,
+            session=SimpleNamespace(connected=True, broker_gate_active=False),
+            _se_connected=False,
+        )
+        self.assertFalse(client_main_window.TradingTerminalQt._trade_controls_enabled(fake_window))
+        fake_window.session.broker_gate_active = True
+        fake_window._se_connected = True
+        self.assertTrue(client_main_window.TradingTerminalQt._trade_controls_enabled(fake_window))
+
     def test_main_connection_flow_creates_one_durable_websocket(self):
         instances = []
         occupied = []
