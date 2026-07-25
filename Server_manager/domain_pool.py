@@ -7,18 +7,23 @@ import logging
 from datetime import datetime, timezone
 
 import database
-from config import (
-    SM_DOMAIN_COOLDOWN_SECONDS,
-    SM_DOMAIN_ROOT,
-    SM_TS_WS_PATH,
-)
+from config import SM_TS_WS_PATH
 from dnspod_client import DNSPodClient, DNSPodError
+from services import dns_config_service
 
 log = logging.getLogger("server_manager.domain_pool")
 
 
 class DomainPoolError(RuntimeError):
     pass
+
+
+class DomainAssignment(dict):
+    """Dict-compatible assignment carrying the private runtime DNS snapshot."""
+
+    def __init__(self, values: dict, dns_config) -> None:
+        super().__init__(values)
+        self.dns_config = dns_config
 
 
 def normalize_public_ipv4(value: str) -> str:
@@ -34,9 +39,10 @@ def normalize_public_ipv4(value: str) -> str:
     return str(ip)
 
 
-def normalize_domain(fqdn: str) -> dict:
+def normalize_domain(fqdn: str, dns_config=None) -> dict:
     domain = (fqdn or "").strip().lower().strip(".")
-    root = SM_DOMAIN_ROOT.strip().lower().strip(".")
+    config = dns_config or dns_config_service.get_runtime_config()
+    root = config.root_domain.strip().lower().strip(".")
     if not domain or len(domain) > 253:
         raise DomainPoolError("invalid domain name")
     if domain == root or not domain.endswith(f".{root}"):
@@ -59,13 +65,14 @@ def normalize_domain(fqdn: str) -> dict:
 
 
 def import_domains(domains: list[str]) -> dict:
+    config = dns_config_service.get_runtime_config()
     entries = []
     errors = []
     seen = set()
     duplicates = 0
     for raw in domains:
         try:
-            entry = normalize_domain(raw)
+            entry = normalize_domain(raw, config)
         except DomainPoolError as exc:
             errors.append({"domain": (raw or "").strip(), "error": str(exc)})
             continue
@@ -85,11 +92,12 @@ def import_domains(domains: list[str]) -> dict:
 
 def allocate_domain(node_name: str, public_ip: str) -> dict:
     normalized_ip = normalize_public_ipv4(public_ip)
-    dns = DNSPodClient()
+    config = dns_config_service.get_runtime_config()
+    dns = DNSPodClient(config)
     try:
         dns.ensure_ready()
     except DNSPodError as exc:
-        raise DomainPoolError(str(exc)) from exc
+        raise DomainPoolError(dns_config_service.redact_error(exc, config)) from exc
 
     reserved = database.reserve_ts_domain(node_name=node_name, public_ip=normalized_ip)
     if not reserved:
@@ -119,16 +127,17 @@ def allocate_domain(node_name: str, public_ip: str) -> dict:
             "dns_status": dns_status,
             "dns_action": dns_result.action,
         })
-        return reserved
+        return DomainAssignment(reserved, config)
     except DomainPoolError:
         raise
     except Exception as exc:
+        error = dns_config_service.redact_error(exc, config)
         if dns.mode == "manual":
-            database.abort_reserved_domain(domain_id, str(exc), reusable=True)
+            database.abort_reserved_domain(domain_id, error, reusable=True)
         else:
-            database.mark_ts_domain_error(domain_id, str(exc))
-        log.exception("DNSPod allocation failed for %s", reserved.get("fqdn"))
-        raise DomainPoolError(f"DNSPod update failed: {exc}") from exc
+            database.mark_ts_domain_error(domain_id, error)
+        log.error("DNSPod allocation failed for %s: %s", reserved.get("fqdn"), error)
+        raise DomainPoolError(f"DNSPod update failed: {error}") from exc
 
 
 def abort_allocation(assignment: dict, reason: str) -> None:
@@ -137,7 +146,10 @@ def abort_allocation(assignment: dict, reason: str) -> None:
     domain_id = int(assignment.get("id") or 0)
     if not domain_id:
         return
-    dns = DNSPodClient()
+    config = getattr(assignment, "dns_config", None)
+    if config is None:
+        config = dns_config_service.get_runtime_config()
+    dns = DNSPodClient(config)
     reusable = False
     try:
         dns.delete_a_record(
@@ -146,7 +158,8 @@ def abort_allocation(assignment: dict, reason: str) -> None:
         )
         reusable = True
     except Exception as exc:
-        reason = f"{reason}; DNS cleanup failed: {exc}"
+        error = dns_config_service.redact_error(exc, config)
+        reason = f"{reason}; DNS cleanup failed: {error}"
     database.abort_reserved_domain(domain_id, reason, reusable=reusable)
 
 
@@ -154,7 +167,8 @@ def release_server_domain(server_id: str) -> dict:
     assigned = database.get_ts_domain_for_server(server_id)
     if not assigned:
         return {"ok": True, "released": False, "message": "node has no assigned domain"}
-    dns = DNSPodClient()
+    config = dns_config_service.get_runtime_config()
+    dns = DNSPodClient(config)
     dns_status = "released"
     error = ""
     action = ""
@@ -169,13 +183,13 @@ def release_server_domain(server_id: str) -> dict:
             "manual": "manual-released",
         }.get(result.mode, "released")
     except Exception as exc:
-        error = str(exc)
+        error = dns_config_service.redact_error(exc, config)
         dns_status = "error"
-        log.exception("DNSPod release failed for %s", assigned.get("fqdn"))
+        log.error("DNSPod release failed for %s: %s", assigned.get("fqdn"), error)
 
     released = database.release_ts_domain_for_server(
         server_id=server_id,
-        cooldown_seconds=SM_DOMAIN_COOLDOWN_SECONDS,
+        cooldown_seconds=config.cooldown_seconds,
         dns_status=dns_status,
         dns_error=error,
     )
@@ -195,7 +209,8 @@ def refresh_domain_dns(domain_id: int) -> dict:
         raise DomainPoolError("domain not found")
     if entry.get("status") not in {"occupied", "error"} or not entry.get("assigned_ip"):
         raise DomainPoolError("only assigned domains can refresh DNS")
-    dns = DNSPodClient()
+    config = dns_config_service.get_runtime_config()
+    dns = DNSPodClient(config)
     try:
         result = dns.upsert_a_record(
             entry["fqdn"],
@@ -203,8 +218,9 @@ def refresh_domain_dns(domain_id: int) -> dict:
             entry.get("dns_record_id", ""),
         )
     except Exception as exc:
-        database.mark_ts_domain_error(domain_id, str(exc))
-        raise DomainPoolError(f"DNSPod refresh failed: {exc}") from exc
+        error = dns_config_service.redact_error(exc, config)
+        database.mark_ts_domain_error(domain_id, error)
+        raise DomainPoolError(f"DNSPod refresh failed: {error}") from exc
     dns_status = {
         "mock": "mock",
         "manual": "manual",
@@ -228,15 +244,17 @@ def release_orphan_domain(domain_id: int) -> dict:
             cooldown_until = datetime.max.replace(tzinfo=timezone.utc)
         if cooldown_until > datetime.now(timezone.utc):
             raise DomainPoolError("domain is still cooling and cannot be reused yet")
-    dns = DNSPodClient()
+    config = dns_config_service.get_runtime_config()
+    dns = DNSPodClient(config)
     try:
         result = dns.delete_a_record(
             entry["fqdn"],
             entry.get("dns_record_id", ""),
         )
     except Exception as exc:
-        database.mark_ts_domain_error(domain_id, str(exc))
-        raise DomainPoolError(f"DNSPod release failed: {exc}") from exc
+        error = dns_config_service.redact_error(exc, config)
+        database.mark_ts_domain_error(domain_id, error)
+        raise DomainPoolError(f"DNSPod release failed: {error}") from exc
     if not database.reset_ts_domain_entry(domain_id):
         raise DomainPoolError("domain state changed before release")
     return {"ok": True, "action": result.action}
@@ -248,16 +266,18 @@ def delete_domain(domain_id: int) -> dict:
         raise DomainPoolError(reserved.get("error") or "domain cannot be deleted")
 
     entry = reserved["entry"]
-    dns = DNSPodClient()
+    config = dns_config_service.get_runtime_config()
+    dns = DNSPodClient(config)
     try:
         result = dns.delete_a_record(
             entry["fqdn"],
             entry.get("dns_record_id", ""),
         )
     except Exception as exc:
-        database.fail_delete_ts_domain(domain_id, str(exc))
-        log.exception("DNS cleanup failed before deleting %s", entry.get("fqdn"))
-        raise DomainPoolError(f"DNS cleanup failed: {exc}") from exc
+        error = dns_config_service.redact_error(exc, config)
+        database.fail_delete_ts_domain(domain_id, error)
+        log.error("DNS cleanup failed before deleting %s: %s", entry.get("fqdn"), error)
+        raise DomainPoolError(f"DNS cleanup failed: {error}") from exc
 
     if not database.complete_delete_ts_domain(domain_id):
         database.mark_ts_domain_error(

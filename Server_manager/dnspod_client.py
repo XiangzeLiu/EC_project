@@ -7,15 +7,6 @@ import json
 import socket
 from dataclasses import dataclass
 
-from config import (
-    SM_DNSPOD_LINE,
-    SM_DNSPOD_MODE,
-    SM_DNSPOD_SECRET_ID,
-    SM_DNSPOD_SECRET_KEY,
-    SM_DNS_TTL,
-    SM_DOMAIN_ROOT,
-)
-
 
 class DNSPodError(RuntimeError):
     pass
@@ -29,13 +20,17 @@ class DNSRecordResult:
 
 
 class DNSPodClient:
-    def __init__(self) -> None:
-        self.mode = SM_DNSPOD_MODE
-        self.root_domain = SM_DOMAIN_ROOT
-        self.secret_id = SM_DNSPOD_SECRET_ID
-        self.secret_key = SM_DNSPOD_SECRET_KEY
-        self.line = SM_DNSPOD_LINE
-        self.ttl = SM_DNS_TTL
+    def __init__(self, config=None) -> None:
+        if config is None:
+            from services.dns_config_service import get_runtime_config
+
+            config = get_runtime_config()
+        self.mode = str(config.mode)
+        self.root_domain = str(config.root_domain)
+        self.secret_id = str(config.secret_id)
+        self.secret_key = str(config.secret_key)
+        self.line = str(config.record_line)
+        self.ttl = int(config.ttl)
         self._client = None
         self._models = None
 
@@ -47,6 +42,185 @@ class DNSPodClient:
         if not self.secret_id or not self.secret_key:
             raise DNSPodError("DNSPod SecretId/SecretKey is not configured")
         self._get_sdk()
+
+    def test_connection(self) -> str:
+        self.ensure_ready()
+        if self.mode == "mock":
+            return "DNSPod mock mode is ready"
+        if self.mode == "manual":
+            return "DNSPod manual mode is ready"
+
+        client, models = self._get_sdk()
+        req = models.DescribeRecordListRequest()
+        req.from_json_string(json.dumps({
+            "Domain": self.root_domain,
+            "Limit": 1,
+        }))
+        try:
+            client.DescribeRecordList(req)
+        except Exception as exc:
+            raise DNSPodError(f"DNSPod connection test failed: {exc}") from exc
+        return f"DNSPod API is reachable for {self.root_domain}"
+
+    def test_permissions(
+        self,
+        test_fqdn: str,
+        initial_value: str = "192.0.2.10",
+        modified_value: str = "192.0.2.11",
+    ) -> dict:
+        """Probe required DNSPod permissions using one temporary A record."""
+        self.ensure_ready()
+        if self.mode != "real":
+            raise DNSPodError("DNSPod permission test requires real mode")
+
+        record_name = self.record_name_for(test_fqdn)
+        client, models = self._get_sdk()
+        steps: list[dict] = []
+        record_id = ""
+        create_attempted = False
+        cleanup_ok = True
+
+        try:
+            try:
+                existing_id = self._find_a_record_id(record_name)
+                if existing_id:
+                    raise DNSPodError("temporary DNS test record already exists")
+                steps.append({
+                    "key": "describe",
+                    "label": "查询权限",
+                    "status": "passed",
+                    "detail": "DescribeRecordList succeeded",
+                })
+            except Exception as exc:
+                steps.append({
+                    "key": "describe",
+                    "label": "查询权限",
+                    "status": "failed",
+                    "detail": str(exc),
+                })
+
+            if steps[-1]["status"] == "passed":
+                try:
+                    create_attempted = True
+                    req = models.CreateRecordRequest()
+                    req.from_json_string(json.dumps({
+                        "Domain": self.root_domain,
+                        "SubDomain": record_name,
+                        "RecordType": "A",
+                        "RecordLine": self.line,
+                        "Value": initial_value,
+                        "TTL": self.ttl,
+                    }))
+                    response = client.CreateRecord(req)
+                    created_id = getattr(response, "RecordId", None)
+                    if created_id is None:
+                        raise DNSPodError("DNSPod create record returned no RecordId")
+                    record_id = str(created_id)
+                    steps.append({
+                        "key": "create",
+                        "label": "创建权限",
+                        "status": "passed",
+                        "detail": "CreateRecord succeeded",
+                    })
+                except Exception as exc:
+                    steps.append({
+                        "key": "create",
+                        "label": "创建权限",
+                        "status": "failed",
+                        "detail": str(exc),
+                    })
+            else:
+                steps.append({
+                    "key": "create",
+                    "label": "创建权限",
+                    "status": "skipped",
+                    "detail": "Skipped because query permission failed",
+                })
+
+            if record_id:
+                try:
+                    req = models.ModifyRecordRequest()
+                    req.from_json_string(json.dumps({
+                        "Domain": self.root_domain,
+                        "RecordId": int(record_id),
+                        "SubDomain": record_name,
+                        "RecordType": "A",
+                        "RecordLine": self.line,
+                        "Value": modified_value,
+                        "TTL": self.ttl,
+                    }))
+                    client.ModifyRecord(req)
+                    steps.append({
+                        "key": "modify",
+                        "label": "修改权限",
+                        "status": "passed",
+                        "detail": "ModifyRecord succeeded",
+                    })
+                except Exception as exc:
+                    steps.append({
+                        "key": "modify",
+                        "label": "修改权限",
+                        "status": "failed",
+                        "detail": str(exc),
+                    })
+            else:
+                steps.append({
+                    "key": "modify",
+                    "label": "修改权限",
+                    "status": "skipped",
+                    "detail": "Skipped because no temporary record was created",
+                })
+        finally:
+            if create_attempted and not record_id:
+                try:
+                    record_id = self._find_a_record_id(record_name)
+                except Exception:
+                    record_id = ""
+            if record_id:
+                try:
+                    req = models.DeleteRecordRequest()
+                    req.from_json_string(json.dumps({
+                        "Domain": self.root_domain,
+                        "RecordId": int(record_id),
+                    }))
+                    client.DeleteRecord(req)
+                    steps.append({
+                        "key": "delete",
+                        "label": "删除权限",
+                        "status": "passed",
+                        "detail": "DeleteRecord succeeded; temporary record was cleaned",
+                    })
+                    record_id = ""
+                except Exception as exc:
+                    cleanup_ok = False
+                    steps.append({
+                        "key": "delete",
+                        "label": "删除权限",
+                        "status": "failed",
+                        "detail": str(exc),
+                    })
+            else:
+                steps.append({
+                    "key": "delete",
+                    "label": "删除权限",
+                    "status": "skipped",
+                    "detail": "Skipped because no temporary record exists",
+                })
+
+        ok = all(step["status"] == "passed" for step in steps)
+        first_error = next(
+            (step["detail"] for step in steps if step["status"] == "failed"),
+            "",
+        )
+        return {
+            "ok": ok,
+            "test_domain": test_fqdn,
+            "steps": steps,
+            "cleanup_ok": cleanup_ok,
+            "residual_record": bool(record_id),
+            "record_id": record_id,
+            "error": first_error,
+        }
 
     def record_name_for(self, fqdn: str) -> str:
         normalized = (fqdn or "").strip().lower().strip(".")

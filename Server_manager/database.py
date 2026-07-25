@@ -22,6 +22,7 @@ DB_SCHEMA_VERSION_V1 = 1
 DB_SCHEMA_VERSION_V2 = 2
 DB_SCHEMA_VERSION_V3 = 3
 DB_SCHEMA_VERSION_V4 = 4
+DB_SCHEMA_VERSION_V5 = 5
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -187,6 +188,27 @@ CREATE INDEX IF NOT EXISTS idx_ts_domain_pool_server
 ON ts_domain_pool(assigned_server_id);
 """
 
+V5_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS dns_provider_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    provider TEXT NOT NULL DEFAULT 'dnspod',
+    mode TEXT NOT NULL DEFAULT 'manual',
+    root_domain TEXT NOT NULL DEFAULT '',
+    domain_suffix TEXT NOT NULL DEFAULT '',
+    secret_id TEXT NOT NULL DEFAULT '',
+    secret_key TEXT NOT NULL DEFAULT '',
+    record_line TEXT NOT NULL DEFAULT '默认',
+    ttl INTEGER NOT NULL DEFAULT 600,
+    cooldown_seconds INTEGER NOT NULL DEFAULT 300,
+    verified INTEGER NOT NULL DEFAULT 0,
+    last_test_at TEXT NOT NULL DEFAULT '',
+    last_test_error TEXT NOT NULL DEFAULT '',
+    config_version INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+"""
+
 V2_INDEXES_SQL = """
 CREATE INDEX IF NOT EXISTS idx_accounts_role_status
 ON accounts(role, status);
@@ -271,6 +293,10 @@ def _ensure_v4_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "node_registration_requests_v2", "assigned_domain", "assigned_domain TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "node_registration_requests_v2", "public_endpoint", "public_endpoint TEXT NOT NULL DEFAULT ''")
     conn.executescript(V4_SCHEMA_SQL)
+
+
+def _ensure_v5_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(V5_SCHEMA_SQL)
 
 
 def _has_v2_schema(conn: sqlite3.Connection) -> bool:
@@ -814,12 +840,21 @@ def migrate_v3_to_v4(conn: sqlite3.Connection) -> dict:
     }
 
 
+def migrate_v4_to_v5(conn: sqlite3.Connection) -> dict:
+    _ensure_v5_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V5)
+    return {
+        "dns_provider_config_created": 1,
+    }
+
+
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
     _ensure_legacy_schema(conn)
     _create_v2_schema(conn)
     _ensure_v3_schema(conn)
     _ensure_v4_schema(conn)
+    _ensure_v5_schema(conn)
     version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
@@ -840,6 +875,12 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
         report = migrate_v3_to_v4(conn)
         report["from_version"] = version
         report["to_version"] = DB_SCHEMA_VERSION_V4
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V4
+    if version < DB_SCHEMA_VERSION_V5:
+        report = migrate_v4_to_v5(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V5
         reports.append(report)
     return reports
 
@@ -2087,6 +2128,116 @@ def get_approved_nodes_for_memory_load() -> list[dict]:
     实时状态以返回数据为准，启动后由心跳覆盖。
     """
     return get_all_nodes()
+
+
+def get_dns_provider_config() -> dict | None:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM dns_provider_config WHERE id = 1"
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def upsert_dns_provider_config(config: dict, updated_by: str = "") -> dict:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute(
+            "SELECT config_version FROM dns_provider_config WHERE id = 1"
+        ).fetchone()
+        next_version = int(current["config_version"] or 0) + 1 if current else 1
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO dns_provider_config (
+                id, provider, mode, root_domain, domain_suffix,
+                secret_id, secret_key, record_line, ttl, cooldown_seconds,
+                verified, last_test_at, last_test_error, config_version,
+                updated_by, updated_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                provider=excluded.provider,
+                mode=excluded.mode,
+                root_domain=excluded.root_domain,
+                domain_suffix=excluded.domain_suffix,
+                secret_id=excluded.secret_id,
+                secret_key=excluded.secret_key,
+                record_line=excluded.record_line,
+                ttl=excluded.ttl,
+                cooldown_seconds=excluded.cooldown_seconds,
+                verified=excluded.verified,
+                last_test_at=excluded.last_test_at,
+                last_test_error=excluded.last_test_error,
+                config_version=excluded.config_version,
+                updated_by=excluded.updated_by,
+                updated_at=excluded.updated_at
+            """,
+            (
+                str(config.get("provider") or "dnspod"),
+                str(config.get("mode") or "manual"),
+                str(config.get("root_domain") or ""),
+                str(config.get("domain_suffix") or ""),
+                str(config.get("secret_id") or ""),
+                str(config.get("secret_key") or ""),
+                str(config.get("record_line") or "默认"),
+                int(config.get("ttl") or 600),
+                int(config.get("cooldown_seconds") or 0),
+                1 if config.get("verified") else 0,
+                str(config.get("last_test_at") or ""),
+                str(config.get("last_test_error") or ""),
+                next_version,
+                (updated_by or "").strip(),
+                now,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM dns_provider_config WHERE id = 1"
+        ).fetchone()
+        conn.commit()
+        return dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_dns_provider_test_result(success: bool, error: str = "") -> dict | None:
+    conn = _get_conn()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            """
+            UPDATE dns_provider_config
+            SET verified=?, last_test_at=?, last_test_error=?, updated_at=?
+            WHERE id=1
+            """,
+            (1 if success else 0, now, (error or "").strip(), now),
+        )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return None
+        row = conn.execute(
+            "SELECT * FROM dns_provider_config WHERE id = 1"
+        ).fetchone()
+        conn.commit()
+        return dict(row) if row else None
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def count_ts_domain_pool_entries() -> int:
+    conn = _get_conn()
+    try:
+        return int(conn.execute("SELECT COUNT(*) FROM ts_domain_pool").fetchone()[0])
+    finally:
+        conn.close()
 
 
 def _refresh_expired_domain_cooldowns(conn: sqlite3.Connection, now_iso: str) -> int:

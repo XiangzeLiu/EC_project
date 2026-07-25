@@ -56,7 +56,7 @@ from config import (
     quote_clients, subscribed_syms, log, read_recent_error_lines, read_error_log_text, LOG_FILE, ERROR_LOG_FILE,
     SM_ENABLE_LEGACY_QUOTES,
     SM_ALLOWED_HOSTS, SM_COOKIE_SAMESITE, SM_COOKIE_SECURE, SM_CORS_ORIGINS,
-    SM_DNSPOD_MODE, SM_DOMAIN_POOL_REQUIRED, SM_PUBLIC_BASE_URL, SM_TS_DOMAIN_SUFFIX,
+    SM_DOMAIN_POOL_REQUIRED, SM_PUBLIC_BASE_URL,
     SM_CADDY_REQUIRED,
 )
 
@@ -67,6 +67,7 @@ from address_utils import address_candidates, endpoint_matches_node, ts_api_url
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
+from services import dns_config_service
 
 
 
@@ -315,6 +316,7 @@ async def admin_dashboard(request: Request):
     ib_status = "\u5DF2\u8FDE\u63A5" if ib_connected else ("未启用" if not SM_ENABLE_LEGACY_QUOTES else "\u672A\u8FDE\u63A5")
     ib_color = "green" if ib_connected else "orange"
     active_count = len(quote_clients)
+    dns_config = dns_config_service.public_config()
 
     return templates.TemplateResponse(request, "dashboard.html", {
         "admin_username": admin_username,
@@ -326,7 +328,7 @@ async def admin_dashboard(request: Request):
         "ib_color": ib_color,
         "active_clients": str(active_count),
         "public_base_url": SM_PUBLIC_BASE_URL,
-        "ts_domain_suffix": SM_TS_DOMAIN_SUFFIX,
+        "ts_domain_suffix": dns_config["domain_suffix"],
     })
 
 
@@ -1027,12 +1029,146 @@ async def list_domain_pool(request: Request, page: int = 1, status: str = ""):
     if not _is_admin_logged_in(request):
         return {"ok": False, "error": "Unauthorized"}
     data = database.list_ts_domain_pool(page=page, page_size=20, status=status)
+    dns_config = dns_config_service.public_config()
     return {
         "ok": True,
         "data": data,
-        "dns_mode": SM_DNSPOD_MODE,
-        "domain_suffix": SM_TS_DOMAIN_SUFFIX,
+        "dns_mode": dns_config["mode"],
+        "domain_suffix": dns_config["domain_suffix"],
+        "dns_config_status": {
+            "verified": dns_config["verified"],
+            "last_test_at": dns_config["last_test_at"],
+            "last_test_error": dns_config["last_test_error"],
+        },
     }
+
+
+@app.get("/api/domain-pool/dns-config")
+async def get_domain_dns_config(request: Request):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    if not _is_super_admin(request):
+        return {"ok": False, "error": "仅超级管理员可操作"}
+    return {"ok": True, "data": dns_config_service.public_config()}
+
+
+@app.put("/api/domain-pool/dns-config")
+async def update_domain_dns_config(request: Request):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    if not _is_super_admin(request):
+        return {"ok": False, "error": "仅超级管理员可操作"}
+    try:
+        raw_body = await request.body()
+        if len(raw_body) > 65536:
+            return {"ok": False, "error": "配置内容过大"}
+        body = await request.json() if raw_body else {}
+        session = _get_admin_session(request) or {}
+        config = dns_config_service.save_config(
+            body,
+            updated_by=session.get("username") or "super_admin",
+        )
+    except dns_config_service.DNSConfigError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        log.error("DNSPod config update failed: %s", dns_config_service.redact_error(exc))
+        return {"ok": False, "error": "DNSPod 配置保存失败"}
+    view = dns_config_service.public_config(config)
+    _record_admin_event(
+        request,
+        "UPDATE_DNSPOD_CONFIG",
+        "domain_pool",
+        f"更新 DNSPod 配置：mode={view['mode']}，root={view['root_domain']}，version={view['config_version']}",
+    )
+    return {"ok": True, "data": view, "message": "DNSPod 配置已保存"}
+
+
+@app.post("/api/domain-pool/dns-config/import")
+async def import_domain_dns_config(request: Request):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    if not _is_super_admin(request):
+        return {"ok": False, "error": "仅超级管理员可操作"}
+    try:
+        raw_body = await request.body()
+        if len(raw_body) > 65536:
+            return {"ok": False, "error": "导入内容过大"}
+        body = await request.json() if raw_body else {}
+        content = body.get("content", body) if isinstance(body, dict) else body
+        session = _get_admin_session(request) or {}
+        config = dns_config_service.import_config(
+            content,
+            updated_by=session.get("username") or "super_admin",
+        )
+    except dns_config_service.DNSConfigError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        log.error("DNSPod config import failed: %s", dns_config_service.redact_error(exc))
+        return {"ok": False, "error": "DNSPod 配置导入失败"}
+    view = dns_config_service.public_config(config)
+    _record_admin_event(
+        request,
+        "IMPORT_DNSPOD_CONFIG",
+        "domain_pool",
+        f"导入 DNSPod 配置：mode={view['mode']}，root={view['root_domain']}，version={view['config_version']}",
+    )
+    return {"ok": True, "data": view, "message": "DNSPod 配置已导入"}
+
+
+@app.post("/api/domain-pool/dns-config/test")
+async def test_domain_dns_config(request: Request):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    if not _is_super_admin(request):
+        return {"ok": False, "error": "仅超级管理员可操作"}
+    result = await asyncio.get_event_loop().run_in_executor(
+        None,
+        dns_config_service.test_saved_config,
+    )
+    _record_admin_event(
+        request,
+        "TEST_DNSPOD_CONFIG",
+        "domain_pool",
+        "DNSPod 连接测试成功" if result.get("ok") else "DNSPod 连接测试失败",
+    )
+    return result
+
+
+@app.post("/api/domain-pool/dns-config/test-candidate")
+async def test_candidate_domain_dns_config(request: Request):
+    """Test unsaved DNSPod form values with a temporary DNS record."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    if not _is_super_admin(request):
+        return {"ok": False, "error": "仅超级管理员可操作"}
+    try:
+        raw_body = await request.body()
+        if len(raw_body) > 65536:
+            return {"ok": False, "error": "配置内容过大"}
+        body = await request.json() if raw_body else {}
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: dns_config_service.test_candidate_permissions(body),
+        )
+    except dns_config_service.DNSConfigError as exc:
+        return {"ok": False, "error": str(exc), "persisted": False}
+    except Exception as exc:
+        log.error(
+            "DNSPod candidate permission test failed: %s",
+            dns_config_service.redact_error(exc),
+        )
+        return {"ok": False, "error": "DNSPod 候选配置测试失败", "persisted": False}
+
+    domain = result.get("test_domain", "")
+    detail = (
+        f"DNSPod 候选权限测试成功：{domain}"
+        if result.get("ok")
+        else f"DNSPod 候选权限测试失败：{domain}"
+    )
+    if result.get("residual_record"):
+        detail += "，存在未清理临时记录"
+    _record_admin_event(request, "TEST_DNSPOD_CANDIDATE", "domain_pool", detail)
+    return result
 
 
 @app.get("/api/domain-pool/options")
