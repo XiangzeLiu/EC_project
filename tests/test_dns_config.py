@@ -13,14 +13,13 @@ sys.path.insert(0, str(ROOT / "Server_manager"))
 sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("SM_DNSPOD_MODE", "mock")
-os.environ.setdefault("SM_DOMAIN_ROOT", "scjrdomain.com")
-os.environ.setdefault("SM_TS_DOMAIN_SUFFIX", "ts.scjrdomain.com")
 os.environ.setdefault("SM_LOG_LEVEL", "CRITICAL")
 
 import database
 import domain_pool
 from dnspod_client import DNSPodClient
 from services import dns_config_service
+from services.dns_config_service import DNSRuntimeConfig
 
 
 class _FakeDNSRequest:
@@ -75,11 +74,15 @@ class DNSConfigTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _permission_client(self, fail_on=""):
-        config = dns_config_service.save_config({
-            "mode": "real",
-            "secret_id": "AKID-permission",
-            "secret_key": "permission-key",
-        })
+        config = DNSRuntimeConfig(
+            mode="real",
+            root_domain="scjrdomain.com",
+            secret_id="AKID-permission",
+            secret_key="permission-key",
+            record_line="默认",
+            ttl=600,
+            cooldown_seconds=1800,
+        )
         client = DNSPodClient(config)
         fake = _FakeDNSClient(fail_on=fail_on)
         client._client = fake
@@ -88,7 +91,6 @@ class DNSConfigTests(unittest.TestCase):
 
     def test_schema_v5_and_environment_bootstrap(self):
         config = dns_config_service.get_runtime_config()
-        self.assertEqual(config.provider, "dnspod")
         self.assertEqual(config.mode, "mock")
         self.assertEqual(config.root_domain, "scjrdomain.com")
         conn = database._get_conn()
@@ -128,61 +130,50 @@ class DNSConfigTests(unittest.TestCase):
 
     def test_save_masks_and_preserves_secret_key(self):
         saved = dns_config_service.save_config({
-            "mode": "real",
             "secret_id": "AKID1234567890",
             "secret_key": "top-secret-key",
-            "record_line": "默认",
-            "ttl": 600,
         }, updated_by="root")
         self.assertEqual(saved.secret_key, "top-secret-key")
 
         updated = dns_config_service.save_config({
-            "mode": "real",
             "secret_id": "",
             "secret_key": "",
-            "ttl": 900,
         }, updated_by="root")
         self.assertEqual(updated.secret_id, "AKID1234567890")
         self.assertEqual(updated.secret_key, "top-secret-key")
-        self.assertEqual(updated.ttl, 900)
+        self.assertEqual(updated.ttl, 600)
+        self.assertEqual(updated.cooldown_seconds, 1800)
 
         public = dns_config_service.public_config(updated)
         self.assertNotIn("secret_key", public)
         self.assertTrue(public["secret_key_configured"])
         self.assertNotEqual(public["secret_id_masked"], updated.secret_id)
 
-    def test_explicit_clear_and_real_mode_validation(self):
+    def test_clear_is_disabled_and_credentials_are_replaced_as_a_pair(self):
         dns_config_service.save_config({
-            "mode": "real",
             "secret_id": "AKID1234567890",
             "secret_key": "top-secret-key",
         })
-        cleared = dns_config_service.save_config({
-            "mode": "manual",
-            "clear_secret": True,
-        })
-        self.assertEqual(cleared.secret_id, "")
-        self.assertEqual(cleared.secret_key, "")
         with self.assertRaises(dns_config_service.DNSConfigError):
-            dns_config_service.save_config({"mode": "real"})
+            dns_config_service.save_config({"clear_secret": True})
+        with self.assertRaises(dns_config_service.DNSConfigError):
+            dns_config_service.save_config({"secret_id": "only-id"})
 
-    def test_import_supports_json_and_key_value_text(self):
-        imported = dns_config_service.import_config(
+    def test_import_parser_supports_json_and_key_value_text(self):
+        imported = dns_config_service.parse_import_payload(
             '{"SecretId":"AKID-json","SecretKey":"json-key","Mode":"real","TTL":1200}'
         )
-        self.assertEqual(imported.secret_id, "AKID-json")
-        self.assertEqual(imported.secret_key, "json-key")
-        self.assertEqual(imported.ttl, 1200)
+        self.assertEqual(imported["secret_id"], "AKID-json")
+        self.assertEqual(imported["secret_key"], "json-key")
 
-        updated = dns_config_service.import_config(
+        updated = dns_config_service.parse_import_payload(
             "SM_DNSPOD_MODE=real\nSM_DNSPOD_SECRET_ID=AKID-kv\n"
             "SM_DNSPOD_SECRET_KEY=kv-key\nSM_DNS_TTL=1800"
         )
-        self.assertEqual(updated.secret_id, "AKID-kv")
-        self.assertEqual(updated.secret_key, "kv-key")
-        self.assertEqual(updated.ttl, 1800)
+        self.assertEqual(updated["secret_id"], "AKID-kv")
+        self.assertEqual(updated["secret_key"], "kv-key")
 
-        nested = dns_config_service.import_config({
+        nested = dns_config_service.parse_import_payload({
             "mode": "real",
             "ttl": 2400,
             "credentials": {
@@ -190,33 +181,37 @@ class DNSConfigTests(unittest.TestCase):
                 "SecretKey": "nested-key",
             },
         })
-        self.assertEqual(nested.mode, "real")
-        self.assertEqual(nested.secret_id, "AKID-nested")
-        self.assertEqual(nested.ttl, 2400)
+        self.assertEqual(nested["secret_id"], "AKID-nested")
+        self.assertEqual(nested["secret_key"], "nested-key")
 
-    def test_root_change_is_blocked_when_pool_is_not_empty(self):
+    def test_root_and_dns_parameters_are_fixed(self):
         database.import_ts_domain_pool([{
             "fqdn": "www.ts01.scjrdomain.com",
             "root_domain": "scjrdomain.com",
             "record_name": "www.ts01",
             "public_endpoint": "wss://www.ts01.scjrdomain.com/ws",
         }])
-        with self.assertRaises(dns_config_service.DNSConfigError):
-            dns_config_service.save_config({
-                "root_domain": "example.com",
-                "domain_suffix": "ts.example.com",
-            })
+        config = dns_config_service.save_config({
+            "root_domain": "example.com",
+            "domain_suffix": "ts.example.com",
+            "record_line": "境外",
+            "ttl": 1200,
+            "cooldown_seconds": 60,
+        })
+        self.assertEqual(config.root_domain, "scjrdomain.com")
+        self.assertEqual(config.record_line, "默认")
+        self.assertEqual(config.ttl, 600)
+        self.assertEqual(config.cooldown_seconds, 1800)
 
     def test_runtime_changes_apply_without_restart(self):
         dns_config_service.save_config({
-            "mode": "manual",
             "record_line": "境外",
             "ttl": 1800,
         })
         client = DNSPodClient()
-        self.assertEqual(client.mode, "manual")
-        self.assertEqual(client.line, "境外")
-        self.assertEqual(client.ttl, 1800)
+        self.assertEqual(client.mode, "mock")
+        self.assertEqual(client.line, "默认")
+        self.assertEqual(client.ttl, 600)
 
     def test_allocation_cleanup_uses_original_config_snapshot(self):
         database.import_ts_domain_pool([{
@@ -336,14 +331,12 @@ class DNSConfigTests(unittest.TestCase):
                 "error": "",
             }
 
-        with patch.object(DNSPodClient, "test_permissions", new=fake_test):
-            result = dns_config_service.test_candidate_permissions({
-                "mode": "real",
-                "secret_id": "AKID-unsaved",
-                "secret_key": "unsaved-key",
-                "root_domain": "scjrdomain.com",
-                "domain_suffix": "ts.scjrdomain.com",
-            })
+        with patch.object(dns_config_service, "SM_DNSPOD_MODE", "real"):
+            with patch.object(DNSPodClient, "test_permissions", new=fake_test):
+                result = dns_config_service.test_candidate_permissions({
+                    "secret_id": "AKID-unsaved",
+                    "secret_key": "unsaved-key",
+                })
 
         after = database.get_dns_provider_config()
         self.assertTrue(result["ok"])
@@ -371,12 +364,12 @@ class DNSConfigTests(unittest.TestCase):
                 "error": "candidate-key denied",
             }
 
-        with patch.object(DNSPodClient, "test_permissions", new=fake_test):
-            result = dns_config_service.test_candidate_permissions({
-                "mode": "real",
-                "secret_id": "AKID-candidate",
-                "secret_key": "candidate-key",
-            })
+        with patch.object(dns_config_service, "SM_DNSPOD_MODE", "real"):
+            with patch.object(DNSPodClient, "test_permissions", new=fake_test):
+                result = dns_config_service.test_candidate_permissions({
+                    "secret_id": "AKID-candidate",
+                    "secret_key": "candidate-key",
+                })
 
         payload = json.dumps(result, ensure_ascii=False)
         self.assertNotIn("AKID-candidate", payload)

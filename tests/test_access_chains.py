@@ -1124,44 +1124,40 @@ class AdminManagementTests(unittest.TestCase):
         dashboard = self.client.get("/admin/dashboard")
         self.assertIn("dns-config-panel", dashboard.text)
         self.assertIn("showDnsConfigImport", dashboard.text)
+        self.assertIn("parseDnsCredentialImport", dashboard.text)
         self.assertIn("/api/domain-pool/dns-config/test-candidate", dashboard.text)
+        self.assertNotIn("/api/domain-pool/dns-config/import", dashboard.text)
         self.assertNotIn("if(!await saveDnsConfig(null,true))", dashboard.text)
+        for removed_id in (
+            "dns-mode", "dns-record-line", "dns-root-domain",
+            "dns-domain-suffix", "dns-ttl", "dns-cooldown",
+            "dns-clear-secret",
+        ):
+            self.assertNotIn(f'id="{removed_id}"', dashboard.text)
 
         saved = self.client.put("/api/domain-pool/dns-config", json={
-            "mode": "real",
             "secret_id": "AKID-api-secret",
             "secret_key": "api-secret-key",
-            "root_domain": "scjrdomain.com",
-            "domain_suffix": "ts.scjrdomain.com",
-            "record_line": "默认",
-            "ttl": 600,
-            "cooldown_seconds": 300,
         }).json()
         self.assertTrue(saved["ok"], saved)
         self.assertNotIn("secret_key", saved["data"])
+        self.assertNotIn("root_domain", saved["data"])
+        self.assertNotIn("domain_suffix", saved["data"])
+        self.assertNotIn("ttl", saved["data"])
         self.assertNotEqual(saved["data"]["secret_id_masked"], "AKID-api-secret")
 
         preserved = self.client.put("/api/domain-pool/dns-config", json={
-            "mode": "real",
             "secret_id": "",
             "secret_key": "",
-            "ttl": 900,
         }).json()
         self.assertTrue(preserved["ok"], preserved)
         stored = database.get_dns_provider_config()
         self.assertEqual(stored["secret_id"], "AKID-api-secret")
         self.assertEqual(stored["secret_key"], "api-secret-key")
-        self.assertEqual(stored["ttl"], 900)
+        self.assertEqual(stored["ttl"], 600)
+        self.assertEqual(stored["cooldown_seconds"], 1800)
+        self.assertEqual(stored["domain_suffix"], "")
 
-        imported = self.client.post(
-            "/api/domain-pool/dns-config/import",
-            json={
-                "content": "SM_DNSPOD_MODE=mock\n"
-                "SM_DNSPOD_SECRET_ID=AKID-imported\n"
-                "SM_DNSPOD_SECRET_KEY=imported-secret-key"
-            },
-        ).json()
-        self.assertTrue(imported["ok"], imported)
         tested = self.client.post("/api/domain-pool/dns-config/test").json()
         self.assertTrue(tested["ok"], tested)
         self.assertTrue(tested["config"]["verified"])
@@ -1175,7 +1171,6 @@ class AdminManagementTests(unittest.TestCase):
             ensure_ascii=False,
         )
         self.assertNotIn("api-secret-key", audit_text)
-        self.assertNotIn("imported-secret-key", audit_text)
 
     def test_candidate_permission_api_does_not_save_and_does_not_block_save(self):
         login = self.client.post(
@@ -1210,11 +1205,8 @@ class AdminManagementTests(unittest.TestCase):
             tested = self.client.post(
                 "/api/domain-pool/dns-config/test-candidate",
                 json={
-                    "mode": "real",
                     "secret_id": "AKID-candidate-api",
                     "secret_key": "candidate-api-key",
-                    "root_domain": "scjrdomain.com",
-                    "domain_suffix": "ts.scjrdomain.com",
                 },
             ).json()
         self.assertFalse(tested["ok"])
@@ -1223,7 +1215,6 @@ class AdminManagementTests(unittest.TestCase):
         self.assertNotIn("candidate-api-key", json.dumps(tested, ensure_ascii=False))
 
         saved = self.client.put("/api/domain-pool/dns-config", json={
-            "mode": "real",
             "secret_id": "AKID-after-test",
             "secret_key": "after-test-key",
         }).json()
@@ -1250,20 +1241,14 @@ class AdminManagementTests(unittest.TestCase):
         self.assertFalse(read["ok"])
         update = self.client.put(
             "/api/domain-pool/dns-config",
-            json={"mode": "disabled"},
+            json={"secret_id": "x", "secret_key": "y"},
         ).json()
         self.assertFalse(update["ok"])
-        imported = self.client.post(
-            "/api/domain-pool/dns-config/import",
-            json={"content": "secret_id=x\nsecret_key=y"},
-        ).json()
-        self.assertFalse(imported["ok"])
         tested = self.client.post("/api/domain-pool/dns-config/test").json()
         self.assertFalse(tested["ok"])
         candidate = self.client.post(
             "/api/domain-pool/dns-config/test-candidate",
             json={
-                "mode": "real",
                 "secret_id": "x",
                 "secret_key": "y",
             },

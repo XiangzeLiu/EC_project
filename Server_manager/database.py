@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS dns_provider_config (
     secret_key TEXT NOT NULL DEFAULT '',
     record_line TEXT NOT NULL DEFAULT '默认',
     ttl INTEGER NOT NULL DEFAULT 600,
-    cooldown_seconds INTEGER NOT NULL DEFAULT 300,
+    cooldown_seconds INTEGER NOT NULL DEFAULT 1800,
     verified INTEGER NOT NULL DEFAULT 0,
     last_test_at TEXT NOT NULL DEFAULT '',
     last_test_error TEXT NOT NULL DEFAULT '',

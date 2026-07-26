@@ -362,14 +362,12 @@
     .dns-config-panel { padding:16px 24px; border-bottom:1px solid #eef0f6; background:#fafbfe; }
     .dns-config-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
     .dns-config-title { display:flex; align-items:center; gap:8px; color:#3f475f; font-size:13px; font-weight:600; }
-    .dns-config-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:10px; }
+    .dns-config-grid { display:grid; grid-template-columns:repeat(2,minmax(180px,1fr)); gap:10px; }
     .dns-config-field { min-width:0; }
     .dns-config-field label { display:block; margin-bottom:5px; color:#7a849e; font-size:11px; }
     .dns-config-field .inp, .dns-config-field .sel { width:100%; min-width:0; }
-    .dns-config-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
+    .dns-config-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:12px; }
     .dns-config-buttons { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .dns-clear-wrap { display:flex; align-items:center; gap:6px; color:#7a849e; font-size:12px; }
-    .dns-clear-wrap input { accent-color:#dc2626; }
     .dns-test-result { margin-top:12px; padding-top:12px; border-top:1px solid #e7eaf2; }
     .dns-test-summary { display:flex; align-items:center; gap:8px; color:#5b6480; font-size:12px; }
     .dns-test-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:9px; }
@@ -860,21 +858,14 @@
           {% if is_super_admin %}
           <div class="dns-config-panel" id="dns-config-panel">
             <div class="dns-config-head">
-              <div class="dns-config-title"><i class="ri-key-2-line"></i><span>DNSPod 配置</span></div>
+              <div class="dns-config-title"><i class="ri-key-2-line"></i><span>DNSPod 认证</span></div>
               <span id="dns-config-status" class="domain-tag domain-deleting">未加载</span>
             </div>
             <div class="dns-config-grid">
-              <div class="dns-config-field"><label for="dns-mode">模式</label><select class="sel" id="dns-mode"><option value="real">REAL</option><option value="manual">MANUAL</option><option value="disabled">DISABLED</option><option value="mock">MOCK</option></select></div>
               <div class="dns-config-field"><label for="dns-secret-id">SecretId</label><input class="inp" id="dns-secret-id" autocomplete="off" /></div>
               <div class="dns-config-field"><label for="dns-secret-key">SecretKey</label><input class="inp" id="dns-secret-key" type="password" autocomplete="new-password" /></div>
-              <div class="dns-config-field"><label for="dns-record-line">解析线路</label><input class="inp" id="dns-record-line" autocomplete="off" /></div>
-              <div class="dns-config-field"><label for="dns-root-domain">根域名</label><input class="inp" id="dns-root-domain" autocomplete="off" /></div>
-              <div class="dns-config-field"><label for="dns-domain-suffix">TS 域名后缀</label><input class="inp" id="dns-domain-suffix" autocomplete="off" /></div>
-              <div class="dns-config-field"><label for="dns-ttl">TTL</label><input class="inp" id="dns-ttl" type="number" min="1" max="604800" step="1" /></div>
-              <div class="dns-config-field"><label for="dns-cooldown">冷却时间（秒）</label><input class="inp" id="dns-cooldown" type="number" min="0" max="604800" step="1" /></div>
             </div>
             <div class="dns-config-actions">
-              <label class="dns-clear-wrap"><input type="checkbox" id="dns-clear-secret" />清空认证信息</label>
               <div class="dns-config-buttons">
                 <button class="btn-xs" onclick="showDnsConfigImport()"><i class="ri-import-line"></i> 导入认证</button>
                 <button class="btn-xs btn-pri" onclick="testDnsConfig(this)"><i class="ri-pulse-line"></i> 测试权限</button>
@@ -1666,23 +1657,13 @@ function copyToken(tok,el){
 function renderDnsConfig(cfg){
   if(!cfg||CURRENT_ADMIN_ROLE!=='super_admin')return;
   _dnsConfig=cfg;
-  document.getElementById('dns-mode').value=cfg.mode||'manual';
   var sid=document.getElementById('dns-secret-id'),skey=document.getElementById('dns-secret-key');
   sid.value='';sid.placeholder=cfg.secret_id_configured?(cfg.secret_id_masked||'已配置，留空不修改'):'请输入 SecretId';
   skey.value='';skey.placeholder=cfg.secret_key_configured?'已配置，留空不修改':'请输入 SecretKey';
-  document.getElementById('dns-record-line').value=cfg.record_line||'默认';
-  document.getElementById('dns-root-domain').value=cfg.root_domain||'';
-  document.getElementById('dns-domain-suffix').value=cfg.domain_suffix||'';
-  document.getElementById('dns-ttl').value=cfg.ttl||600;
-  document.getElementById('dns-cooldown').value=cfg.cooldown_seconds||0;
-  document.getElementById('dns-clear-secret').checked=false;
-  var root=document.getElementById('dns-root-domain'),suffix=document.getElementById('dns-domain-suffix');
-  root.disabled=!cfg.root_editable;suffix.disabled=!cfg.root_editable;
-  root.title=cfg.root_editable?'':'域名池非空时不可修改';suffix.title=root.title;
   var status=document.getElementById('dns-config-status');
-  if(cfg.verified){status.textContent='已验证';status.className='domain-tag domain-available';}
-  else if(cfg.last_test_error){status.textContent='验证失败';status.className='domain-tag domain-error';status.title=cfg.last_test_error;}
-  else{status.textContent='未验证';status.className='domain-tag domain-deleting';status.title='';}
+  if(cfg.secret_id_configured&&cfg.secret_key_configured){status.textContent='已配置';status.className='domain-tag domain-available';}
+  else{status.textContent='未配置';status.className='domain-tag domain-deleting';}
+  status.title='';
 }
 function clearDnsTestResult(){
   var el=document.getElementById('dns-test-result');
@@ -1719,23 +1700,17 @@ async function refreshDnsConfig(){
 }
 function collectDnsConfig(){
   return {
-    mode:(document.getElementById('dns-mode').value||'manual').trim(),
     secret_id:document.getElementById('dns-secret-id').value.trim(),
-    secret_key:document.getElementById('dns-secret-key').value.trim(),
-    record_line:document.getElementById('dns-record-line').value.trim(),
-    root_domain:document.getElementById('dns-root-domain').value.trim(),
-    domain_suffix:document.getElementById('dns-domain-suffix').value.trim(),
-    ttl:parseInt(document.getElementById('dns-ttl').value||'600',10),
-    cooldown_seconds:parseInt(document.getElementById('dns-cooldown').value||'0',10),
-    clear_secret:document.getElementById('dns-clear-secret').checked
+    secret_key:document.getElementById('dns-secret-key').value.trim()
   };
+}
+function validateDnsCredentialPair(payload){
+  if(!!payload.secret_id!==!!payload.secret_key){toast('SecretId 和 SecretKey 必须同时填写','warn');return false;}
+  return true;
 }
 async function saveDnsConfig(btn,silent){
   var payload=collectDnsConfig();
-  if(payload.clear_secret){
-    var confirmed=await confirmDlg('清空 DNSPod 认证','确认清空已保存的 SecretId 和 SecretKey？');
-    if(!confirmed)return false;
-  }
+  if(!validateDnsCredentialPair(payload))return false;
   var old=btn?btn.innerHTML:'';
   if(btn){btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 保存中...';}
   try{
@@ -1750,6 +1725,7 @@ async function saveDnsConfig(btn,silent){
 }
 async function testDnsConfig(btn){
   var payload=collectDnsConfig();
+  if(!validateDnsCredentialPair(payload))return;
   var confirmed=await confirmDlg('测试 DNSPod 权限','将临时创建、修改并删除一条 DNS 记录，测试结果不会保存配置。继续？');
   if(!confirmed)return;
   clearDnsTestResult();
@@ -1771,16 +1747,38 @@ function showDnsConfigImport(){
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
 }
-async function importDnsConfig(btn){
+function parseDnsCredentialImport(content){
+  var source={};
+  if(content.trim().charAt(0)==='{'){
+    var parsed=JSON.parse(content);
+    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw new Error('JSON 必须是对象');
+    Object.keys(parsed).forEach(function(key){source[key]=parsed[key];});
+    if(parsed.credentials&&typeof parsed.credentials==='object')Object.keys(parsed.credentials).forEach(function(key){source[key]=parsed.credentials[key];});
+  }else{
+    content.split(/\r?\n/).forEach(function(line){
+      var text=line.trim();if(!text||text.charAt(0)==='#')return;
+      var idx=text.indexOf('=');if(idx<1)throw new Error('格式错误：'+text);
+      source[text.substring(0,idx).trim()]=text.substring(idx+1).trim();
+    });
+  }
+  var result={secret_id:'',secret_key:''};
+  Object.keys(source).forEach(function(key){
+    var normalized=key.toLowerCase().replace(/[^a-z0-9]/g,'');
+    if(normalized==='secretid'||normalized==='dnspodsecretid'||normalized==='smdnspodsecretid')result.secret_id=(source[key]||'').toString().trim();
+    if(normalized==='secretkey'||normalized==='dnspodsecretkey'||normalized==='smdnspodsecretkey')result.secret_key=(source[key]||'').toString().trim();
+  });
+  if(!result.secret_id||!result.secret_key)throw new Error('导入内容必须同时包含 SecretId 和 SecretKey');
+  return result;
+}
+function importDnsConfig(btn){
   var content=(document.getElementById('dns-config-import-content').value||'').trim();
   if(!content){toast('请输入认证信息','warn');return;}
-  var old=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 导入中...';
   try{
-    var r=await fetch('/api/domain-pool/dns-config/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content})}),d=await r.json();
-    if(!d.ok){toast('导入失败:'+(d.error||''),'err');return;}
-    clearDnsTestResult();renderDnsConfig(d.data);document.getElementById('dns-config-import-modal').remove();toast(d.message||'DNSPod 配置已导入','ok');
-  }catch(e){toast('导入网络错误:'+e.message,'err');}
-  finally{if(document.body.contains(btn)){btn.disabled=false;btn.innerHTML=old;}}
+    var credentials=parseDnsCredentialImport(content);
+    document.getElementById('dns-secret-id').value=credentials.secret_id;
+    document.getElementById('dns-secret-key').value=credentials.secret_key;
+    clearDnsTestResult();document.getElementById('dns-config-import-modal').remove();toast('认证信息已填充，尚未保存','ok');
+  }catch(e){toast('导入失败:'+e.message,'err');}
 }
 function domainStatusMeta(status){
   var map={available:['未占用','domain-available'],allocating:['分配中','domain-allocating'],occupied:['已占用','domain-occupied'],cooling:['冷却中','domain-cooling'],deleting:['删除中','domain-deleting'],error:['异常','domain-error']};
@@ -2480,8 +2478,7 @@ function tryRenderOverview(){
 onCreateRoleChanged();
 refreshDomainOptions();
 [
-  'dns-mode','dns-secret-id','dns-secret-key','dns-record-line',
-  'dns-root-domain','dns-domain-suffix','dns-ttl','dns-cooldown','dns-clear-secret'
+  'dns-secret-id','dns-secret-key'
 ].forEach(function(id){
   var el=document.getElementById(id);
   if(el){el.addEventListener('input',clearDnsTestResult);el.addEventListener('change',clearDnsTestResult);}

@@ -316,8 +316,6 @@ async def admin_dashboard(request: Request):
     ib_status = "\u5DF2\u8FDE\u63A5" if ib_connected else ("未启用" if not SM_ENABLE_LEGACY_QUOTES else "\u672A\u8FDE\u63A5")
     ib_color = "green" if ib_connected else "orange"
     active_count = len(quote_clients)
-    dns_config = dns_config_service.public_config()
-
     return templates.TemplateResponse(request, "dashboard.html", {
         "admin_username": admin_username,
         "admin_role": admin_role,
@@ -328,7 +326,6 @@ async def admin_dashboard(request: Request):
         "ib_color": ib_color,
         "active_clients": str(active_count),
         "public_base_url": SM_PUBLIC_BASE_URL,
-        "ts_domain_suffix": dns_config["domain_suffix"],
     })
 
 
@@ -1034,7 +1031,6 @@ async def list_domain_pool(request: Request, page: int = 1, status: str = ""):
         "ok": True,
         "data": data,
         "dns_mode": dns_config["mode"],
-        "domain_suffix": dns_config["domain_suffix"],
         "dns_config_status": {
             "verified": dns_config["verified"],
             "last_test_at": dns_config["last_test_at"],
@@ -1078,41 +1074,9 @@ async def update_domain_dns_config(request: Request):
         request,
         "UPDATE_DNSPOD_CONFIG",
         "domain_pool",
-        f"更新 DNSPod 配置：mode={view['mode']}，root={view['root_domain']}，version={view['config_version']}",
+        f"更新 DNSPod 认证：version={view['config_version']}",
     )
     return {"ok": True, "data": view, "message": "DNSPod 配置已保存"}
-
-
-@app.post("/api/domain-pool/dns-config/import")
-async def import_domain_dns_config(request: Request):
-    if not _is_admin_logged_in(request):
-        return {"ok": False, "error": "Unauthorized"}
-    if not _is_super_admin(request):
-        return {"ok": False, "error": "仅超级管理员可操作"}
-    try:
-        raw_body = await request.body()
-        if len(raw_body) > 65536:
-            return {"ok": False, "error": "导入内容过大"}
-        body = await request.json() if raw_body else {}
-        content = body.get("content", body) if isinstance(body, dict) else body
-        session = _get_admin_session(request) or {}
-        config = dns_config_service.import_config(
-            content,
-            updated_by=session.get("username") or "super_admin",
-        )
-    except dns_config_service.DNSConfigError as exc:
-        return {"ok": False, "error": str(exc)}
-    except Exception as exc:
-        log.error("DNSPod config import failed: %s", dns_config_service.redact_error(exc))
-        return {"ok": False, "error": "DNSPod 配置导入失败"}
-    view = dns_config_service.public_config(config)
-    _record_admin_event(
-        request,
-        "IMPORT_DNSPOD_CONFIG",
-        "domain_pool",
-        f"导入 DNSPod 配置：mode={view['mode']}，root={view['root_domain']}，version={view['config_version']}",
-    )
-    return {"ok": True, "data": view, "message": "DNSPod 配置已导入"}
 
 
 @app.post("/api/domain-pool/dns-config/test")

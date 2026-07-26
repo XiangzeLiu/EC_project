@@ -139,29 +139,23 @@ SM_CADDY_START_TIMEOUT = max(
 )
 
 # ── TS domain pool and Tencent Cloud DNSPod ─────────────────────────────
-SM_DOMAIN_ROOT = os.environ.get("SM_DOMAIN_ROOT", "scjrdomain.com").strip().lower().strip(".")
-SM_TS_DOMAIN_SUFFIX = os.environ.get(
-    "SM_TS_DOMAIN_SUFFIX",
-    f"ts.{SM_DOMAIN_ROOT}",
-).strip().lower().strip(".")
+SM_DOMAIN_ROOT = "scjrdomain.com"
 SM_TS_WS_PATH = os.environ.get("SM_TS_WS_PATH", "/ws").strip() or "/ws"
 if not SM_TS_WS_PATH.startswith("/"):
     SM_TS_WS_PATH = f"/{SM_TS_WS_PATH}"
 
 SM_DOMAIN_POOL_REQUIRED = _env_bool("SM_DOMAIN_POOL_REQUIRED", True)
-SM_DOMAIN_COOLDOWN_SECONDS = max(
-    0,
-    int(os.environ.get("SM_DOMAIN_COOLDOWN_SECONDS", "300")),
-)
+SM_DOMAIN_COOLDOWN_SECONDS = 1800
 
-# Modes: mock (tests), manual (verify existing DNS), real (Tencent API), disabled.
-SM_DNSPOD_MODE = os.environ.get("SM_DNSPOD_MODE", "manual").strip().lower()
+# Production is always real mode. The environment override remains available to
+# automated tests so mock DNS never reaches a production deployment by default.
+SM_DNSPOD_MODE = os.environ.get("SM_DNSPOD_MODE", "real").strip().lower()
 if SM_DNSPOD_MODE not in {"mock", "manual", "real", "disabled"}:
-    SM_DNSPOD_MODE = "disabled"
+    SM_DNSPOD_MODE = "real"
 SM_DNSPOD_SECRET_ID = os.environ.get("SM_DNSPOD_SECRET_ID", "").strip()
 SM_DNSPOD_SECRET_KEY = os.environ.get("SM_DNSPOD_SECRET_KEY", "").strip()
-SM_DNSPOD_LINE = os.environ.get("SM_DNSPOD_LINE", "\u9ed8\u8ba4").strip() or "\u9ed8\u8ba4"
-SM_DNS_TTL = max(1, int(os.environ.get("SM_DNS_TTL", "600")))
+SM_DNSPOD_LINE = "默认"
+SM_DNS_TTL = 600
 
 # ── Tastytrade 券商凭据 ──────────────────────────────────────────────────
 _TASTY_SECRET = os.environ.get("TASTY_SECRET", "")
