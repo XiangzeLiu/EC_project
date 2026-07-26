@@ -30,6 +30,7 @@ import node_state
 from fastapi.testclient import TestClient
 
 from Client.network.ts_websocket import TSWebSocketClient
+from Client import constants as client_constants
 from Client.ui_qt import main_window as client_main_window
 from Trader_Server import config as ts_config
 from Trader_Server.services import registration
@@ -37,6 +38,7 @@ from Trader_Server.services.trading_svc import _validate_order_params
 from Trader_Server.network import ws_server as ts_ws_server
 from Trader_Server.services import broker_gate as ts_broker_gate
 from Trader_Server.services import config_sync as ts_config_sync
+from Trader_Server.services import quote_provider as ts_quote_provider
 from Trader_Server.services import trading_svc as ts_trading_svc
 
 
@@ -673,6 +675,76 @@ class AccessChainTests(unittest.TestCase):
 
 
 class ClientConnectionLifecycleTests(unittest.TestCase):
+    def test_select_uses_dark_qt_popup_view(self):
+        class FakePopup:
+            def __init__(self, parent):
+                self.parent = parent
+                self.object_name = ""
+                self.uniform_items = False
+                self.mouse_tracking = False
+                self.style = ""
+
+            def setObjectName(self, value):
+                self.object_name = value
+
+            def setUniformItemSizes(self, value):
+                self.uniform_items = value
+
+            def setMouseTracking(self, value):
+                self.mouse_tracking = value
+
+            def setStyleSheet(self, value):
+                self.style = value
+
+        class FakeCombo:
+            def __init__(self):
+                self.view = None
+
+            def setView(self, value):
+                self.view = value
+
+            def addItems(self, values):
+                self.values = values
+
+            def setCurrentText(self, value):
+                self.value = value
+
+            def setMinimumHeight(self, value):
+                self.minimum_height = value
+
+            def setMaxVisibleItems(self, value):
+                self.max_visible_items = value
+
+        with patch.object(client_main_window, "QComboBox", FakeCombo), patch.object(client_main_window, "QListView", FakePopup):
+            combo = client_main_window.make_select("Limit", ["Limit", "Market"])
+
+        self.assertEqual(combo.view.object_name, "comboPopup")
+        self.assertTrue(combo.view.uniform_items)
+        self.assertTrue(combo.view.mouse_tracking)
+        self.assertIn(f"background: {client_main_window.theme.INPUT_BG}", combo.view.style)
+        self.assertIn(f"color: {client_main_window.theme.TEXT_PRIMARY}", combo.view.style)
+        self.assertIn("color: #FFFFFF", combo.view.style)
+        self.assertEqual(combo.max_visible_items, 8)
+
+    def test_positions_refresh_interval_is_fifteen_seconds(self):
+        self.assertEqual(client_constants.POSITIONS_INTERVAL, 15000)
+
+    def test_client_retries_quotes_after_broker_reconnect(self):
+        retried = []
+        fake_window = SimpleNamespace(
+            _quote_sub_lock=threading.Lock(),
+            _quote_subscribed_symbols={"AAPL"},
+            _sync_quote_subscriptions_async=lambda force_resubscribe=False: retried.append(force_resubscribe),
+        )
+
+        client_main_window.TradingTerminalQt._handle_se_message_ui(
+            fake_window,
+            {"type": "BROKER_STATUS_CHANGE", "payload": {"status": "reconnected"}},
+        )
+
+        self.assertEqual(fake_window._quote_subscribed_symbols, {"AAPL"})
+        self.assertEqual(retried, [True])
+
     def test_broker_gate_only_disables_order_submission_buttons(self):
         class FakeWidget:
             def __init__(self):
@@ -825,11 +897,15 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         ts_ws_server._connections.clear()
         ts_ws_server._send_locks.clear()
         ts_broker_gate._gates.clear()
+        ts_quote_provider._session_subscriptions.clear()
+        ts_quote_provider._aggregated_symbols.clear()
 
     def tearDown(self):
         ts_ws_server._connections.clear()
         ts_ws_server._send_locks.clear()
         ts_broker_gate._gates.clear()
+        ts_quote_provider._session_subscriptions.clear()
+        ts_quote_provider._aggregated_symbols.clear()
 
     async def test_new_connection_replaces_existing_node_connection(self):
         old = _FakeWebSocket()
@@ -922,15 +998,72 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             ts_ws_server._notify_sm_connection_closed = original_notify
             ts_ws_server._RELEASE_GRACE_SECONDS = original_grace
 
-    async def test_quotes_require_runtime_broker_login_gate(self):
-        response = await ts_ws_server._handle_quote_subscribe(
-            {"id": "q1", "payload": {"action": "subscribe", "symbols": ["AAPL"]}},
-            "session-1",
-            "trace-1",
-            {"username": "user", "server_id": "node-1"},
+    async def test_quotes_do_not_require_runtime_broker_login_gate(self):
+        original_connected = ts_quote_provider.ensure_broker_connected
+        original_current = ts_quote_provider.get_current_broker
+        subscribed = []
+
+        class FakeBroker:
+            @staticmethod
+            def capabilities():
+                return {"quotes": True}
+
+            async def is_connected(self):
+                return True
+
+            async def subscribe_quotes(self, symbols):
+                subscribed.append(list(symbols))
+
+        try:
+            async def fake_connected():
+                return True
+
+            ts_quote_provider.ensure_broker_connected = fake_connected
+            ts_quote_provider.get_current_broker = lambda: FakeBroker()
+            response = await ts_ws_server._handle_quote_subscribe(
+                {"id": "q1", "payload": {"action": "subscribe", "symbols": ["AAPL"]}},
+                "session-1",
+                "trace-1",
+                {"username": "user", "server_id": "node-1"},
+            )
+            self.assertTrue(response["payload"]["success"])
+            self.assertEqual(response["payload"]["subscribed"], ["AAPL"])
+            self.assertEqual(subscribed, [["AAPL"]])
+            self.assertFalse(ts_broker_gate.is_gate_active("user", "node-1"))
+        finally:
+            ts_quote_provider.ensure_broker_connected = original_connected
+            ts_quote_provider.get_current_broker = original_current
+
+    async def test_quote_subscriptions_are_restored_on_reconnected_broker(self):
+        restored = []
+
+        class FakeBroker:
+            @staticmethod
+            def capabilities():
+                return {"quotes": True}
+
+            async def is_connected(self):
+                return True
+
+            async def subscribe_quotes(self, symbols):
+                restored.append(list(symbols))
+
+        ts_quote_provider._session_subscriptions["session-1"].update({"MSFT", "AAPL"})
+        ts_quote_provider._aggregated_symbols.update({"MSFT", "AAPL"})
+        result = await ts_quote_provider.restore_subscriptions(FakeBroker())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["restored"], ["AAPL", "MSFT"])
+        self.assertEqual(restored, [["AAPL", "MSFT"]])
+
+    async def test_trading_operations_still_require_runtime_broker_login(self):
+        results = await asyncio.gather(
+            ts_trading_svc.get_positions(username="user", server_id="node-1", session_id="session-1"),
+            ts_trading_svc.get_orders(username="user", server_id="node-1", session_id="session-1"),
+            ts_trading_svc.place_order({}, username="user", server_id="node-1", session_id="session-1"),
+            ts_trading_svc.cancel_order("order-1", username="user", server_id="node-1", session_id="session-1"),
         )
-        self.assertFalse(response["payload"]["success"])
-        self.assertEqual(response["payload"]["code"], "BROKER_LOGIN_REQUIRED")
+        self.assertTrue(all(result.get("code") == "BROKER_LOGIN_REQUIRED" for result in results))
 
     async def test_broker_login_activates_gate_and_allows_position_query(self):
         original_login = ts_config_sync.login_broker_with_credentials

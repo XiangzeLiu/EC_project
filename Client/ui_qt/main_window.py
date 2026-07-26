@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListView,
     QMainWindow,
     QPushButton,
     QProgressBar,
@@ -224,9 +225,16 @@ def make_input(text: str = "", *, password: bool = False, placeholder: str = "")
 
 def make_select(value: str, values: list[str] | None = None) -> QComboBox:
     combo = QComboBox()
+    popup = QListView(combo)
+    popup.setObjectName("comboPopup")
+    popup.setUniformItemSizes(True)
+    popup.setMouseTracking(True)
+    popup.setStyleSheet(theme.COMBO_POPUP_QSS)
+    combo.setView(popup)
     combo.addItems(values or [value])
     combo.setCurrentText(value)
     combo.setMinimumHeight(44)
+    combo.setMaxVisibleItems(8)
     return combo
 
 
@@ -1629,6 +1637,10 @@ class TradingTerminalQt(QMainWindow):
                 self._refresh_orders()
         elif msg_type == "QUOTE_DATA":
             self._handle_quote_payload(payload)
+        elif msg_type == "BROKER_STATUS_CHANGE":
+            status = str(payload.get("status") or "").lower()
+            if status in {"connected", "reconnected", "reloaded"}:
+                self._sync_quote_subscriptions_async(force_resubscribe=True)
         elif msg_type == "FORCE_DISCONNECT":
             reason = payload.get("reason", "admin_force_release")
             self._log_user_error_once(f"交易服务器连接被强制断开，原因：{reason}", "warn")
@@ -1881,17 +1893,17 @@ class TradingTerminalQt(QMainWindow):
     def _schedule_quote_sync(self, pid: int) -> None:
         QTimer.singleShot(250, lambda: self._on_symbol_enter(pid))
 
-    def _sync_quote_subscriptions_async(self) -> None:
+    def _sync_quote_subscriptions_async(self, force_resubscribe: bool = False) -> None:
         if not self.session or not self._se_connected:
             return
-        self._run_bg(self._sync_quote_subscriptions_bg)
+        self._run_bg(lambda: self._sync_quote_subscriptions_bg(force_resubscribe))
 
-    def _sync_quote_subscriptions_bg(self) -> None:
+    def _sync_quote_subscriptions_bg(self, force_resubscribe: bool = False) -> None:
         symbols = {slot.symbol_text() for slot in self.slots.values() if slot.symbol_text()}
         with self._quote_sub_lock:
             current = set(self._quote_subscribed_symbols)
             to_unsub = sorted(current - symbols)
-            to_sub = sorted(symbols - current)
+            to_sub = sorted(symbols if force_resubscribe else symbols - current)
             if to_unsub and self.session:
                 ok, msg = self.session.unsubscribe_quotes(to_unsub, timeout=6.0)
                 if ok:

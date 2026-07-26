@@ -55,7 +55,7 @@ SESSION_END_H    = 20
 
 # ── Polling intervals (ms) ─────────────────────────────────────────────────────
 POLL_INTERVAL      = 150    # 主轮询间隔
-POSITIONS_INTERVAL = 3000   # 持仓刷新间隔 (3s)
+POSITIONS_INTERVAL = 15000  # 持仓刷新间隔 (15s)
 ORDERS_INTERVAL    = 30000  # 订单轮询间隔 (30s)
 HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
 MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)

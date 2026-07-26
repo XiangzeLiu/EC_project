@@ -670,20 +670,6 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
     from ..services.quote_provider import handle_subscribe, handle_unsubscribe
 
     payload = msg.get('payload', {})
-    username = (conn or {}).get('username', '')
-    server_id = (conn or {}).get('server_id', state.server_id)
-    if not broker_gate.is_gate_active(username, server_id):
-        return {
-            'type': 'QUOTE_ACK',
-            'id': msg.get('id', ''),
-            'timestamp': int(time.time() * 1000),
-            'payload': {
-                'success': False,
-                'code': 'BROKER_LOGIN_REQUIRED',
-                'message': 'Trade service login required',
-                'trace_id': trace_id,
-            },
-        }
     action = payload.get('action', 'subscribe')
     symbols = payload.get('symbols', [])
     result = await handle_unsubscribe(symbols=symbols, session_id=sid) if action == 'unsubscribe' else await handle_subscribe(symbols=symbols, session_id=sid)

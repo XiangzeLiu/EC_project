@@ -58,6 +58,32 @@ def mono_font(size: int = 10, *, bold: bool = False) -> QFont:
     return font
 
 
+COMBO_POPUP_QSS = f"""
+QListView#comboPopup {{
+    background: {INPUT_BG};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    outline: none;
+    padding: 3px 0;
+}}
+
+QListView#comboPopup::item {{
+    background: {INPUT_BG};
+    color: {TEXT_PRIMARY};
+    border: none;
+    min-height: 30px;
+    padding: 4px 10px;
+}}
+
+QListView#comboPopup::item:hover,
+QListView#comboPopup::item:selected {{
+    background: {PANEL_ALT_BG};
+    color: #FFFFFF;
+}}
+"""
+
+
 APP_QSS = f"""
 QWidget {{
     color: {TEXT_PRIMARY};
@@ -105,6 +131,18 @@ QComboBox::drop-down {{
     width: 18px;
     border: none;
 }}
+
+QComboBox:hover,
+QComboBox:focus {{
+    border-color: {TEXT_LOW};
+}}
+
+QComboBox:disabled {{
+    background: {PANEL_ALT_BG};
+    color: {TEXT_LOW};
+}}
+
+{COMBO_POPUP_QSS}
 
 QPushButton {{
     background: {PANEL_ALT_BG};

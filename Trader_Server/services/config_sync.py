@@ -127,6 +127,17 @@ def _can_attempt_connect(trigger: str) -> bool:
     return True
 
 
+async def _restore_quote_subscriptions(broker: BaseBrokerAPI) -> None:
+    try:
+        from .quote_provider import restore_subscriptions
+
+        result = await restore_subscriptions(broker)
+        if not result.get("success"):
+            log.warning("Quote subscription restore skipped: %s", result.get("message", "unknown error"))
+    except Exception as exc:
+        log.warning("Quote subscription restore failed: %s", exc)
+
+
 async def ensure_broker_connected() -> bool:
     """
     业务触发前保障券商已连接。
@@ -202,6 +213,7 @@ async def login_broker_with_credentials(broker_type: str = "", credentials: dict
         _current_broker = broker
         _current_broker_type = broker_type
         broker.set_quote_callback(_on_quote_from_broker)
+        await _restore_quote_subscriptions(broker)
         _reset_connect_retry_state()
         _start_auto_reconnect()
         _broadcast_status(broker_type, "connected")
@@ -259,6 +271,7 @@ async def init_broker() -> bool:
         _current_broker = broker
         _current_broker_type = broker_type
         broker.set_quote_callback(_on_quote_from_broker)
+        await _restore_quote_subscriptions(broker)
         _reset_connect_retry_state()
         _start_auto_reconnect()
 
@@ -470,6 +483,7 @@ async def _do_hot_reload(trigger: str = "auto") -> bool:
         _current_broker_type = new_type
         _local_config_version = new_version
         broker.set_quote_callback(_on_quote_from_broker)
+        await _restore_quote_subscriptions(broker)
         _reset_connect_retry_state()
         _start_auto_reconnect()
 

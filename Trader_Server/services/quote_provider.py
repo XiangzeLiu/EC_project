@@ -43,6 +43,10 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
     new_syms = [s for s in valid_symbols if s not in existing]
 
     if not new_syms:
+        result = await restore_subscriptions()
+        if not result.get("success"):
+            result.setdefault("subscribed", [])
+            return result
         return {"success": True, "subscribed": [], "message": "Already subscribed"}
 
     added_global = [s for s in new_syms if s not in _aggregated_symbols]
@@ -69,6 +73,45 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
         "subscribed": new_syms,
         "total_subscribed": len(existing),
         "message": f"Subscribed {len(new_syms)} symbols",
+    }
+
+
+async def restore_subscriptions(broker=None) -> dict:
+    """Reapply all active Client subscriptions after the Broker connection changes."""
+    symbols = sorted(_aggregated_symbols)
+    if not symbols:
+        return {"success": True, "restored": [], "message": "No subscriptions to restore"}
+
+    target = broker
+    if target is None:
+        if not await ensure_broker_connected():
+            return {"success": False, "restored": [], "message": "Broker not connected"}
+        target = get_current_broker()
+
+    if not target or not await _is_broker_ok(target):
+        return {"success": False, "restored": [], "message": "Broker not connected"}
+
+    caps_fn = getattr(target, "capabilities", None)
+    caps = caps_fn() if callable(caps_fn) else {}
+    if caps and not bool(caps.get("quotes", False)):
+        return {
+            "success": False,
+            "code": "QUOTE_NOT_SUPPORTED",
+            "restored": [],
+            "message": "Quote subscription not supported by current broker",
+        }
+
+    try:
+        await target.subscribe_quotes(symbols)
+    except Exception as e:
+        log.error("Quote subscription restore failed: %s", e)
+        return {"success": False, "restored": [], "message": str(e)}
+
+    log.info("Quote subscriptions restored: %s", symbols)
+    return {
+        "success": True,
+        "restored": symbols,
+        "message": f"Restored {len(symbols)} symbols",
     }
 
 
