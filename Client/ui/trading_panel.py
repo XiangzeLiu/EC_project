@@ -209,8 +209,6 @@ class TradingPanel:
         self._trade_enabled = bool(enabled)
         entry_state = "normal" if enabled else "disabled"
         combo_state = "readonly" if enabled else "disabled"
-        if self.sym_entry:
-            self.sym_entry.config(state=entry_state)
         if self.qty_entry:
             self.qty_entry.config(state=entry_state)
         if self._order_type_combo:

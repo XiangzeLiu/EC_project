@@ -207,6 +207,14 @@ class BaseBrokerAPI(ABC):
 
     def get_connection_error(self) -> dict[str, Any]:
         return dict(self._last_connect_error)
+
+    def effective_capabilities(self) -> dict[str, bool]:
+        """Return capabilities after applying runtime account restrictions."""
+        return dict(self.capabilities())
+
+    def status_detail(self) -> dict[str, Any]:
+        """Return non-sensitive broker-specific status details."""
+        return {}
     # ── 辅助 ──────────────────────────────────────────────────
 
     def __repr__(self) -> str:

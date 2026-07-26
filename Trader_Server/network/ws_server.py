@@ -14,7 +14,6 @@ from typing import Any, Callable
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import state
-from ..services import broker_gate
 
 log = logging.getLogger("trader_server.ws_server")
 
@@ -62,7 +61,6 @@ def _cleanup_connection_artifacts(conn: dict[str, Any]) -> None:
         and _owner_connection_count(username, server_id) == 0
     )
     if owner_disconnected:
-        broker_gate.start_grace(username, server_id)
         if conn.get('token_type', 'client') == 'client' and conn.get('client_token'):
             try:
                 connection_id = str(conn.get('connection_id') or '')
@@ -79,9 +77,6 @@ def _cleanup_connection_artifacts(conn: dict[str, Any]) -> None:
 
         cleanup_session(sid)
         on_disconnect(sid)
-
-    broker_gate.clear_expired()
-
 
 def _cancel_pending_releases(username: str, server_id: str) -> None:
     for connection_id, (pending_user, pending_server, task) in list(_pending_release_tasks.items()):
@@ -236,7 +231,8 @@ async def handle_client_connection(ws: WebSocket):
         state.ws_clients.append(ws)
         _cancel_pending_releases(username, server_id)
         await _replace_existing_node_connections(ws, username, server_id)
-        gate_status = broker_gate.restore_gate(username, server_id)
+        from ..services.config_sync import get_broker_status
+        broker_detail = get_broker_status()
 
         from ..services.message_log import on_auth, on_connect
 
@@ -256,7 +252,7 @@ async def handle_client_connection(ws: WebSocket):
                     'region': state.region,
                     'status': state.status,
                 },
-                'broker_gate': gate_status,
+                'broker_detail': broker_detail,
                 'heartbeat_interval': 30,
                 'trace_id': trace_id,
             },
@@ -552,7 +548,8 @@ async def _handle_economic_query(msg: dict[str, Any], sid: str, trace_id: str = 
 
 
 async def _handle_status_query(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
-    gate = broker_gate.get_gate_status((conn or {}).get('username', ''), (conn or {}).get('server_id', state.server_id))
+    from ..services.config_sync import get_broker_status
+
     return {
         'type': 'STATUS_RESPONSE',
         'id': msg.get('id', ''),
@@ -568,7 +565,7 @@ async def _handle_status_query(msg: dict[str, Any], sid: str, trace_id: str = ''
                 'heartbeat_fail_count': state.heartbeat_fail_count,
                 'connections': len(_connections),
             },
-            'broker_gate': gate,
+            'broker_detail': get_broker_status(),
             'trace_id': trace_id,
         },
     }
@@ -683,85 +680,8 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
     }
 
 
-async def _handle_broker_login(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
-    from ..services.config_sync import login_broker_with_credentials
-
-    payload = msg.get('payload', {}) if isinstance(msg.get('payload', {}), dict) else {}
-    account_username = str(payload.get('account_username') or '').strip()
-    account_password = str(payload.get('account_password') or '')
-    challenge_token = str(payload.get('challenge_token') or '')
-    otp = str(payload.get('otp') or '').strip()
-    broker_type = str(payload.get('broker_type') or '').strip()
-    username = (conn or {}).get('username', '')
-    server_id = (conn or {}).get('server_id', state.server_id)
-
-    if not account_username or not account_password:
-        status = broker_gate.get_gate_status(username, server_id)
-        return {
-            'type': 'BROKER_LOGIN_RESPONSE',
-            'id': msg.get('id', ''),
-            'timestamp': int(time.time() * 1000),
-            'payload': {
-                'success': False,
-                'code': 'BROKER_CREDENTIALS_REQUIRED',
-                'message': 'Broker username and password are required',
-                'gate': status,
-                'trace_id': trace_id,
-            },
-        }
-
-    login_result = await login_broker_with_credentials(
-        broker_type=broker_type,
-        credentials={
-            'account_username': account_username,
-            'account_password': account_password,
-            'challenge_token': challenge_token,
-            'otp': otp,
-        },
-    )
-    if not bool(login_result.get('success')):
-        status = broker_gate.get_gate_status(username, server_id)
-        code = str(login_result.get('code') or 'BROKER_LOGIN_FAILED')
-        payload_out: dict[str, Any] = {
-            'success': False,
-            'code': code,
-            'message': str(login_result.get('message') or 'Broker login failed'),
-            'gate': status,
-            'retryable': bool(login_result.get('retryable', False)),
-            'trace_id': trace_id,
-        }
-        if code == 'BROKER_DEVICE_CHALLENGE_REQUIRED':
-            payload_out['challenge_token'] = str(login_result.get('challenge_token') or '')
-            payload_out['challenge'] = login_result.get('challenge') if isinstance(login_result.get('challenge'), dict) else {}
-        return {
-            'type': 'BROKER_LOGIN_RESPONSE',
-            'id': msg.get('id', ''),
-            'timestamp': int(time.time() * 1000),
-            'payload': payload_out,
-        }
-
-    status = broker_gate.login_gate(
-        username=username,
-        server_id=server_id,
-        account_username=account_username,
-    )
-    return {
-        'type': 'BROKER_LOGIN_RESPONSE',
-        'id': msg.get('id', ''),
-        'timestamp': int(time.time() * 1000),
-        'payload': {
-            'success': True,
-            'code': 'BROKER_LOGIN_OK',
-            'message': 'Broker login active',
-            'gate': status,
-            'trace_id': trace_id,
-        },
-    }
-
-
 async def _handle_broker_status_query(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
     from ..services.config_sync import get_broker_status
-    status = broker_gate.get_gate_status((conn or {}).get('username', ''), (conn or {}).get('server_id', state.server_id))
     broker_detail = get_broker_status()
     return {
         'type': 'BROKER_STATUS_RESPONSE',
@@ -771,27 +691,7 @@ async def _handle_broker_status_query(msg: dict[str, Any], sid: str, trace_id: s
             'success': True,
             'code': 'BROKER_STATUS_OK',
             'message': 'ok',
-            'gate': status,
             'broker_detail': broker_detail,
-            'trace_id': trace_id,
-        },
-    }
-
-
-async def _handle_broker_logout(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
-    from ..services.config_sync import logout_current_broker
-
-    await logout_current_broker()
-    status = broker_gate.logout_gate((conn or {}).get('username', ''), (conn or {}).get('server_id', state.server_id))
-    return {
-        'type': 'BROKER_LOGOUT_RESPONSE',
-        'id': msg.get('id', ''),
-        'timestamp': int(time.time() * 1000),
-        'payload': {
-            'success': True,
-            'code': 'BROKER_LOGOUT_OK',
-            'message': 'Broker gate cleared',
-            'gate': status,
             'trace_id': trace_id,
         },
     }
@@ -806,9 +706,7 @@ _MESSAGE_HANDLERS: dict[str, Callable[..., Any]] = {
     'POSITION_QUERY': _handle_position_query,
     'ORDER_QUERY': _handle_order_query,
     'QUOTE_SUBSCRIBE': _handle_quote_subscribe,
-    'BROKER_LOGIN': _handle_broker_login,
     'BROKER_STATUS_QUERY': _handle_broker_status_query,
-    'BROKER_LOGOUT': _handle_broker_logout,
 }
 
 
@@ -866,9 +764,6 @@ async def force_disconnect_all_clients(reason: str = 'admin_force_release') -> d
 
     kicked = 0
     for ws in targets:
-        conn = _connections.get(ws, {})
-        if conn.get('username') and conn.get('server_id') and _owner_connection_count(conn.get('username', ''), conn.get('server_id', state.server_id)) == 1:
-            broker_gate.start_grace(conn.get('username', ''), conn.get('server_id', state.server_id))
         try:
             await _send_json_locked(ws, notice)
         except Exception:

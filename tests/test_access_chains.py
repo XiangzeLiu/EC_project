@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,13 +31,12 @@ from fastapi.testclient import TestClient
 
 from Client.network.ts_websocket import TSWebSocketClient
 from Client import constants as client_constants
+from Client.services.trading_session import TradingSession
 from Client.ui_qt import main_window as client_main_window
 from Trader_Server import config as ts_config
 from Trader_Server.services import registration
 from Trader_Server.services.trading_svc import _validate_order_params
 from Trader_Server.network import ws_server as ts_ws_server
-from Trader_Server.services import broker_gate as ts_broker_gate
-from Trader_Server.services import config_sync as ts_config_sync
 from Trader_Server.services import quote_provider as ts_quote_provider
 from Trader_Server.services import trading_svc as ts_trading_svc
 
@@ -75,7 +74,7 @@ class AccessChainTests(unittest.TestCase):
         self.assertTrue(registered["ok"], registered)
         approved = self.client.post(
             f"/api/nodes/{registered['request_id']}/approve",
-            json={"broker_type": "TT", "credentials": {}},
+            json={"broker_type": "Test", "credentials": {}},
         ).json()
         self.assertTrue(approved["ok"], approved)
         request_row = database.get_node_request_by_id(registered["request_id"])
@@ -86,6 +85,101 @@ class AccessChainTests(unittest.TestCase):
         ).json()
         self.assertEqual(heartbeat["status"], "ok")
         return approved, request_row
+
+    def test_tastytrade_preview_validation_does_not_persist_credentials(self):
+        registered = self.client.post("/nodes/register-request", json={
+            "node_name": "tt-preview",
+            "region": "TT",
+            "host": "8.8.8.8",
+            "public_ip": "8.8.8.8",
+        }).json()
+        validation_result = {
+            "accounts": [{"account_number": "ACC-1", "is_closed": False, "can_trade": True}],
+            "selected_account": {"account_number": "ACC-1", "is_closed": False, "can_trade": True},
+            "warnings": [],
+        }
+        with patch.object(
+            sm_main.tastytrade_validation,
+            "validate_tastytrade_credentials",
+            AsyncMock(return_value=validation_result),
+        ):
+            response = self.client.post(
+                f"/api/nodes/requests/{registered['request_id']}/tastytrade/validate",
+                json={"credentials": {"secret": "secret", "token": "token"}},
+            ).json()
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["selected_account"]["account_number"], "ACC-1")
+        self.assertIsNone(database.get_node_broker_config("tt-preview"))
+
+    def test_tastytrade_approval_revalidates_and_atomically_saves_selected_account(self):
+        imported = self.client.post(
+            "/api/domain-pool/import",
+            json={"domains": ["tt-approval.ts.scjrdomain.com"]},
+        ).json()
+        self.assertTrue(imported["ok"])
+        registered = self.client.post("/nodes/register-request", json={
+            "node_name": "tt-approval",
+            "region": "TT",
+            "host": "8.8.8.8",
+            "public_ip": "8.8.8.8",
+        }).json()
+        validation_result = {
+            "accounts": [{"account_number": "ACC-1", "is_closed": False, "can_trade": True}],
+            "selected_account": {"account_number": "ACC-1", "is_closed": False, "can_trade": True},
+            "warnings": [],
+        }
+        validator = AsyncMock(return_value=validation_result)
+        with patch.object(
+            sm_main.tastytrade_validation,
+            "validate_tastytrade_credentials",
+            validator,
+        ):
+            approved = self.client.post(
+                f"/api/nodes/{registered['request_id']}/approve",
+                json={
+                    "broker_type": "TT",
+                    "credentials": {"secret": "secret", "token": "token", "account_number": ""},
+                },
+            ).json()
+
+        self.assertTrue(approved["ok"], approved)
+        self.assertEqual(validator.await_count, 1)
+        config = database.get_node_broker_config(approved["server_id"])
+        self.assertEqual(config["config_version"], 1)
+        self.assertEqual(config["credentials"]["account_number"], "ACC-1")
+        self.assertEqual(config["credentials"]["secret"], "secret")
+        display = sm_main._get_realtime_nodes_for_display()
+        node = next(row for row in display if row["server_id"] == approved["server_id"])
+        public_credentials = node["broker_config"]["credentials"]
+        self.assertNotIn("secret", public_credentials)
+        self.assertNotIn("token", public_credentials)
+        self.assertTrue(public_credentials["secret_configured"])
+
+    def test_tastytrade_approval_cannot_bypass_failed_validation(self):
+        registered = self.client.post("/nodes/register-request", json={
+            "node_name": "tt-invalid",
+            "region": "TT",
+            "host": "8.8.4.4",
+            "public_ip": "8.8.4.4",
+        }).json()
+        error = sm_main.tastytrade_validation.TastytradeValidationError(
+            "TT_AUTH_INVALID",
+            "Client Secret 或 Refresh Token 无效或不匹配",
+        )
+        with patch.object(
+            sm_main.tastytrade_validation,
+            "validate_tastytrade_credentials",
+            AsyncMock(side_effect=error),
+        ):
+            response = self.client.post(
+                f"/api/nodes/{registered['request_id']}/approve",
+                json={"broker_type": "TT", "credentials": {"secret": "bad", "token": "bad"}},
+            ).json()
+
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["code"], "TT_AUTH_INVALID")
+        self.assertEqual(database.get_node_request_by_id(registered["request_id"])["status"], "pending")
 
     def test_account_cannot_cross_query_occupy_or_verify_another_node(self):
         imported = self.client.post(
@@ -675,6 +769,53 @@ class AccessChainTests(unittest.TestCase):
 
 
 class ClientConnectionLifecycleTests(unittest.TestCase):
+    def test_read_only_session_can_query_but_cannot_trade_or_cancel(self):
+        sent = []
+
+        class FakeSE:
+            is_connected = True
+
+            @staticmethod
+            def request_sync(msg_type, payload, timeout=10.0):
+                sent.append(msg_type)
+                if msg_type == "POSITION_QUERY":
+                    return {"payload": {"success": True, "positions": []}}
+                if msg_type == "ORDER_QUERY":
+                    return {"payload": {"success": True, "orders": []}}
+                return {"payload": {"success": True}}
+
+        session = TradingSession(SimpleNamespace())
+        session.connected = True
+        session.bind_se_client(FakeSE())
+        session.set_broker_detail({
+            "broker_type": "tastytrade",
+            "connected": True,
+            "capabilities": {
+                "quotes": True,
+                "positions": True,
+                "order_query": True,
+                "orders": False,
+                "cancel_order": False,
+            },
+            "account": {"account_number": "READ-1", "authority_level": "read-only"},
+        })
+
+        self.assertFalse(session.can_trade())
+        self.assertTrue(session.has_broker_capability("positions"))
+        self.assertTrue(session.has_broker_capability("order_query"))
+        self.assertEqual(session.get_today_activity(), [])
+        order_ok, order_message = session.place_order("AAPL", 1, 100, "Buy to Open")
+        cancel_ok, cancel_message = session.cancel_order("order-1")
+        self.assertFalse(order_ok)
+        self.assertFalse(cancel_ok)
+        self.assertIn("只读", order_message)
+        self.assertIn("只读", cancel_message)
+        self.assertEqual(sent, ["POSITION_QUERY", "ORDER_QUERY"])
+
+    def test_client_session_has_no_runtime_broker_login_or_logout_api(self):
+        self.assertFalse(hasattr(TradingSession, "broker_login"))
+        self.assertFalse(hasattr(TradingSession, "broker_logout"))
+
     def test_select_uses_dark_qt_popup_view(self):
         class FakePopup:
             def __init__(self, parent):
@@ -735,6 +876,10 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
             _quote_sub_lock=threading.Lock(),
             _quote_subscribed_symbols={"AAPL"},
             _sync_quote_subscriptions_async=lambda force_resubscribe=False: retried.append(force_resubscribe),
+            _apply_broker_status_ui=lambda: None,
+            _refresh_positions=lambda: None,
+            _refresh_orders=lambda: None,
+            session=None,
         )
 
         client_main_window.TradingTerminalQt._handle_se_message_ui(
@@ -745,7 +890,7 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
         self.assertEqual(fake_window._quote_subscribed_symbols, {"AAPL"})
         self.assertEqual(retried, [True])
 
-    def test_broker_gate_only_disables_order_submission_buttons(self):
+    def test_broker_capability_only_disables_order_submission_buttons(self):
         class FakeWidget:
             def __init__(self):
                 self.enabled = True
@@ -773,15 +918,15 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
         self.assertTrue(slot.buy.enabled)
         self.assertTrue(slot.sell.enabled)
 
-    def test_dev_ui_backdoor_does_not_bypass_broker_trade_gate(self):
+    def test_dev_ui_backdoor_does_not_bypass_broker_capabilities(self):
         fake_window = SimpleNamespace(
             _ui_backdoor_mode=True,
-            session=SimpleNamespace(connected=True, broker_gate_active=False),
+            session=SimpleNamespace(connected=True),
             _se_connected=False,
+            _broker_capability_enabled=lambda capability: False,
         )
         self.assertFalse(client_main_window.TradingTerminalQt._trade_controls_enabled(fake_window))
-        fake_window.session.broker_gate_active = True
-        fake_window._se_connected = True
+        fake_window._broker_capability_enabled = lambda capability: capability == "orders"
         self.assertTrue(client_main_window.TradingTerminalQt._trade_controls_enabled(fake_window))
 
     def test_main_connection_flow_creates_one_durable_websocket(self):
@@ -896,14 +1041,12 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         ts_ws_server._connections.clear()
         ts_ws_server._send_locks.clear()
-        ts_broker_gate._gates.clear()
         ts_quote_provider._session_subscriptions.clear()
         ts_quote_provider._aggregated_symbols.clear()
 
     def tearDown(self):
         ts_ws_server._connections.clear()
         ts_ws_server._send_locks.clear()
-        ts_broker_gate._gates.clear()
         ts_quote_provider._session_subscriptions.clear()
         ts_quote_provider._aggregated_symbols.clear()
 
@@ -1029,7 +1172,6 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(response["payload"]["success"])
             self.assertEqual(response["payload"]["subscribed"], ["AAPL"])
             self.assertEqual(subscribed, [["AAPL"]])
-            self.assertFalse(ts_broker_gate.is_gate_active("user", "node-1"))
         finally:
             ts_quote_provider.ensure_broker_connected = original_connected
             ts_quote_provider.get_current_broker = original_current
@@ -1056,17 +1198,7 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["restored"], ["AAPL", "MSFT"])
         self.assertEqual(restored, [["AAPL", "MSFT"]])
 
-    async def test_trading_operations_still_require_runtime_broker_login(self):
-        results = await asyncio.gather(
-            ts_trading_svc.get_positions(username="user", server_id="node-1", session_id="session-1"),
-            ts_trading_svc.get_orders(username="user", server_id="node-1", session_id="session-1"),
-            ts_trading_svc.place_order({}, username="user", server_id="node-1", session_id="session-1"),
-            ts_trading_svc.cancel_order("order-1", username="user", server_id="node-1", session_id="session-1"),
-        )
-        self.assertTrue(all(result.get("code") == "BROKER_LOGIN_REQUIRED" for result in results))
-
-    async def test_broker_login_activates_gate_and_allows_position_query(self):
-        original_login = ts_config_sync.login_broker_with_credentials
+    async def test_ts_managed_broker_allows_position_query_without_runtime_login(self):
         original_connected = ts_trading_svc.ensure_broker_connected
         original_current = ts_trading_svc.get_current_broker
 
@@ -1079,27 +1211,8 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
                 return [{"symbol": "AAPL", "quantity": 1}]
 
         try:
-            async def fake_login(broker_type="", credentials=None):
-                return {"success": True, "code": "BROKER_LOGIN_OK", "message": "ok"}
-
             async def fake_connected():
                 return True
-
-            ts_config_sync.login_broker_with_credentials = fake_login
-            login_response = await ts_ws_server._handle_broker_login(
-                {
-                    "id": "login-1",
-                    "payload": {
-                        "account_username": "broker-user",
-                        "account_password": "broker-password",
-                    },
-                },
-                "session-1",
-                "trace-1",
-                {"username": "client-user", "server_id": "node-1"},
-            )
-            self.assertTrue(login_response["payload"]["success"])
-            self.assertTrue(ts_broker_gate.is_gate_active("client-user", "node-1"))
 
             ts_trading_svc.ensure_broker_connected = fake_connected
             ts_trading_svc.get_current_broker = lambda: FakeBroker()
@@ -1111,44 +1224,59 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(positions["success"])
             self.assertEqual(positions["positions"][0]["symbol"], "AAPL")
         finally:
-            ts_config_sync.login_broker_with_credentials = original_login
             ts_trading_svc.ensure_broker_connected = original_connected
             ts_trading_svc.get_current_broker = original_current
 
-    async def test_broker_challenge_does_not_activate_gate(self):
-        original_login = ts_config_sync.login_broker_with_credentials
+    async def test_broker_status_is_real_and_runtime_login_messages_are_removed(self):
+        original_status = ts_ws_server._MESSAGE_HANDLERS["BROKER_STATUS_QUERY"]
         try:
-            async def fake_challenge(broker_type="", credentials=None):
-                return {
-                    "success": False,
-                    "code": "BROKER_DEVICE_CHALLENGE_REQUIRED",
-                    "message": "challenge",
-                    "challenge_token": "challenge-token",
-                    "challenge": {},
-                }
-
-            ts_config_sync.login_broker_with_credentials = fake_challenge
-            response = await ts_ws_server._handle_broker_login(
-                {
-                    "id": "login-2",
-                    "payload": {
-                        "account_username": "broker-user",
-                        "account_password": "broker-password",
-                    },
-                },
+            response = await original_status(
+                {"id": "status-1", "payload": {}},
                 "session-2",
                 "trace-2",
                 {"username": "client-user", "server_id": "node-1"},
             )
-            self.assertFalse(response["payload"]["success"])
-            self.assertEqual(
-                response["payload"]["code"],
-                "BROKER_DEVICE_CHALLENGE_REQUIRED",
-            )
-            self.assertEqual(response["payload"]["challenge_token"], "challenge-token")
-            self.assertFalse(ts_broker_gate.is_gate_active("client-user", "node-1"))
+            self.assertTrue(response["payload"]["success"])
+            self.assertIn("broker_detail", response["payload"])
+            self.assertNotIn("BROKER_LOGIN", ts_ws_server._MESSAGE_HANDLERS)
+            self.assertNotIn("BROKER_LOGOUT", ts_ws_server._MESSAGE_HANDLERS)
         finally:
-            ts_config_sync.login_broker_with_credentials = original_login
+            self.assertIs(ts_ws_server._MESSAGE_HANDLERS["BROKER_STATUS_QUERY"], original_status)
+
+    async def test_read_only_capabilities_reject_order_and_cancel(self):
+        original_connected = ts_trading_svc.ensure_broker_connected
+        original_current = ts_trading_svc.get_current_broker
+
+        class ReadOnlyBroker:
+            broker_type = "tastytrade"
+
+            @staticmethod
+            def effective_capabilities():
+                return {"orders": False, "cancel_order": False}
+
+        try:
+            async def fake_connected():
+                return True
+
+            ts_trading_svc.ensure_broker_connected = fake_connected
+            ts_trading_svc.get_current_broker = lambda: ReadOnlyBroker()
+            order = await ts_trading_svc.place_order(
+                {"symbol": "AAPL", "action": "Buy to Open", "qty": 1, "price": 100, "order_type": "limit", "tif": "Day"},
+                username="client-user",
+                server_id="node-1",
+                session_id="session-1",
+            )
+            cancel = await ts_trading_svc.cancel_order(
+                "order-1",
+                username="client-user",
+                server_id="node-1",
+                session_id="session-1",
+            )
+            self.assertEqual(order["code"], "ORDER_NOT_SUPPORTED")
+            self.assertEqual(cancel["code"], "ORDER_CANCEL_NOT_SUPPORTED")
+        finally:
+            ts_trading_svc.ensure_broker_connected = original_connected
+            ts_trading_svc.get_current_broker = original_current
 
 
 class AdminManagementTests(unittest.TestCase):

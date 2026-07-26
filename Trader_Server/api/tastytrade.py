@@ -10,19 +10,13 @@ Tastytrade 券商适配器
 
 import asyncio
 import datetime
-import json
 import logging
-import time
-import urllib.error
-import urllib.request
 from decimal import Decimal
 from typing import Any
 
 from .base import BaseBrokerAPI
 
 log = logging.getLogger("trader_server.api.tastytrade")
-TT_API_URL = "https://api.tastyworks.com"
-
 # SDK 导入标记
 _SDK_AVAILABLE = False
 _DX_AVAILABLE = False
@@ -76,14 +70,12 @@ class TastytradeBroker(BaseBrokerAPI):
         token (str):  必填 - Tastytrade Session Token
         account_number (str): 可选 - 账号号，留空则使用默认账户
 
-    兼容四要素凭证模型：
-        account_username/account_password/token/secret
-    （其中 account_username/account_password 用于上游统一，不参与 TT Session 构建）
+    secret/token 分别对应 OAuth Client Secret 和 Refresh Token。
     """
 
     @classmethod
     def credential_profiles(cls) -> list[tuple[str, ...]]:
-        return [("token", "secret"), ("account_username", "account_password")]
+        return [("token", "secret")]
 
     @staticmethod
     def _classify_connect_exception(exc: Exception) -> tuple[str, str, bool]:
@@ -111,6 +103,7 @@ class TastytradeBroker(BaseBrokerAPI):
         # Session 缓存（复用 origin_demo 的 session_store 模式）
         self._session: Any | None = None
         self._account: Any | None = None
+        self._account_authority = "unknown"
         self._equity_cache: dict[str, Any] = {}
 
         # TT DX 行情流状态
@@ -144,10 +137,11 @@ class TastytradeBroker(BaseBrokerAPI):
 
 
     async def connect(self, credentials: dict) -> bool:
-        """Create a TT session from token/secret or interactive username/password login."""
+        """Create the TS-managed tastytrade OAuth session."""
         self._connected = False
         self._session = None
         self._account = None
+        self._account_authority = "unknown"
         self._equity_cache = {}
 
         if not _SDK_AVAILABLE:
@@ -165,38 +159,50 @@ class TastytradeBroker(BaseBrokerAPI):
         self._credentials = normalized
         secret = normalized.get("secret", "")
         token = normalized.get("token", "")
-        acct_num = normalized.get("account_number", "")
-        account_username = normalized.get("account_username", "")
-        account_password = normalized.get("account_password", "")
-        challenge_token = normalized.get("challenge_token", "")
-        otp = normalized.get("otp", "")
+        acct_num = str(normalized.get("account_number", "") or "").strip()
 
         try:
-            if secret and token:
-                self._session = Session(secret, token)
-            elif account_username and account_password:
-                self._session = await self._create_password_session(
-                    account_username=account_username,
-                    account_password=account_password,
-                    challenge_token=challenge_token,
-                    otp=otp,
-                )
-            else:
-                self.set_connection_error("BROKER_CREDENTIALS_INVALID", "Missing Tastytrade credentials", retryable=False)
-                return False
-
-            accts = await Account.get(self._session)
+            self._session = Session(secret, token)
+            account_records = await self._get_account_records(self._session)
             if acct_num:
-                self._account = next(
-                    (a for a in accts if str(a.account_number) == acct_num),
-                    accts[0] if accts else None,
+                selected_record = next(
+                    (
+                        record
+                        for record in account_records
+                        if str(getattr(record["account"], "account_number", "")) == acct_num
+                    ),
+                    None,
                 )
+                if selected_record is None:
+                    self.set_connection_error(
+                        "BROKER_ACCOUNT_NOT_FOUND",
+                        f"Configured account {acct_num} is not accessible with this OAuth grant",
+                        retryable=False,
+                    )
+                    return False
             else:
-                self._account = accts[0] if accts else None
+                selected_record = next(
+                    (
+                        record
+                        for record in account_records
+                        if not bool(getattr(record["account"], "is_closed", False))
+                    ),
+                    None,
+                )
 
-            if not self._account:
+            if not selected_record:
                 self.set_connection_error("BROKER_ACCOUNT_MISSING", "No accounts found for this session", retryable=False)
                 log.error("No accounts found for this session")
+                return False
+            self._account = selected_record["account"]
+            self._account_authority = selected_record["authority_level"]
+            if bool(getattr(self._account, "is_closed", False)):
+                self.set_connection_error(
+                    "BROKER_ACCOUNT_CLOSED",
+                    f"Configured account {acct_num} is closed",
+                    retryable=False,
+                )
+                self._account = None
                 return False
 
             self._connected = True
@@ -206,148 +212,71 @@ class TastytradeBroker(BaseBrokerAPI):
             return True
 
         except Exception as e:
-            if str(getattr(e, "args", [""])[0]) == "BROKER_DEVICE_CHALLENGE_REQUIRED":
-                return False
             code, message, retryable = self._classify_connect_exception(e)
             self.set_connection_error(code, message, retryable=retryable)
             log.error(f"TastytradeBroker connect failed [{code}]: {message}")
-            self._session = None
             self._account = None
             return False
+        finally:
+            if not self._connected and self._session is not None:
+                session = self._session
+                self._session = None
+                client = getattr(session, "_client", None)
+                if client is not None:
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        pass
 
-    async def _create_password_session(
-        self,
-        account_username: str,
-        account_password: str,
-        challenge_token: str = "",
-        otp: str = "",
-    ) -> Any:
-        payload = {
-            "login": account_username,
-            "password": account_password,
-            "remember-me": True,
+    async def _get_account_records(self, session: Any) -> list[dict[str, Any]]:
+        data = await session._get("/customers/me/accounts")
+        items = data.get("items", []) if isinstance(data, dict) else []
+        records: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("account"), dict):
+                continue
+            records.append({
+                "account": Account(**item["account"]),
+                "authority_level": str(
+                    item.get("authority-level") or item.get("authority_level") or "unknown"
+                ).strip().lower(),
+            })
+        return records
+
+    def effective_capabilities(self) -> dict[str, bool]:
+        capabilities = super().effective_capabilities()
+        if self._account_authority in {"read-only", "read_only", "readonly"}:
+            capabilities["orders"] = False
+            capabilities["cancel_order"] = False
+        return capabilities
+
+    def status_detail(self) -> dict[str, Any]:
+        account = self._account
+        return {
+            "account": {
+                "account_number": str(getattr(account, "account_number", "") or ""),
+                "nickname": str(getattr(account, "nickname", "") or ""),
+                "account_type": str(getattr(account, "account_type_name", "") or ""),
+                "authority_level": self._account_authority,
+                "is_closed": bool(getattr(account, "is_closed", False)) if account else False,
+            }
         }
-        headers = {}
-        if challenge_token:
-            headers["X-Tastyworks-Challenge-Token"] = challenge_token
-        if otp:
-            headers["X-Tastyworks-OTP"] = otp
 
-        result = await self._tt_post_json("/sessions", payload, headers=headers)
-        data = result.get("body", {}) if isinstance(result.get("body"), dict) else {}
-        body_data = data.get("data", data) if isinstance(data, dict) else {}
-        session_token = self._pick_first(
-            body_data,
-            "session-token",
-            "session_token",
-            "sessionToken",
-            "access-token",
-            "access_token",
-            "token",
-        )
-        refresh_token = self._pick_first(
-            body_data,
-            "remember-token",
-            "remember_token",
-            "refresh-token",
-            "refresh_token",
-        )
-        provider_secret = self.normalize_credentials(self._credentials).get("secret") or "session-login"
-
-        if refresh_token and provider_secret and provider_secret != "session-login":
-            return Session(provider_secret, refresh_token)
-        if not session_token:
-            keys = ", ".join(sorted(str(k) for k in body_data.keys())) if isinstance(body_data, dict) else ""
-            raise RuntimeError(f"Tastytrade login succeeded but no session token was returned (keys: {keys})")
-
-        session = Session(provider_secret or "session-login", refresh_token or "session-login")
-        session.session_token = session_token
-        session.session_expiration = time.time() + 12 * 60 * 60
-        session._client.headers.update({"Authorization": f"Bearer {session_token}"})
-        return session
-
-    async def _tt_post_json(self, path: str, payload: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, lambda: self._tt_post_json_sync(path, payload, headers or {}))
-
-    def _tt_post_json_sync(self, path: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-        url = f"{TT_API_URL}{path}"
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
-        req.add_header("Accept", "application/json")
-        req.add_header("Content-Type", "application/json")
-        for key, value in headers.items():
-            if value:
-                req.add_header(key, value)
-
-        try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-                return {"status": resp.status, "headers": dict(resp.headers), "body": json.loads(raw) if raw else {}}
-        except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
-            try:
-                body = json.loads(raw) if raw else {}
-            except Exception:
-                body = {"error": raw[:240]}
-            self._handle_tt_login_error(exc.code, dict(exc.headers), body)
-            raise
-
-    def _handle_tt_login_error(self, status: int, headers: dict[str, str], body: dict[str, Any]) -> None:
-        error_code = str(body.get("error", {}).get("code") if isinstance(body.get("error"), dict) else body.get("error_code") or body.get("code") or "")
-        message = str(
-            body.get("error", {}).get("message") if isinstance(body.get("error"), dict) else body.get("message") or body.get("error_description") or error_code or f"HTTP {status}"
-        )
-        challenge_token = headers.get("X-Tastyworks-Challenge-Token") or headers.get("x-tastyworks-challenge-token") or ""
-
-        if status == 403 and ("device_challenge_required" in error_code or challenge_token):
-            challenge = self._request_device_challenge(challenge_token)
-            self.set_connection_error(
-                "BROKER_DEVICE_CHALLENGE_REQUIRED",
-                "Tastytrade device challenge required",
-                retryable=False,
-                detail={
-                    "challenge_token": challenge_token,
-                    "challenge": challenge,
-                },
-            )
-            raise RuntimeError("BROKER_DEVICE_CHALLENGE_REQUIRED")
-
-        if status in (400, 401, 403):
-            self.set_connection_error("BROKER_AUTH_INVALID", message[:240], retryable=False)
-            raise RuntimeError(message[:240])
-        self.set_connection_error("BROKER_CONNECT_FAILED", message[:240], retryable=True)
-        raise RuntimeError(message[:240])
-
-    def _request_device_challenge(self, challenge_token: str) -> dict[str, Any]:
-        if not challenge_token:
-            return {}
-        try:
-            req = urllib.request.Request(f"{TT_API_URL}/device-challenge", data=b"{}", method="POST")
-            req.add_header("Accept", "application/json")
-            req.add_header("Content-Type", "application/json")
-            req.add_header("X-Tastyworks-Challenge-Token", challenge_token)
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-                body = json.loads(raw) if raw else {}
-                return body.get("data", body) if isinstance(body, dict) else {}
-        except Exception as exc:
-            log.warning("Tastytrade device challenge request failed: %s", str(exc)[:120])
-            return {}
-
-    @staticmethod
-    def _pick_first(data: dict[str, Any], *keys: str) -> str:
-        for key in keys:
-            value = data.get(key) if isinstance(data, dict) else None
-            if value:
-                return str(value)
-        return ""
     async def disconnect(self) -> None:
         """断开连接，清除缓存"""
         await self._stop_quote_stream()
+        session = self._session
         self._session = None
         self._account = None
+        self._account_authority = "unknown"
         self._equity_cache.clear()
         self._connected = False
+        client = getattr(session, "_client", None)
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:
+                pass
         log.info("TastytradeBroker disconnected")
 
 

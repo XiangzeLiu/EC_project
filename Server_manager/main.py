@@ -67,7 +67,7 @@ from address_utils import address_candidates, endpoint_matches_node, ts_api_url
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
-from services import dns_config_service
+from services import dns_config_service, tastytrade_validation
 
 
 
@@ -216,7 +216,16 @@ def _get_realtime_nodes_for_display() -> list[dict]:
         sid = (n.get("server_id") or "").strip()
         cfg = configs.get(sid)
         if cfg:
-            n["broker_config"] = cfg.get("_raw_config", {})
+            raw = dict(cfg.get("_raw_config", {}) or {})
+            credentials = dict(raw.get("credentials", {}) or {})
+            broker_type = str(raw.get("broker_type") or cfg.get("broker_type") or "")
+            if broker_type.strip().lower() in {"tt", "tastytrade"}:
+                raw["credentials"] = {
+                    "secret_configured": bool(credentials.get("secret")),
+                    "token_configured": bool(credentials.get("token")),
+                    "account_number": str(credentials.get("account_number") or ""),
+                }
+            n["broker_config"] = raw
     return nodes
 
 
@@ -1253,6 +1262,75 @@ async def refresh_nodes_status(request: Request):
     }
 
 
+def _is_tastytrade_broker(broker_type: str) -> bool:
+    return str(broker_type or "").strip().lower() in {"tt", "tastytrade"}
+
+
+async def _validate_tastytrade_config(credentials: dict) -> dict:
+    data = dict(credentials or {})
+    return await tastytrade_validation.validate_tastytrade_credentials(
+        client_secret=str(data.get("secret") or ""),
+        refresh_token=str(data.get("token") or ""),
+        account_number=str(data.get("account_number") or ""),
+    )
+
+
+def _tastytrade_validation_error_response(exc: tastytrade_validation.TastytradeValidationError) -> dict:
+    return {
+        "ok": False,
+        "code": exc.code,
+        "error": exc.message,
+        "accounts": list(exc.accounts or []),
+    }
+
+
+@app.post("/api/nodes/requests/{request_id}/tastytrade/validate")
+async def validate_pending_node_tastytrade(request: Request, request_id: str):
+    """Validate a pending node's tastytrade credentials without saving them."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    pending = database.get_node_request_by_id(request_id)
+    if not pending or str(pending.get("status") or "") != "pending":
+        return {"ok": False, "error": "Pending node request not found"}
+    body = await request.json() if await request.body() else {}
+    try:
+        result = await _validate_tastytrade_config(body.get("credentials", {}))
+    except tastytrade_validation.TastytradeValidationError as exc:
+        return _tastytrade_validation_error_response(exc)
+    return {"ok": True, **result}
+
+
+@app.post("/api/nodes/{server_id}/tastytrade/validate")
+async def validate_saved_node_tastytrade(request: Request, server_id: str):
+    """Validate candidate or currently saved tastytrade credentials for a node."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    current = database.get_node_broker_config(server_id)
+    if not current:
+        return {"ok": False, "error": "Node not found"}
+    body = await request.json() if await request.body() else {}
+    candidate = dict(body.get("credentials", {}) or {})
+    saved = dict(current.get("credentials", {}) or {})
+    supplied_secret = str(candidate.get("secret") or "").strip()
+    supplied_token = str(candidate.get("token") or "").strip()
+    if bool(supplied_secret) != bool(supplied_token):
+        return {"ok": False, "error": "Client Secret 和 Refresh Token 必须同时填写"}
+    credentials = {
+        "secret": supplied_secret or str(saved.get("secret") or ""),
+        "token": supplied_token or str(saved.get("token") or ""),
+        "account_number": str(
+            candidate.get("account_number")
+            if "account_number" in candidate
+            else saved.get("account_number") or ""
+        ).strip(),
+    }
+    try:
+        result = await _validate_tastytrade_config(credentials)
+    except tastytrade_validation.TastytradeValidationError as exc:
+        return _tastytrade_validation_error_response(exc)
+    return {"ok": True, **result}
+
+
 @app.post("/api/nodes/{request_id}/approve")
 async def approve_node(request: Request, request_id: str):
     """管理员通过节点的注册请求（同时录入券商配置）"""
@@ -1264,8 +1342,8 @@ async def approve_node(request: Request, request_id: str):
         body = await request.json() if await request.body() else {}
     except Exception:
         body = {}
-    broker_type = body.get("broker_type", "TT")
-    broker_credentials = body.get("credentials", {})
+    broker_type = str(body.get("broker_type") or "TT").strip()
+    broker_credentials = dict(body.get("credentials", {}) or {})
 
     req = database.get_node_request_by_id(request_id)
     if not req:
@@ -1298,6 +1376,18 @@ async def approve_node(request: Request, request_id: str):
         # 网络不可达等不确定情况，不误判废弃，继续人工审批通过流程
         log.warning(f"[approve] probe unknown, continue approval: {request_id}, detail={probe_msg}")
 
+    validation_result = None
+    if _is_tastytrade_broker(broker_type):
+        try:
+            validation_result = await _validate_tastytrade_config(broker_credentials)
+        except tastytrade_validation.TastytradeValidationError as exc:
+            return _tastytrade_validation_error_response(exc)
+        selected = validation_result["selected_account"]
+        broker_credentials = {
+            "secret": str(broker_credentials.get("secret") or "").strip(),
+            "token": str(broker_credentials.get("token") or "").strip(),
+            "account_number": selected["account_number"],
+        }
 
     assignment = None
     if SM_DOMAIN_POOL_REQUIRED:
@@ -1317,7 +1407,12 @@ async def approve_node(request: Request, request_id: str):
                 "request_id": request_id,
             }
 
-    result = database.approve_node_request(request_id, domain_assignment=assignment)
+    result = database.approve_node_request(
+        request_id,
+        domain_assignment=assignment,
+        broker_type=broker_type,
+        broker_credentials=broker_credentials,
+    )
     if not result:
         if assignment:
             await loop.run_in_executor(
@@ -1326,17 +1421,9 @@ async def approve_node(request: Request, request_id: str):
             )
         return {"ok": False, "error": "Request not found or already processed"}
 
-
-    # 将券商配置写入 brokers.config
-    if broker_type or broker_credentials:
-        database.set_node_broker_config(
-            server_id=result["server_id"],
-            broker_type=broker_type,
-            credentials=broker_credentials,
-        )
-        cfg = database.get_node_broker_config(result["server_id"])
-        if cfg:
-            _push_config_change(result["server_id"], int(cfg.get("config_version", 0) or 0))
+    cfg = database.get_node_broker_config(result["server_id"])
+    if cfg:
+        _push_config_change(result["server_id"], int(cfg.get("config_version", 0) or 0))
 
 
     # 审批通过后，将节点加载到内存状态管理器
@@ -1375,6 +1462,8 @@ async def approve_node(request: Request, request_id: str):
         "server_id": result["server_id"],
         "assigned_domain": result.get("assigned_domain", ""),
         "public_endpoint": result.get("public_endpoint", ""),
+        "selected_account": validation_result.get("selected_account") if validation_result else None,
+        "warnings": validation_result.get("warnings", []) if validation_result else [],
     }
 
 
@@ -1705,11 +1794,37 @@ async def update_node_config(request: Request, server_id: str):
 
     body = await request.json()
     broker_type = body.get("broker_type", "")
-    credentials = body.get("credentials", {})
+    credentials = dict(body.get("credentials", {}) or {})
     enabled = body.get("enabled", True)
 
     if not broker_type:
         return {"ok": False, "error": "broker_type is required"}
+
+    validation_result = None
+    if _is_tastytrade_broker(broker_type):
+        current = database.get_node_broker_config(server_id)
+        if not current:
+            return {"ok": False, "error": "Node not found"}
+        saved = dict(current.get("credentials", {}) or {})
+        supplied_secret = str(credentials.get("secret") or "").strip()
+        supplied_token = str(credentials.get("token") or "").strip()
+        if bool(supplied_secret) != bool(supplied_token):
+            return {"ok": False, "error": "Client Secret 和 Refresh Token 必须同时填写"}
+        merged = {
+            "secret": supplied_secret or str(saved.get("secret") or ""),
+            "token": supplied_token or str(saved.get("token") or ""),
+            "account_number": str(
+                credentials.get("account_number")
+                if "account_number" in credentials
+                else saved.get("account_number") or ""
+            ).strip(),
+        }
+        try:
+            validation_result = await _validate_tastytrade_config(merged)
+        except tastytrade_validation.TastytradeValidationError as exc:
+            return _tastytrade_validation_error_response(exc)
+        merged["account_number"] = validation_result["selected_account"]["account_number"]
+        credentials = merged
 
     ok = database.set_node_broker_config(
         server_id=server_id,
@@ -1722,7 +1837,12 @@ async def update_node_config(request: Request, server_id: str):
         if cfg:
             _push_config_change(server_id, int(cfg.get("config_version", 0) or 0))
         _record_admin_event(request, "UPDATE_NODE_CONFIG", "node", f"修改节点配置：{server_id}，券商：{broker_type}")
-        return {"ok": True, "message": f"\u914d\u7f6e\u5df2\u66f4\u65b0 ({server_id})"}
+        return {
+            "ok": True,
+            "message": f"\u914d\u7f6e\u5df2\u66f4\u65b0 ({server_id})",
+            "selected_account": validation_result.get("selected_account") if validation_result else None,
+            "warnings": validation_result.get("warnings", []) if validation_result else [],
+        }
 
     return {"ok": False, "error": "\u66f4\u65b0\u5931\u8d25"}
 

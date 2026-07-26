@@ -1,7 +1,7 @@
 """Trader_Server 数据模型定义（Pydantic）"""
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Any, Optional
 
 
 # ── 注册相关 ──────────────────────────────────────────────────────────────
@@ -159,3 +159,4 @@ class BrokerStatusChangePayload(BaseModel):
     broker_type: str = ""
     status: str = ""                   # connected / disconnected / reconnected / error / ...
     config_version: int = 0
+    broker_detail: dict[str, Any] = Field(default_factory=dict)

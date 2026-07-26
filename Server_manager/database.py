@@ -1347,6 +1347,9 @@ def approve_node_request(
     request_id: str,
     reviewer: str = "admin",
     domain_assignment: dict | None = None,
+    broker_type: str = "",
+    broker_credentials: dict | None = None,
+    broker_enabled: bool = True,
 ) -> dict | None:
     """????????????????????"""
     import secrets
@@ -1380,7 +1383,8 @@ def approve_node_request(
         now = datetime.now(timezone.utc).isoformat()
         server_id = f"node_{req['node_name']}_{secrets.token_hex(4)}"
         token = secrets.token_urlsafe(32)
-        approved_broker_type = (req['region'] or 'TT').strip() or 'TT'
+        approved_broker_type = (broker_type or req['region'] or 'TT').strip() or 'TT'
+        approved_broker_credentials = dict(broker_credentials or {})
         caps_json = _load_json_list(req['capabilities'])
         assignment = domain_assignment or {}
         domain_id = int(assignment.get("id") or 0)
@@ -1438,7 +1442,15 @@ def approve_node_request(
                 ),
             )
             _upsert_node_runtime(conn, server_id, 'approved', public_ip, '', '', '', now)
-            _upsert_node_broker_config(conn, server_id, approved_broker_type, {}, True, 0, now)
+            _upsert_node_broker_config(
+                conn,
+                server_id,
+                approved_broker_type,
+                approved_broker_credentials,
+                broker_enabled,
+                1,
+                now,
+            )
             if domain_id:
                 cursor = conn.execute(
                     """

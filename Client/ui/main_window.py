@@ -272,11 +272,8 @@ class TradingTerminal(tk.Tk):
         self._se_status_lbl: tk.Label | None = None
         self._se_btn: tk.Button | None = None
         self._logout_btn: tk.Button | None = None
-        self._broker_status_var: tk.StringVar = tk.StringVar(value="\u4ea4\u6613\u670d\u52a1\uff1a\u672a\u767b\u5f55")
+        self._broker_status_var: tk.StringVar = tk.StringVar(value="券商：未连接")
         self._broker_status_lbl: tk.Label | None = None
-        self._broker_user_entry: tk.Entry | None = None
-        self._broker_pass_entry: tk.Entry | None = None
-        self._broker_login_btn: tk.Button | None = None
         self._session_id: str = ""
         self._se_status_connected: bool = False
         self._se_dot_phase: int = 0
@@ -633,9 +630,9 @@ class TradingTerminal(tk.Tk):
                 node = payload.get("node_info", {})
                 self._session_id = payload.get("session_id", "")
                 self._node_info = node
-                gate = payload.get("broker_gate")
-                if self.session and isinstance(gate, dict):
-                    self.session._set_broker_gate(gate)
+                detail = payload.get("broker_detail")
+                if self.session and isinstance(detail, dict):
+                    self.session.set_broker_detail(detail)
                 # 鏃ュ織绋嶅悗鍦ㄤ富鐣岄潰涓褰?
         self.after(0, _ui)
 
@@ -921,8 +918,8 @@ class TradingTerminal(tk.Tk):
         self.status_var.set("\u25cf \u5df2\u8fde\u63a5")
         self.status_lbl.config(fg=ACCENT_GREEN)
         self._set_se_connection_ui(self._se_connected)
-        self._apply_broker_gate_ui()
-        self._refresh_broker_gate_async(log_errors=False)
+        self._apply_broker_status_ui()
+        self._refresh_broker_status_async(log_errors=False)
 
         # 鍚姩鍚勫瓙绯荤粺
         node_name = self._node_info.get("node_name", "SE") if self._node_info else "SE"
@@ -1071,7 +1068,7 @@ class TradingTerminal(tk.Tk):
         broker_frame.pack(side="left", padx=(10, 6))
         tk.Label(
             broker_frame,
-            text="\u4ea4\u6613\u670d\u52a1\u767b\u5f55\uff1a",
+            text="券商账户：",
             bg=TOP_BAR_BG,
             fg=TEXT_DIM,
             font=FONT_UI_SM,
@@ -1084,46 +1081,6 @@ class TradingTerminal(tk.Tk):
             font=FONT_BOLD,
         )
         self._broker_status_lbl.pack(side="left", padx=(0, 8))
-        self._broker_user_entry = tk.Entry(
-            broker_frame,
-            width=12,
-            bg=INPUT_BG,
-            fg=TEXT_PRIMARY,
-            insertbackground=TEXT_PRIMARY,
-            font=FONT_UI_SM,
-            relief="flat",
-            bd=0,
-        )
-        self._broker_user_entry.pack(side="left", padx=(0, 4), ipady=2)
-        self._broker_pass_entry = tk.Entry(
-            broker_frame,
-            width=12,
-            bg=INPUT_BG,
-            fg=TEXT_PRIMARY,
-            insertbackground=TEXT_PRIMARY,
-            font=FONT_UI_SM,
-            relief="flat",
-            bd=0,
-            show="*",
-        )
-        self._broker_pass_entry.pack(side="left", padx=(0, 6), ipady=2)
-        self._broker_pass_entry.bind("<Return>", lambda _e: self._broker_login())
-        self._broker_login_btn = tk.Button(
-            broker_frame,
-            text="\u767b\u5f55",
-            font=FONT_UI_SM,
-            bg=BUTTON_NEUTRAL_BG,
-            fg=ACCENT_BLUE,
-            activebackground=BUTTON_ACTIVE_BG,
-            activeforeground=TEXT_PRIMARY,
-            relief="flat",
-            cursor="hand2",
-            padx=10,
-            pady=2,
-            command=self._broker_login,
-        )
-        self._broker_login_btn.pack(side="left")
-        self._bind_button_hover(self._broker_login_btn, BUTTON_NEUTRAL_BG)
 
         self._set_se_connection_ui(self._se_connected)
 
@@ -1340,11 +1297,12 @@ class TradingTerminal(tk.Tk):
             self._last_pos_time = now
 
         # 姣?0绉掍粠鏈嶅姟鍣ㄥ埛鏂版寔浠?璁㈠崟
-        if self._trade_controls_enabled() and not self.session.mock_mode:
-            if now - self._last_orders_time > ORDERS_INTERVAL / 1000:
+        if not self.session.mock_mode and now - self._last_orders_time > ORDERS_INTERVAL / 1000:
+            if self._broker_capability_enabled("positions"):
                 self._refresh_positions()
+            if self._broker_capability_enabled("order_query"):
                 self._refresh_orders()
-                self._last_orders_time = now
+            self._last_orders_time = now
 
         # 蹇冭烦妫娴嬶紙姣?0绉抪ing鏈嶅姟鍣級
         if self.session.connected and not self.session.mock_mode:
@@ -1653,129 +1611,70 @@ class TradingTerminal(tk.Tk):
 
     # 鈹鈹 Login 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
-    def _broker_gate_state(self) -> dict:
-        gate = {
-            "active": False,
-            "status": "not_logged_in",
-            "username": "",
-            "server_id": "",
-            "account_username": "",
-            "grace_remaining": 0,
-            "updated_at": 0,
-        }
-        raw = getattr(self.session, "broker_gate", None) if self.session else None
-        if isinstance(raw, dict):
-            try:
-                gate.update({
-                    "active": bool(raw.get("active", False)),
-                    "status": str(raw.get("status") or gate["status"]),
-                    "username": str(raw.get("username") or ""),
-                    "server_id": str(raw.get("server_id") or ""),
-                    "account_username": str(raw.get("account_username") or ""),
-                    "grace_remaining": max(0, int(raw.get("grace_remaining") or 0)),
-                    "updated_at": max(0, int(raw.get("updated_at") or 0)),
-                })
-            except Exception:
-                pass
-        if self.session and getattr(self.session, "mock_mode", False):
-            gate["active"] = True
-            gate["status"] = "mock_mode"
-            gate["account_username"] = gate["account_username"] or "SIM"
-        return gate
+    def _broker_detail_state(self) -> dict:
+        raw = getattr(self.session, "broker_detail", None) if self.session else None
+        return raw if isinstance(raw, dict) else {"connected": False, "capabilities": {}, "account": {}}
+
+    def _broker_capability_enabled(self, capability: str) -> bool:
+        if not self.session:
+            return False
+        if getattr(self.session, "mock_mode", False):
+            return True
+        return bool(self.session.connected and self._se_connected and self.session.has_broker_capability(capability))
 
     def _trade_controls_enabled(self) -> bool:
         if not self.session:
             return False
         if getattr(self.session, "mock_mode", False):
             return True
-        return bool(self.session.connected and self._se_connected and getattr(self.session, "broker_gate_active", False))
+        return self._broker_capability_enabled("orders")
 
-    def _apply_broker_gate_ui(self):
-        gate = self._broker_gate_state()
-        enabled = self._trade_controls_enabled()
+    def _apply_broker_status_ui(self):
+        detail = self._broker_detail_state()
 
         if self._broker_status_var:
             if getattr(self.session, "mock_mode", False):
-                text = "\u4ea4\u6613\u670d\u52a1\uff1a\u6a21\u62df\u6a21\u5f0f"
+                text = "券商：模拟模式"
                 color = ACCENT_BLUE
-            elif gate["status"] == "grace_pending":
-                text = f"\u4ea4\u6613\u670d\u52a1\uff1a\u91cd\u8fde\u7b49\u5f85\u4e2d\uff08{gate['grace_remaining']}秒）"
-                color = ACCENT_YELLOW
-            elif gate["active"]:
-                account_name = gate["account_username"] or "\u5df2\u767b\u5f55"
-                text = f"\u4ea4\u6613\u670d\u52a1\uff1a{account_name}"
+            elif detail.get("connected"):
+                account = detail.get("account") or {}
+                account_name = account.get("nickname") or account.get("account_number") or "已连接"
+                authority = str(account.get("authority_level") or "")
+                text = f"券商：{account_name}" + ("（只读）" if authority in {"read-only", "read_only", "readonly"} else "")
                 color = ACCENT_GREEN
-            elif gate["status"] == "expired":
-                text = "\u4ea4\u6613\u670d\u52a1\uff1a\u767b\u5f55\u5df2\u8fc7\u671f"
-                color = ACCENT_RED
             else:
-                text = "\u4ea4\u6613\u670d\u52a1\uff1a\u672a\u767b\u5f55"
+                text = "券商：未连接"
                 color = ACCENT_RED
             self._broker_status_var.set(text)
             if self._broker_status_lbl:
                 self._broker_status_lbl.config(fg=color)
 
-        if self._broker_login_btn:
-            self._broker_login_btn.config(state="normal", text="\u767b\u5f55")
-
         for panel in self.panels.values():
-            panel.set_trade_enabled(enabled)
+            panel.set_trade_enabled(self._broker_capability_enabled("orders"))
         if self.orders_panel:
-            self.orders_panel.set_enabled(enabled)
+            self.orders_panel.set_enabled(self._broker_capability_enabled("order_query"))
         if self.positions_panel:
-            self.positions_panel.set_enabled(enabled)
+            self.positions_panel.set_enabled(self._broker_capability_enabled("positions"))
 
-    def _refresh_broker_gate_async(self, log_errors: bool = False):
+    def _refresh_broker_status_async(self, log_errors: bool = False):
         if not self.session or getattr(self.session, "mock_mode", False):
-            self._apply_broker_gate_ui()
+            self._apply_broker_status_ui()
             return
         if not self.session.connected or not self._se_connected or not self._se_client or not self._se_client.is_connected:
-            self._apply_broker_gate_ui()
+            self._apply_broker_status_ui()
             return
 
         def _bg():
-            ok, _gate, msg = self.session.broker_status_query()
+            ok, _detail, msg = self.session.broker_status_query()
 
             def _ui():
-                self._apply_broker_gate_ui()
+                self._apply_broker_status_ui()
                 if (not ok) and log_errors and msg:
                     self._log_user_error_once(msg, "warn")
 
             self.after(0, _ui)
 
         threading.Thread(target=_bg, daemon=True).start()
-
-    def _broker_login(self):
-        if not self.session or not self.session.connected or not self._se_connected:
-            messagebox.showwarning("\u63d0\u793a", "\u8bf7\u5148\u5b8c\u6210\u7ba1\u7406\u670d\u52a1\u4e0e\u4ea4\u6613\u670d\u52a1\u8fde\u63a5")
-            return
-        username = self._broker_user_entry.get().strip() if self._broker_user_entry else ""
-        password = self._broker_pass_entry.get() if self._broker_pass_entry else ""
-        if not username or not password:
-            messagebox.showwarning("\u63d0\u793a", "\u8bf7\u8f93\u5165\u4ea4\u6613\u670d\u52a1\u8d26\u53f7\u548c\u5bc6\u7801")
-            return
-        if self._broker_login_btn:
-            self._broker_login_btn.config(state="disabled", text="\u767b\u5f55\u4e2d\u2026")
-
-        def _bg():
-            result = self.session.broker_login(username, password)
-            ok, msg = result[0], result[1]
-            self.after(0, lambda: self._handle_broker_login_result(ok, msg, username))
-
-        threading.Thread(target=_bg, daemon=True).start()
-
-    def _handle_broker_login_result(self, ok: bool, msg: str, username: str):
-        if self._broker_login_btn:
-            self._broker_login_btn.config(state="normal", text="\u767b\u5f55")
-        self._apply_broker_gate_ui()
-        if ok:
-            if self.log_area:
-                self.log_area.log("交易服务登录成功", "ok")
-            self.after(120, self._refresh_positions)
-            self.after(220, self._refresh_orders)
-        else:
-            if self.log_area:
-                self._log_user_error_once(f"交易服务登录失败：{_localize_user_message(msg)}")
 
     # 鈹鈹 Place Order 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
@@ -1812,7 +1711,7 @@ class TradingTerminal(tk.Tk):
         """UI helper."""
         if not self._trade_controls_enabled():
             if self.log_area:
-                self._log_user_error_once("请先登录交易服务", "warn")
+                self._log_user_error_once(self.session.broker_unavailable_message("orders"), "warn")
             return
         def _bg():
             ok, msg = self.session.place_order(symbol, qty, price, action, order_type, tif=tif)
@@ -1854,7 +1753,7 @@ class TradingTerminal(tk.Tk):
     # 鈹鈹 Positions 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _refresh_positions(self):
-        if not self._trade_controls_enabled() and not getattr(self.session, "mock_mode", False):
+        if not self._broker_capability_enabled("positions") and not getattr(self.session, "mock_mode", False):
             return
         def _bg():
             positions = self.session.get_today_activity()
@@ -1876,7 +1775,7 @@ class TradingTerminal(tk.Tk):
     # 鈹鈹 Orders 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
     def _refresh_orders(self):
-        if not self._trade_controls_enabled() and not getattr(self.session, "mock_mode", False):
+        if not self._broker_capability_enabled("order_query") and not getattr(self.session, "mock_mode", False):
             return
         mode = self.orders_panel.current_mode if self.orders_panel else "live"
         def _bg():
@@ -1890,9 +1789,9 @@ class TradingTerminal(tk.Tk):
             self.orders_panel.update_data(orders)
 
     def _cancel_selected_order(self, order_id: str):
-        if not self._trade_controls_enabled():
+        if not self._broker_capability_enabled("cancel_order"):
             if self.log_area:
-                self._log_user_error_once("请先登录交易服务", "warn")
+                self._log_user_error_once(self.session.broker_unavailable_message("cancel_order"), "warn")
             return
         def _bg():
             ok, msg = self.session.cancel_order(order_id)
@@ -1966,7 +1865,7 @@ class TradingTerminal(tk.Tk):
         self.status_var.set("\u25cf \u672a\u8fde\u63a5")
         self.status_lbl.config(fg=ACCENT_RED)
         self._log_user_error_once("管理服务连接已断开")
-        self._apply_broker_gate_ui()
+        self._apply_broker_status_ui()
 
     # 鈹鈹 SE (Trade_Server) Direct Connection 鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹鈹
 
@@ -2101,17 +2000,17 @@ class TradingTerminal(tk.Tk):
                 self._set_se_connection_ui(True)
                 if self.session:
                     self.session.bind_se_client(self._se_client)
-                self._apply_broker_gate_ui()
+                self._apply_broker_status_ui()
                 if self._init_ready and self.log_area:
                     self.log_area.log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
                 self._sync_quote_subscriptions_async()
-                self._refresh_broker_gate_async(log_errors=False)
+                self._refresh_broker_status_async(log_errors=False)
                 if self._reconnecting and self._reconnect_dialog:
                     self._hide_reconnect_dialog()
 
             elif "Reconnecting" in msg or "reconnecting" in msg.lower():
                 self._set_se_connection_ui(False)
-                self._apply_broker_gate_ui()
+                self._apply_broker_status_ui()
                 if not self._reconnecting and self._init_ready:
                     self._reconnecting = True
                     self._show_reconnect_dialog(msg)
@@ -2125,7 +2024,7 @@ class TradingTerminal(tk.Tk):
                 self._set_se_connection_ui(False)
                 with self._quote_sub_lock:
                     self._quote_subscribed_symbols.clear()
-                self._apply_broker_gate_ui()
+                self._apply_broker_status_ui()
                 self._log_user_error_once(msg)
 
             elif "Connection error" in msg or (msg.startswith("Disconnected:") and not self._se_active_se()):
@@ -2134,7 +2033,7 @@ class TradingTerminal(tk.Tk):
                     self._set_se_connection_ui(False)
                     with self._quote_sub_lock:
                         self._quote_subscribed_symbols.clear()
-                    self._apply_broker_gate_ui()
+                    self._apply_broker_status_ui()
                     self._start_se_reconnect()
                 elif self._reconnecting:
                     self._cancel_reconnect()
@@ -2142,13 +2041,13 @@ class TradingTerminal(tk.Tk):
                     self._set_se_connection_ui(False)
                     with self._quote_sub_lock:
                         self._quote_subscribed_symbols.clear()
-                    self._apply_broker_gate_ui()
+                    self._apply_broker_status_ui()
                 else:
                     self._release_se_occupation()
                     self._set_se_connection_ui(False)
                     with self._quote_sub_lock:
                         self._quote_subscribed_symbols.clear()
-                    self._apply_broker_gate_ui()
+                    self._apply_broker_status_ui()
                     self._log_user_error_once(msg)
 
             else:
@@ -2164,25 +2063,28 @@ class TradingTerminal(tk.Tk):
             payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
 
             if msg_type == "CONNECT_ACK":
-                gate = payload.get("broker_gate")
-                if self.session and isinstance(gate, dict):
-                    self.session._set_broker_gate(gate)
-                    self._apply_broker_gate_ui()
+                detail = payload.get("broker_detail")
+                if self.session and isinstance(detail, dict):
+                    self.session.set_broker_detail(detail)
+                    self._apply_broker_status_ui()
 
             elif msg_type == "STATUS_RESPONSE":
-                gate = payload.get("broker_gate")
-                if self.session and isinstance(gate, dict):
-                    self.session._set_broker_gate(gate)
-                    self._apply_broker_gate_ui()
+                detail = payload.get("broker_detail")
+                if self.session and isinstance(detail, dict):
+                    self.session.set_broker_detail(detail)
+                    self._apply_broker_status_ui()
 
-            elif msg_type in ("BROKER_LOGIN_RESPONSE", "BROKER_STATUS_RESPONSE", "BROKER_LOGOUT_RESPONSE"):
-                gate = payload.get("gate")
-                if self.session and isinstance(gate, dict):
-                    self.session._set_broker_gate(gate)
-                self._apply_broker_gate_ui()
-                if msg_type == "BROKER_LOGIN_RESPONSE" and payload.get("success"):
-                    self.after(120, self._refresh_positions)
-                    self.after(220, self._refresh_orders)
+            elif msg_type == "BROKER_STATUS_RESPONSE":
+                detail = payload.get("broker_detail")
+                if self.session and isinstance(detail, dict):
+                    self.session.set_broker_detail(detail)
+                self._apply_broker_status_ui()
+
+            elif msg_type == "BROKER_STATUS_CHANGE":
+                detail = payload.get("broker_detail")
+                if self.session and isinstance(detail, dict):
+                    self.session.set_broker_detail(detail)
+                self._apply_broker_status_ui()
 
             elif msg_type == "QUOTE_DATA":
                 sym = str(payload.get("symbol", "")).strip().upper()
@@ -2229,13 +2131,11 @@ class TradingTerminal(tk.Tk):
                 self._set_se_connection_ui(False)
                 with self._quote_sub_lock:
                     self._quote_subscribed_symbols.clear()
-                self._apply_broker_gate_ui()
+                self._apply_broker_status_ui()
                 messagebox.showwarning("交易服务器已释放", "当前交易服务器连接已被管理端释放，请重新连接。")
 
             elif msg_type == "ERROR":
                 err = payload
-                if err.get("code") in ("BROKER_LOGIN_REQUIRED", "BROKER_CREDENTIALS_REQUIRED"):
-                    self._refresh_broker_gate_async(log_errors=False)
                 self._log_user_error_once(
                     f"\u4ea4\u6613\u670d\u52a1\u5668\u9519\u8bef[{err.get('code', '')}]\uff1a"
                     f"{_localize_user_message(err.get('message', ''))}"
@@ -2414,12 +2314,6 @@ class TradingTerminal(tk.Tk):
             except tk.TclError:
                 pass
             self._reconnect_dialog = None
-
-        if self.session:
-            try:
-                self.session.broker_logout()
-            except Exception:
-                pass
 
         # 鏂紑 SE 杩炴帴
         if self._se_client:

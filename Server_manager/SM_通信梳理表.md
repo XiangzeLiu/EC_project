@@ -47,6 +47,17 @@
 | HTTP | `POST /api/nodes/{server_id}/occupy` | `Client/ui/main_window.py:723-726` | `Server_manager/main.py:1105-1139` | Bearer token `username` | Client 准备接入 TS 时 | 登记该 Client 占用该 TS | 后续 `verify-token` 会用到这个关系 |
 | HTTP | `POST /api/nodes/{server_id}/release` | `Client/ui/main_window.py:790` | `Server_manager/main.py:1143-1163` | Bearer token | Client 断开或回滚时 | 释放 TS 占用 | 仅允许占用者本人释放 |
 
+## 5. SM Web 审批与 tastytrade OAuth
+
+| 接口 | 调用方 | 用途 | 保存行为 |
+|---|---|---|---|
+| `POST /api/nodes/requests/{request_id}/tastytrade/validate` | SM 管理页面 | 验证待审批 TS 的 Client Secret、Refresh Token、账户和 Authority | 不保存凭证 |
+| `POST /api/nodes/{request_id}/approve` | SM 管理页面 | 最终复验 OAuth 配置、分配域名、审批节点并原子保存 Account Number | 验证成功后保存 |
+| `POST /api/nodes/{server_id}/tastytrade/validate` | SM 节点配置页面 | 使用已有或候选凭证重新查询账户 | 不保存凭证 |
+| `PUT /api/nodes/{server_id}/config` | SM 节点配置页面 | 最终复验并热更新 TS 券商配置 | 验证成功后保存并通知 TS |
+
+账户验证返回 Account Number、Nickname、Account Type、Authority 和关闭状态，不返回 Client Secret、Refresh Token 或 Access Token。SM 节点列表只返回“是否已配置”和所选 Account Number，浏览器不再取得完整券商凭证。
+
 ## Residual / Deprecated Chains
 
 - Removed on 2026-06-29 after static verification with no live references: `/orders/*`, `GET /positions`.

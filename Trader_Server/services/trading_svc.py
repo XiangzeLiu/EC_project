@@ -7,7 +7,6 @@ import time
 import uuid
 from typing import Any
 
-from .broker_gate import get_gate_status, is_gate_active
 from .config_sync import ensure_broker_connected, get_current_broker
 
 log = logging.getLogger("trader_server.trading_svc")
@@ -62,22 +61,10 @@ def _error(
     }
 
 
-def _gate_error(username: str, server_id: str, trace_id: str = "") -> dict[str, Any]:
-    status = get_gate_status(username, server_id)
-    message = "Trade service login required"
-    if status.get("status") == "grace_pending":
-        message = f"Trade service login pending reconnect ({status.get('grace_remaining', 0)}s left)"
-    return _error("BROKER_LOGIN_REQUIRED", message, trace_id=trace_id, retryable=False)
-
-
-def _ensure_gate(username: str, server_id: str, trace_id: str = "") -> dict[str, Any] | None:
-    if is_gate_active(username, server_id):
-        return None
-    return _gate_error(username, server_id, trace_id=trace_id)
-
-
 def _ensure_capability(broker: Any, capability: str, code: str, message: str, trace_id: str = "") -> dict[str, Any] | None:
-    caps_fn = getattr(broker, "capabilities", None)
+    caps_fn = getattr(broker, "effective_capabilities", None)
+    if not callable(caps_fn):
+        caps_fn = getattr(broker, "capabilities", None)
     caps = caps_fn() if callable(caps_fn) else {}
     if caps and not bool(caps.get(capability, False)):
         broker_type = getattr(broker, "broker_type", "broker")
@@ -156,10 +143,6 @@ def _check_duplicate_order(order: dict[str, Any], session_id: str, username: str
 
 
 async def _get_ready_broker(username: str, server_id: str, trace_id: str) -> tuple[Any | None, dict[str, Any] | None]:
-    gate_err = _ensure_gate(username, server_id, trace_id=trace_id)
-    if gate_err:
-        return None, gate_err
-
     if not await ensure_broker_connected():
         return None, _error("BROKER_OFFLINE", "Broker not connected", trace_id=trace_id, retryable=True)
 

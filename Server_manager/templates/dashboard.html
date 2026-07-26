@@ -1263,6 +1263,7 @@ async function refreshNodes(){
 }
 
 async function approveNode(rid,b){
+  _approvalTastytradeValidated=false;
   // 获取该节点的券商信息用于自动填充
   var nodeData=_pendingCache.find(function(x){return x.request_id===rid;})||{};
   var autoBroker=nodeData.region||'';
@@ -1278,7 +1279,7 @@ async function approveNode(rid,b){
     +'  <div class="modal-head"><h3>审批通过 - 节点配置</h3>'
     +'    <button class="modal-close-btn" aria-label="close"><i class="ri-close-line"></i></button></div>'
     +'  <div class="modal-body">'
-    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">审核通过后仅保存 Token / Secret，券商账号登录迁移到 Client 端。</p>'
+    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">审批前验证 OAuth 凭证并选择该 TS 使用的券商账户。</p>'
     // 字段1: 券商类型（自动填充，可修改）
     +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
     +'<select class="sel" id="app-broker-type" onchange="toggleBrokerFields()" style="width:100%">'
@@ -1287,10 +1288,13 @@ async function approveNode(rid,b){
     +'</select></div>'
 
 
-      // Step 2: fill credentials according to selected broker.
+    // Step 2: fill credentials according to selected broker.
     +'<div id="fields-tastytrade">'
-    +'  <div class="field-group"><label class="field-label">Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" placeholder="Tastytrade Session Secret" style="font-family:monospace;font-size:12px" /></div>'
-    +'  <div class="field-group"><label class="field-label">Token <span style="color:#ef4444">*</span></label><textarea class="inp" id="app-tt-token" rows="4" placeholder="Tastytrade Session Token" style="font-family:monospace;font-size:12px;line-height:1.45;resize:vertical;min-height:112px;white-space:pre-wrap;word-break:break-all"></textarea></div>'
+    +'  <div class="field-group"><label class="field-label">Client Secret <span style="color:#ef4444">*</span></label><input class="inp" id="app-tt-secret" type="password" autocomplete="new-password" placeholder="OAuth Client Secret" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div class="field-group"><label class="field-label">Refresh Token <span style="color:#ef4444">*</span></label><textarea class="inp" id="app-tt-token" rows="4" autocomplete="off" placeholder="OAuth Refresh Token" style="font-family:monospace;font-size:12px;line-height:1.45;resize:vertical;min-height:96px;white-space:pre-wrap;word-break:break-all"></textarea></div>'
+    +'  <div class="field-group"><label class="field-label">Account Number</label><input class="inp" id="app-tt-account" placeholder="留空时使用第一个开放账户" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><button class="btn-xs" id="app-tt-validate-btn" onclick="validateApprovalTastytrade(\''+rid+'\',this)"><i class="ri-shield-check-line"></i> 验证并获取账户</button><span id="app-tt-validation-state" style="font-size:12px;color:#94a3b8">尚未验证</span></div>'
+    +'  <div id="app-tt-account-results"></div>'
     +'</div>'
 
     +'<div id="fields-ib" style="display:none">'
@@ -1306,7 +1310,7 @@ async function approveNode(rid,b){
     +'  </div>'
     +'  <div class="modal-foot">'
     +'    <button class="btn-xs" onclick="document.getElementById(\'approve-config-modal\').remove()">取消</button>'
-    +'    <button class="btn-xs btn-pri" onclick="doApproveWithConfig(\''+rid+'\',this)">确认通过</button>'
+    +'    <button class="btn-xs btn-pri" id="approve-submit-btn" disabled onclick="doApproveWithConfig(\''+rid+'\',this)">确认通过</button>'
     +'  </div>'
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
@@ -1315,6 +1319,74 @@ async function approveNode(rid,b){
     if(b){b.disabled=false;b.innerHTML='<i class="ri-check-line"></i> 通过';}
   };
   if(autoBroker) toggleBrokerFields();
+  ['app-tt-secret','app-tt-token','app-tt-account'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.addEventListener('input',invalidateApprovalTastytrade);
+  });
+}
+
+var _approvalTastytradeValidated=false;
+
+function invalidateApprovalTastytrade(){
+  _approvalTastytradeValidated=false;
+  var state=document.getElementById('app-tt-validation-state');
+  var results=document.getElementById('app-tt-account-results');
+  var submit=document.getElementById('approve-submit-btn');
+  if(state){state.textContent='尚未验证';state.style.color='#94a3b8';}
+  if(results)results.innerHTML='';
+  if(submit&&document.getElementById('app-broker-type').value==='TT')submit.disabled=true;
+}
+
+function tastytradeAccountListHtml(accounts,selectedNumber,warnings,selectorName){
+  var selectFn=selectorName||'selectApprovalTastytradeAccount';
+  var rows=(accounts||[]).map(function(a){
+    var selected=a.account_number===selectedNumber;
+    var authority=(a.authority_level||'unknown').toString();
+    var warning=(authority==='read-only'||authority==='read_only'||authority==='readonly');
+    return '<button type="button" class="btn-xs" style="width:100%;display:grid;grid-template-columns:1.25fr 1fr 1fr .8fr;gap:8px;text-align:left;margin-bottom:6px;border-color:'+(selected?'#3b63f6':'#dce1ec')+';background:'+(selected?'#eef3ff':'#fff')+'" onclick="'+selectFn+'(\''+escapeHtml(a.account_number)+'\')">'
+      +'<span style="font-family:monospace">'+escapeHtml(a.account_number)+'</span>'
+      +'<span>'+escapeHtml(a.nickname||'-')+'</span>'
+      +'<span>'+escapeHtml(a.account_type||'-')+'</span>'
+      +'<span style="color:'+(warning?'#d97706':(a.is_closed?'#dc2626':'#16a34a'))+'">'+escapeHtml(a.is_closed?'已关闭':authority)+'</span>'
+      +'</button>';
+  }).join('');
+  var warningHtml=(warnings||[]).map(function(w){return '<div style="font-size:12px;color:#d97706;margin-top:6px"><i class="ri-alert-line"></i> '+escapeHtml(w)+'</div>';}).join('');
+  return '<div style="font-size:12px;color:#5b6480;margin-bottom:7px">账户号 / 名称 / 类型 / 权限</div>'+rows+warningHtml;
+}
+
+function selectApprovalTastytradeAccount(accountNumber){
+  var input=document.getElementById('app-tt-account');
+  if(input){input.value=accountNumber;invalidateApprovalTastytrade();}
+}
+
+async function validateApprovalTastytrade(rid,btn){
+  var secret=document.getElementById('app-tt-secret').value.trim();
+  var token=document.getElementById('app-tt-token').value.trim();
+  var account=document.getElementById('app-tt-account').value.trim();
+  if(!secret||!token){toast('请填写 Client Secret 和 Refresh Token','warn');return;}
+  btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 验证中...';
+  var state=document.getElementById('app-tt-validation-state');
+  try{
+    var r=await fetch('/api/nodes/requests/'+encodeURIComponent(rid)+'/tastytrade/validate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials:{secret:secret,token:token,account_number:account}})});
+    var d=await r.json();
+    var results=document.getElementById('app-tt-account-results');
+    if(d.ok){
+      var selected=(d.selected_account||{}).account_number||'';
+      document.getElementById('app-tt-account').value=selected;
+      if(results)results.innerHTML=tastytradeAccountListHtml(d.accounts||[],selected,d.warnings||[]);
+      _approvalTastytradeValidated=true;
+      state.textContent='验证通过，共 '+(d.accounts||[]).length+' 个账户';state.style.color='#16a34a';
+      document.getElementById('approve-submit-btn').disabled=false;
+      toast((d.warnings||[]).length?'验证通过，所选账户为只读权限':'凭证与账户验证通过',(d.warnings||[]).length?'warn':'ok');
+    }else{
+      _approvalTastytradeValidated=false;
+      state.textContent=d.error||'验证失败';state.style.color='#dc2626';
+      if(results&&d.accounts)results.innerHTML=tastytradeAccountListHtml(d.accounts,'',[]);
+      document.getElementById('approve-submit-btn').disabled=true;
+      toast(d.error||'验证失败','err');
+    }
+  }catch(e){
+    _approvalTastytradeValidated=false;state.textContent='验证请求失败';state.style.color='#dc2626';toast('验证网络错误:'+e.message,'err');
+  }finally{btn.disabled=false;btn.innerHTML='<i class="ri-shield-check-line"></i> 验证并获取账户';}
 }
 
 function toggleBrokerFields(){
@@ -1322,6 +1394,8 @@ function toggleBrokerFields(){
   document.getElementById('fields-tastytrade').style.display=(t==='TT')?'block':'none';
   document.getElementById('fields-ib').style.display=(t==='IB')?'block':'none';
   document.getElementById('fields-test').style.display=(t==='Test')?'block':'none';
+  var submit=document.getElementById('approve-submit-btn');
+  if(submit)submit.disabled=(t==='TT'&&!_approvalTastytradeValidated);
 }
 
 async function doApproveWithConfig(rid,btn){
@@ -1333,8 +1407,10 @@ async function doApproveWithConfig(rid,btn){
   if(bt==='TT'){
     var s=document.getElementById('app-tt-secret').value.trim();
     var t=document.getElementById('app-tt-token').value.trim();
-    if(!s||!t){toast('\u8bf7\u586b\u5199 Secret \u548c Token','warn');return;}
-    creds={"secret":s,"token":t};
+    var a=document.getElementById('app-tt-account').value.trim();
+    if(!s||!t){toast('请填写 Client Secret 和 Refresh Token','warn');return;}
+    if(!_approvalTastytradeValidated){toast('请先验证凭证并获取账户','warn');return;}
+    creds={"secret":s,"token":t,"account_number":a};
   }else if(bt==='IB'){
     var h=document.getElementById('app-ib-host').value.trim();
     var p=document.getElementById('app-ib-port').value.trim();
@@ -1467,11 +1543,9 @@ function showNodeDetail(sid){
   var brokerType=cfg.broker_type||n.region||'-';
   var credsDisplay='';
   if(brokerType==='TT' || brokerType==='tastytrade'){
-    var ttSecret=creds.secret||'';
-    var ttToken=creds.token||'';
     credsDisplay='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5b6480">'
-      +'<div>Secret: <span class="detail-val-mono">'+(ttSecret?ttSecret.substring(0,8)+'***':'-')+'</span></div>'
-      +'<div>Token: <span class="detail-val-mono">'+(ttToken?ttToken.substring(0,8)+'***':'-')+'</span></div>'
+      +'<div>Client Secret: <span class="detail-val-mono">'+(creds.secret_configured?'已配置':'-')+'</span></div>'
+      +'<div>Refresh Token: <span class="detail-val-mono">'+(creds.token_configured?'已配置':'-')+'</span></div>'
       +(creds.account_number?'<div>Account: <span class="detail-val-mono">'+escapeHtml(creds.account_number)+'</span></div>':'')
       +'</div>';
   }else if(brokerType==='IB' || brokerType==='interactive_brokers'){
@@ -1543,16 +1617,16 @@ function showNodeDetail(sid){
 //  节点配置（修改券商/账户信息）
 // ═══════════════════════════════════════════════════
 function showNodeConfig(sid){
+  _configTastytradeValidated=false;
   var n=_nodesCache.find(function(x){return x.server_id===sid;});
   if(!n){toast('未找到节点信息','err');return;}
 
   // 解析现有配置
   var cfg={};
-  try{cfg=JSON.parse(n.broker_config||'{}');}catch(e){}
+  try{cfg=(typeof n.broker_config==='string')?JSON.parse(n.broker_config||'{}'):(n.broker_config||{});}catch(e){}
   var curBroker=cfg.broker_type||'';
   var creds=cfg.credentials||{};
-  var ttSecret=(creds.secret)||'';
-  var ttToken=(creds.token)||'';
+  var ttAccount=(creds.account_number)||'';
   var ibHost=(creds.host)||'';
   var ibPort=(creds.port)||'';
   var ibCid=(creds.client_id)||'19';
@@ -1573,8 +1647,11 @@ function showNodeConfig(sid){
     // 账户信息
     // TT 凭证
     +'<div id="cfg-fields-tastytrade"' + ((curBroker==='TT'||curBroker==='tastytrade'||curBroker==='') ? '' : ' style="display:none"') + '>'
-    +'  <div class="field-group"><label class="field-label">Secret</label><input class="inp" id="cfg-tt-secret" value="'+escapeHtml(ttSecret)+'" placeholder="Tastytrade Session Secret" style="font-family:monospace;font-size:12px" /></div>'
-    +'  <div class="field-group"><label class="field-label">Token</label><input class="inp" id="cfg-tt-token" value="'+escapeHtml(ttToken)+'" placeholder="Tastytrade Session Token" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div class="field-group"><label class="field-label">Client Secret</label><input class="inp" id="cfg-tt-secret" type="password" autocomplete="new-password" placeholder="已配置时留空不修改" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div class="field-group"><label class="field-label">Refresh Token</label><textarea class="inp" id="cfg-tt-token" rows="3" autocomplete="off" placeholder="已配置时留空不修改" style="font-family:monospace;font-size:12px;resize:vertical"></textarea></div>'
+    +'  <div class="field-group"><label class="field-label">Account Number</label><input class="inp" id="cfg-tt-account" value="'+escapeHtml(ttAccount)+'" placeholder="留空时使用第一个开放账户" style="font-family:monospace;font-size:12px" /></div>'
+    +'  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><button class="btn-xs" id="cfg-tt-validate-btn" onclick="validateConfigTastytrade(\''+sid+'\',this)"><i class="ri-shield-check-line"></i> 验证并获取账户</button><span id="cfg-tt-validation-state" style="font-size:12px;color:#94a3b8">尚未验证</span></div>'
+    +'  <div id="cfg-tt-account-results"></div>'
     +'</div>'
     // IB 凭证
     +'<div id="cfg-fields-ib"' + ((curBroker==='IB'||curBroker==='interactive_brokers') ? '' : ' style="display:none"') + '>'
@@ -1590,10 +1667,56 @@ function showNodeConfig(sid){
     +'  </div>'
     +'  <div class="modal-foot">'
     +'    <button class="btn-xs" onclick="document.getElementById(\'node-config-modal\').remove()">取消</button>'
-    +'    <button class="btn-xs btn-pri" onclick="doSaveNodeConfig(\''+sid+'\',this)">保存配置</button>'
+    +'    <button class="btn-xs btn-pri" id="cfg-save-btn" '+((curBroker==='TT'||curBroker==='tastytrade'||curBroker==='')?'disabled':'')+' onclick="doSaveNodeConfig(\''+sid+'\',this)">保存配置</button>'
     +'  </div>'
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
+  ['cfg-tt-secret','cfg-tt-token','cfg-tt-account'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.addEventListener('input',invalidateConfigTastytrade);
+  });
+}
+
+var _configTastytradeValidated=false;
+
+function invalidateConfigTastytrade(){
+  _configTastytradeValidated=false;
+  var state=document.getElementById('cfg-tt-validation-state');
+  var results=document.getElementById('cfg-tt-account-results');
+  var save=document.getElementById('cfg-save-btn');
+  if(state){state.textContent='尚未验证';state.style.color='#94a3b8';}
+  if(results)results.innerHTML='';
+  if(save&&document.getElementById('cfg-broker-type').value==='TT')save.disabled=true;
+}
+
+function selectConfigTastytradeAccount(accountNumber){
+  var input=document.getElementById('cfg-tt-account');
+  if(input){input.value=accountNumber;invalidateConfigTastytrade();}
+}
+
+async function validateConfigTastytrade(sid,btn){
+  var secret=document.getElementById('cfg-tt-secret').value.trim();
+  var token=document.getElementById('cfg-tt-token').value.trim();
+  var account=document.getElementById('cfg-tt-account').value.trim();
+  if(!!secret!==!!token){toast('Client Secret 和 Refresh Token 必须同时填写','warn');return;}
+  btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 验证中...';
+  var state=document.getElementById('cfg-tt-validation-state');
+  try{
+    var r=await fetch('/api/nodes/'+encodeURIComponent(sid)+'/tastytrade/validate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({credentials:{secret:secret,token:token,account_number:account}})});
+    var d=await r.json();
+    var results=document.getElementById('cfg-tt-account-results');
+    if(d.ok){
+      var selected=(d.selected_account||{}).account_number||'';
+      document.getElementById('cfg-tt-account').value=selected;
+      if(results)results.innerHTML=tastytradeAccountListHtml(d.accounts||[],selected,d.warnings||[],'selectConfigTastytradeAccount');
+      _configTastytradeValidated=true;state.textContent='验证通过';state.style.color='#16a34a';document.getElementById('cfg-save-btn').disabled=false;
+      toast((d.warnings||[]).length?'验证通过，所选账户为只读权限':'凭证与账户验证通过',(d.warnings||[]).length?'warn':'ok');
+    }else{
+      _configTastytradeValidated=false;state.textContent=d.error||'验证失败';state.style.color='#dc2626';
+      if(results&&d.accounts)results.innerHTML=tastytradeAccountListHtml(d.accounts,'',[],'selectConfigTastytradeAccount');
+      document.getElementById('cfg-save-btn').disabled=true;toast(d.error||'验证失败','err');
+    }
+  }catch(e){_configTastytradeValidated=false;state.textContent='验证请求失败';state.style.color='#dc2626';toast('验证网络错误:'+e.message,'err');}
+  finally{btn.disabled=false;btn.innerHTML='<i class="ri-shield-check-line"></i> 验证并获取账户';}
 }
 
 function toggleCfgFields(){
@@ -1601,6 +1724,8 @@ function toggleCfgFields(){
   document.getElementById('cfg-fields-tastytrade').style.display=(t==='TT')?'block':'none';
   document.getElementById('cfg-fields-ib').style.display=(t==='IB')?'block':'none';
   document.getElementById('cfg-fields-test').style.display=(t==='Test')?'block':'none';
+  var save=document.getElementById('cfg-save-btn');
+  if(save)save.disabled=(t==='TT'&&!_configTastytradeValidated);
 }
 
 async function doSaveNodeConfig(sid,btn){
@@ -1612,7 +1737,10 @@ async function doSaveNodeConfig(sid,btn){
   if(bt==='TT'){
     var s=document.getElementById('cfg-tt-secret').value.trim();
     var t=document.getElementById('cfg-tt-token').value.trim();
-    creds={"secret":s,"token":t};
+    var a=document.getElementById('cfg-tt-account').value.trim();
+    if(!!s!==!!t){toast('Client Secret 和 Refresh Token 必须同时填写','warn');return;}
+    if(!_configTastytradeValidated){toast('请先验证凭证并获取账户','warn');return;}
+    creds={"secret":s,"token":t,"account_number":a};
   }else if(bt==='IB'){
     var h=document.getElementById('cfg-ib-host').value.trim();
     var p=document.getElementById('cfg-ib-port').value.trim();
