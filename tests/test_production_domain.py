@@ -67,7 +67,32 @@ class ProductionDomainTests(unittest.TestCase):
         self.assertTrue(database.delete_node(server_id))
         released = domain_pool.release_server_domain(server_id)
         self.assertTrue(released["released"])
+        self.assertEqual(released["status"], "available")
+
+    def test_positive_domain_cooldown_can_be_reenabled(self):
+        domain_pool.import_domains(["ts-cooldown.ts.scjrdomain.com"])
+        database.create_node_request(
+            "req_cooldown",
+            "cooldown-node",
+            "Test",
+            host="127.0.0.1:8900",
+            public_ip="8.8.4.4",
+            source_ip="8.8.4.4",
+        )
+        assignment = domain_pool.allocate_domain("cooldown-node", "8.8.4.4")
+        approved = database.approve_node_request(
+            "req_cooldown",
+            domain_assignment=assignment,
+        )
+        server_id = approved["server_id"]
+        self.assertTrue(database.delete_node(server_id))
+        released = database.release_ts_domain_for_server(
+            server_id,
+            cooldown_seconds=1800,
+            dns_status="mock-released",
+        )
         self.assertEqual(released["status"], "cooling")
+        self.assertTrue(released["cooldown_until"])
 
     def test_public_domain_defaults_and_caddy_render(self):
         self.assertEqual(DEFAULT_SM_BASE_URL, "https://scjrdomain.com")

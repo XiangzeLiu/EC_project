@@ -278,7 +278,7 @@ class AccessChainTests(unittest.TestCase):
         self.assertTrue(deleted_node["ok"], deleted_node)
         self.assertEqual(
             database.get_ts_domain_pool_entry(entry["id"])["status"],
-            "cooling",
+            "available",
         )
         released_entry = database.get_ts_domain_pool_entry(entry["id"])
         self.assertEqual(released_entry["assigned_server_id"], "")
@@ -1416,7 +1416,7 @@ class AdminManagementTests(unittest.TestCase):
         self.assertEqual(stored["secret_id"], "AKID-api-secret")
         self.assertEqual(stored["secret_key"], "api-secret-key")
         self.assertEqual(stored["ttl"], 600)
-        self.assertEqual(stored["cooldown_seconds"], 1800)
+        self.assertEqual(stored["cooldown_seconds"], 0)
         self.assertEqual(stored["domain_suffix"], "")
 
         tested = self.client.post("/api/domain-pool/dns-config/test").json()

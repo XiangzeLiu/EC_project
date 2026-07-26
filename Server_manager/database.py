@@ -2511,8 +2511,13 @@ def release_ts_domain_for_server(
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
         has_error = bool((dns_error or "").strip())
-        next_status = "error" if has_error else "cooling"
-        cooldown_until = "" if has_error else (now_dt + timedelta(seconds=max(0, int(cooldown_seconds)))).isoformat()
+        cooldown = max(0, int(cooldown_seconds))
+        next_status = "error" if has_error else ("cooling" if cooldown else "available")
+        cooldown_until = (
+            (now_dt + timedelta(seconds=cooldown)).isoformat()
+            if not has_error and cooldown
+            else ""
+        )
         conn.execute(
             """
             UPDATE ts_domain_pool

@@ -157,7 +157,7 @@ class DNSConfigTests(unittest.TestCase):
         self.assertEqual(updated.secret_id, "AKID1234567890")
         self.assertEqual(updated.secret_key, "top-secret-key")
         self.assertEqual(updated.ttl, 600)
-        self.assertEqual(updated.cooldown_seconds, 1800)
+        self.assertEqual(updated.cooldown_seconds, 0)
 
         public = dns_config_service.public_config(updated)
         self.assertNotIn("secret_key", public)
@@ -216,7 +216,7 @@ class DNSConfigTests(unittest.TestCase):
         self.assertEqual(config.root_domain, "scjrdomain.com")
         self.assertEqual(config.record_line, "默认")
         self.assertEqual(config.ttl, 600)
-        self.assertEqual(config.cooldown_seconds, 1800)
+        self.assertEqual(config.cooldown_seconds, 0)
 
     def test_runtime_changes_apply_without_restart(self):
         dns_config_service.save_config({

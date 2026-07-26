@@ -145,7 +145,11 @@ if not SM_TS_WS_PATH.startswith("/"):
     SM_TS_WS_PATH = f"/{SM_TS_WS_PATH}"
 
 SM_DOMAIN_POOL_REQUIRED = _env_bool("SM_DOMAIN_POOL_REQUIRED", True)
-SM_DOMAIN_COOLDOWN_SECONDS = 1800
+# 联调阶段默认关闭；正式上线前通过环境变量恢复为 1800 秒。
+SM_DOMAIN_COOLDOWN_SECONDS = max(
+    0,
+    int(os.environ.get("SM_DOMAIN_COOLDOWN_SECONDS", "0")),
+)
 
 # Production is always real mode. The environment override remains available to
 # automated tests so mock DNS never reaches a production deployment by default.
