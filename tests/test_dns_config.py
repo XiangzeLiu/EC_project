@@ -37,9 +37,19 @@ class _FakeDNSModels:
     DeleteRecordRequest = _FakeDNSRequest
 
 
+class _FakeTencentCloudError(RuntimeError):
+    def __init__(self, code, message="SDK request failed"):
+        super().__init__(message)
+        self._code = code
+
+    def get_code(self):
+        return self._code
+
+
 class _FakeDNSClient:
-    def __init__(self, fail_on=""):
+    def __init__(self, fail_on="", describe_no_data=False):
         self.fail_on = fail_on
+        self.describe_no_data = describe_no_data
         self.calls = []
 
     def _record(self, action):
@@ -49,6 +59,8 @@ class _FakeDNSClient:
 
     def DescribeRecordList(self, request):
         self._record("describe")
+        if self.describe_no_data:
+            raise _FakeTencentCloudError("ResourceNotFound.NoDataOfRecord")
         return SimpleNamespace(RecordList=[])
 
     def CreateRecord(self, request):
@@ -73,7 +85,7 @@ class DNSConfigTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def _permission_client(self, fail_on=""):
+    def _permission_client(self, fail_on="", describe_no_data=False):
         config = DNSRuntimeConfig(
             mode="real",
             root_domain="scjrdomain.com",
@@ -84,7 +96,10 @@ class DNSConfigTests(unittest.TestCase):
             cooldown_seconds=1800,
         )
         client = DNSPodClient(config)
-        fake = _FakeDNSClient(fail_on=fail_on)
+        fake = _FakeDNSClient(
+            fail_on=fail_on,
+            describe_no_data=describe_no_data,
+        )
         client._client = fake
         client._models = _FakeDNSModels
         return client, fake
@@ -263,6 +278,56 @@ class DNSConfigTests(unittest.TestCase):
             [step["status"] for step in result["steps"]],
             ["passed", "passed", "passed", "passed"],
         )
+
+    def test_no_data_response_is_treated_as_an_empty_query(self):
+        client, fake = self._permission_client(describe_no_data=True)
+
+        result = client.test_permissions(
+            "dnspod-check-empty.scjrdomain.com"
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(fake.calls, ["describe", "create", "modify", "delete"])
+        self.assertEqual(result["steps"][0]["status"], "passed")
+        self.assertTrue(result["cleanup_ok"])
+
+    def test_no_data_response_allows_upsert_to_create_a_record(self):
+        client, fake = self._permission_client(describe_no_data=True)
+
+        result = client.upsert_a_record(
+            "www.ts99.scjrdomain.com",
+            "8.8.8.8",
+        )
+
+        self.assertEqual(result.action, "created")
+        self.assertEqual(result.record_id, "101")
+        self.assertEqual(fake.calls, ["describe", "create"])
+
+    def test_no_data_response_makes_delete_idempotent(self):
+        client, fake = self._permission_client(describe_no_data=True)
+
+        result = client.delete_a_record("www.ts99.scjrdomain.com")
+
+        self.assertEqual(result.action, "not-found")
+        self.assertEqual(result.record_id, "")
+        self.assertEqual(fake.calls, ["describe"])
+
+    def test_no_data_response_still_proves_api_connectivity(self):
+        client, fake = self._permission_client(describe_no_data=True)
+
+        message = client.test_connection()
+
+        self.assertIn("API is reachable", message)
+        self.assertIn("no records exist", message)
+        self.assertEqual(fake.calls, ["describe"])
+
+    def test_unknown_query_error_is_not_treated_as_no_data(self):
+        client, fake = self._permission_client(fail_on="describe")
+
+        with self.assertRaisesRegex(RuntimeError, "describe denied"):
+            client.upsert_a_record("www.ts99.scjrdomain.com", "8.8.8.8")
+
+        self.assertEqual(fake.calls, ["describe"])
 
     def test_permission_probe_cleans_up_after_modify_failure(self):
         client, fake = self._permission_client(fail_on="modify")

@@ -12,6 +12,36 @@ class DNSPodError(RuntimeError):
     pass
 
 
+_NO_RECORDS_CODE = "ResourceNotFound.NoDataOfRecord"
+
+
+def _sdk_error_code(exc: Exception) -> str:
+    getter = getattr(exc, "get_code", None)
+    if callable(getter):
+        try:
+            return str(getter() or "").strip()
+        except Exception:
+            pass
+    return str(getattr(exc, "code", "") or "").strip()
+
+
+def _sdk_error_detail(exc: Exception) -> str:
+    code = _sdk_error_code(exc)
+    hints = {
+        "AuthFailure.SecretIdNotFound": "DNSPod authentication failed; check SecretId",
+        "AuthFailure.SignatureFailure": "DNSPod authentication failed; check SecretKey and system time",
+        "AuthFailure.UnauthorizedOperation": "DNSPod permission is insufficient for this operation",
+        "UnauthorizedOperation": "DNSPod permission is insufficient for this operation",
+        "ResourceNotFound.DomainNotExist": "DNSPod root domain does not exist in this account",
+    }
+    hint = hints.get(code, "")
+    if not hint and code.startswith(("RequestLimitExceeded", "LimitExceeded", "Throttling")):
+        hint = "DNSPod request was rate limited; retry later"
+    if hint:
+        return f"{code}: {hint}"
+    return str(exc)
+
+
 @dataclass(frozen=True)
 class DNSRecordResult:
     record_id: str
@@ -59,7 +89,11 @@ class DNSPodClient:
         try:
             client.DescribeRecordList(req)
         except Exception as exc:
-            raise DNSPodError(f"DNSPod connection test failed: {exc}") from exc
+            if _sdk_error_code(exc) == _NO_RECORDS_CODE:
+                return f"DNSPod API is reachable for {self.root_domain}; no records exist"
+            raise DNSPodError(
+                f"DNSPod connection test failed: {_sdk_error_detail(exc)}"
+            ) from exc
         return f"DNSPod API is reachable for {self.root_domain}"
 
     def test_permissions(
@@ -79,6 +113,7 @@ class DNSPodClient:
         record_id = ""
         create_attempted = False
         cleanup_ok = True
+        cleanup_lookup_error = ""
 
         try:
             try:
@@ -89,14 +124,14 @@ class DNSPodClient:
                     "key": "describe",
                     "label": "查询权限",
                     "status": "passed",
-                    "detail": "DescribeRecordList succeeded",
+                    "detail": "DescribeRecordList succeeded; temporary record does not exist",
                 })
             except Exception as exc:
                 steps.append({
                     "key": "describe",
                     "label": "查询权限",
                     "status": "failed",
-                    "detail": str(exc),
+                    "detail": _sdk_error_detail(exc),
                 })
 
             if steps[-1]["status"] == "passed":
@@ -127,7 +162,7 @@ class DNSPodClient:
                         "key": "create",
                         "label": "创建权限",
                         "status": "failed",
-                        "detail": str(exc),
+                        "detail": _sdk_error_detail(exc),
                     })
             else:
                 steps.append({
@@ -161,7 +196,7 @@ class DNSPodClient:
                         "key": "modify",
                         "label": "修改权限",
                         "status": "failed",
-                        "detail": str(exc),
+                        "detail": _sdk_error_detail(exc),
                     })
             else:
                 steps.append({
@@ -174,8 +209,9 @@ class DNSPodClient:
             if create_attempted and not record_id:
                 try:
                     record_id = self._find_a_record_id(record_name)
-                except Exception:
-                    record_id = ""
+                except Exception as exc:
+                    cleanup_ok = False
+                    cleanup_lookup_error = _sdk_error_detail(exc)
             if record_id:
                 try:
                     req = models.DeleteRecordRequest()
@@ -197,8 +233,18 @@ class DNSPodClient:
                         "key": "delete",
                         "label": "删除权限",
                         "status": "failed",
-                        "detail": str(exc),
+                        "detail": _sdk_error_detail(exc),
                     })
+            elif cleanup_lookup_error:
+                steps.append({
+                    "key": "delete",
+                    "label": "删除权限",
+                    "status": "failed",
+                    "detail": (
+                        "Unable to verify or clean the temporary record after create failure: "
+                        f"{cleanup_lookup_error}"
+                    ),
+                })
             else:
                 steps.append({
                     "key": "delete",
@@ -320,7 +366,12 @@ class DNSPodClient:
             "RecordType": "A",
             "Limit": 100,
         }))
-        response = client.DescribeRecordList(req)
+        try:
+            response = client.DescribeRecordList(req)
+        except Exception as exc:
+            if _sdk_error_code(exc) == _NO_RECORDS_CODE:
+                return ""
+            raise
         for record in getattr(response, "RecordList", None) or []:
             if getattr(record, "Type", "") == "A":
                 record_id = getattr(record, "RecordId", None)
