@@ -162,6 +162,14 @@ class BaseBrokerAPI(ABC):
         """
         raise NotImplementedError("Order query not supported by this broker adapter")
 
+    async def get_accounts(self) -> list[dict]:
+        """Return broker accounts visible to the current connection."""
+        raise NotImplementedError("Account discovery not supported by this broker adapter")
+
+    async def get_account_summary(self, account_id: str = "") -> dict:
+        """Return a non-normalized account summary for validation/diagnostics."""
+        raise NotImplementedError("Account summary not supported by this broker adapter")
+
     # ── 行情 ──────────────────────────────────────────────────
 
     @abstractmethod

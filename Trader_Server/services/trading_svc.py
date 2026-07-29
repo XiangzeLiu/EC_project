@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any
 
-from .config_sync import ensure_broker_connected, get_current_broker
+from .config_sync import ensure_broker_connected, get_broker_status, get_current_broker
 
 log = logging.getLogger("trader_server.trading_svc")
 
@@ -144,7 +144,9 @@ def _check_duplicate_order(order: dict[str, Any], session_id: str, username: str
 
 async def _get_ready_broker(username: str, server_id: str, trace_id: str) -> tuple[Any | None, dict[str, Any] | None]:
     if not await ensure_broker_connected():
-        return None, _error("BROKER_OFFLINE", "Broker not connected", trace_id=trace_id, retryable=True)
+        public_status = get_broker_status(public=True)
+        message = str((public_status.get("error") or {}).get("message") or "Broker not connected")
+        return None, _error("BROKER_OFFLINE", message, trace_id=trace_id, retryable=True)
 
     broker = get_current_broker()
     if not broker:

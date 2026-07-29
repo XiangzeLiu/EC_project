@@ -6,5 +6,5 @@ httpx>=0.25.0
 
 # 券商 SDK
 tastytrade>=12.3,<14  # Tastytrade 券商支持（已按 12/13 系列接口验证）
-# ibapi>=9.81  # Interactive Brokers 支持
+ibapi  # Interactive Brokers 官方 TWS API
 PySide6>=6.7

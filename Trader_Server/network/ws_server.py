@@ -232,7 +232,7 @@ async def handle_client_connection(ws: WebSocket):
         _cancel_pending_releases(username, server_id)
         await _replace_existing_node_connections(ws, username, server_id)
         from ..services.config_sync import get_broker_status
-        broker_detail = get_broker_status()
+        broker_detail = get_broker_status(public=True)
 
         from ..services.message_log import on_auth, on_connect
 
@@ -565,7 +565,7 @@ async def _handle_status_query(msg: dict[str, Any], sid: str, trace_id: str = ''
                 'heartbeat_fail_count': state.heartbeat_fail_count,
                 'connections': len(_connections),
             },
-            'broker_detail': get_broker_status(),
+            'broker_detail': get_broker_status(public=True),
             'trace_id': trace_id,
         },
     }
@@ -682,7 +682,7 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
 
 async def _handle_broker_status_query(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
     from ..services.config_sync import get_broker_status
-    broker_detail = get_broker_status()
+    broker_detail = get_broker_status(public=True)
     return {
         'type': 'BROKER_STATUS_RESPONSE',
         'id': msg.get('id', ''),

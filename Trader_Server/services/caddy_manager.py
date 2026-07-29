@@ -91,7 +91,7 @@ def render_ts_caddyfile(
 \t\treverse_proxy 127.0.0.1:{int(ws_port)}
 \t}}
 
-\t@sm_admin path /api/admin/force-disconnect /api/register/pre-approve-check
+\t@sm_admin path /api/admin/force-disconnect /api/admin/interactive-brokers/validate /api/register/pre-approve-check
 \thandle @sm_admin {{
 \t\treverse_proxy 127.0.0.1:{int(ws_port)}
 \t}}

@@ -165,12 +165,6 @@ SM_DNS_TTL = 600
 _TASTY_SECRET = os.environ.get("TASTY_SECRET", "")
 _TASTY_TOKEN = os.environ.get("TASTY_TOKEN", "")
 
-# ── IB TWS 行情源配置 ────────────────────────────────────────────────────
-SM_ENABLE_LEGACY_QUOTES = os.environ.get("SM_ENABLE_LEGACY_QUOTES", "0").strip().lower() in {"1", "true", "yes"}
-IB_HOST = os.environ.get("IB_HOST", "127.0.0.1")
-IB_PORT = int(os.environ.get("IB_PORT", "7496"))
-IB_CLIENT_ID = int(os.environ.get("IB_CLIENT_ID", "19"))
-
 # ── 运行时状态（内存 Session Store）─────────────────────────────────────
 session_store = {
     "session": None,      # 复用的 Tastytrade Session 对象
@@ -183,12 +177,6 @@ session_store = {
 
 # 已登录的客户端 Token 集合（用于 verify_token 校验）
 active_client_tokens: dict[str, dict] = {}  # {token: {username, created_at}}
-
-# 行情 WebSocket 客户端列表
-quote_clients: list = []
-# 当前订阅的标的集合
-subscribed_syms: set = set()
-
 
 def is_configured() -> bool:
     """检查 Tastytrade 凭据是否已配置"""

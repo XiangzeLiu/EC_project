@@ -591,6 +591,41 @@ async def api_admin_force_disconnect(request: Request):
     return {"ok": True, **result}
 
 
+@app.post("/api/admin/interactive-brokers/validate")
+async def api_admin_validate_interactive_brokers(request: Request):
+    """Allow SM to revalidate accounts on an already registered IB node."""
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not token or token != (state.token or ""):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Unauthorized"})
+
+    from .api.interactive_brokers import IBBroker
+    from .services.config_sync import get_current_broker
+
+    broker = get_current_broker()
+    temporary = False
+    if not isinstance(broker, IBBroker) or not await broker.is_connected():
+        broker = IBBroker()
+        temporary = True
+        connected = await broker.connect(
+            {"host": "127.0.0.1", "port": 4001, "client_id": 1, "account_id": ""}
+        )
+        if not connected:
+            error = broker.get_connection_error()
+            await broker.disconnect()
+            return {
+                "ok": False,
+                "code": str(error.get("code") or "IB_GATEWAY_UNREACHABLE"),
+                "error": str(error.get("message") or "Unable to connect to IB Gateway"),
+            }
+    try:
+        accounts = await broker.get_accounts()
+        return {"ok": True, "accounts": accounts}
+    finally:
+        if temporary:
+            await broker.disconnect()
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     """Client WebSocket 连接入口"""
@@ -607,6 +642,13 @@ async def on_startup():
 
     init_logging("INFO")
     log = logging.getLogger("trader_server.main")
+
+    try:
+        from .services.ib_registration_validation import start_pending_ib_validation_worker
+
+        start_pending_ib_validation_worker()
+    except Exception as exc:
+        log.warning("Pending IB validation worker startup skipped: %s", exc)
 
     _ts_pkg = __import__("Trader_Server")
     _ver = getattr(_ts_pkg, "__version__", "1.0.0")

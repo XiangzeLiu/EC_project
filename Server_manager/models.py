@@ -4,7 +4,6 @@ Pydantic 数据模型定义
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
 
 
 # ── 认证模块 ──────────────────────────────────────────────────────────────
@@ -31,49 +30,6 @@ class LoginResponse(BaseModel):
 class LogoutResponse(BaseModel):
     """登出响应"""
     success: bool = Field(default=True, description="是否成功")
-
-
-# ── 订单模块 ──────────────────────────────────────────────────────────────
-
-class PlaceOrderRequest(BaseModel):
-    """下单请求"""
-    symbol: str = Field(..., description="股票代码（如 AAPL）")
-    qty: int = Field(..., description="数量（股数）")
-    price: float = Field(default=0.0, description="委托价格（市价单可填 0）")
-    action: str = Field(
-        ...,
-        description="交易方向：Buy to Open(买入开仓) / Sell to Close(卖出平仓) / "
-                    "Sell to Open(卖出开仓) / Buy to Close(买入平仓)",
-    )
-    order_type: str = Field(
-        default="limit",
-        description="订单类型：limit(限价单) / market(市价单)",
-    )
-    tif: str = Field(
-        default="Day",
-        description="有效期：Day(当日有效) / GTC(取消前有效) / IOC(立即成交或取消) / EXT / GTC_EXT",
-    )
-
-
-class PlaceOrderResponse(BaseModel):
-    """下单响应"""
-    success: bool = Field(..., description="是否成功")
-    order_id: str = Field(default="", description="订单编号")
-    detail: str = Field(default="", description="附加信息")
-
-
-class CancelOrderResponse(BaseModel):
-    """撤单响应"""
-    success: bool = Field(..., description="是否成功")
-    detail: str = Field(default="", description="附加信息")
-
-
-# ── 行情订阅（WebSocket） ───────────────────────────────────────────────
-
-class SubscribeRequest(BaseModel):
-    """行情订阅/取消订阅消息"""
-    action: str = Field(..., description="操作类型：subscribe(订阅) / unsubscribe(取消订阅)")
-    symbols: list[str] = Field(..., description="股票代码列表")
 
 
 # ── 健康检查 ──────────────────────────────────────────────────────────────

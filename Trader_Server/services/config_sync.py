@@ -51,7 +51,7 @@ def get_current_broker() -> BaseBrokerAPI | None:
     return _current_broker
 
 
-def get_broker_status() -> dict:
+def get_broker_status(public: bool = False) -> dict:
     """
     获取当前券商连接状态摘要。能力字段用于上层判断当前券商是否支持行情、下单、撤单、持仓和订单查询。
     """
@@ -62,7 +62,7 @@ def get_broker_status() -> dict:
                 capabilities = BrokerFactory.get_adapter_spec(_current_broker_type).get("capabilities", {})
             except Exception:
                 capabilities = {}
-        return {
+        status = {
             "broker_type": _current_broker_type or "none",
             "connected": False,
             "config_version": _local_config_version,
@@ -70,6 +70,13 @@ def get_broker_status() -> dict:
             "capabilities": capabilities,
             "error": dict(_last_connect_error),
         }
+        if public and str(status["broker_type"]).lower() in {"ib", "interactive_brokers"} and status["error"]:
+            status["error"] = {
+                "code": "IB_UNAVAILABLE",
+                "message": "无法连接IB服务器",
+                "retryable": bool(status["error"].get("retryable", True)),
+            }
+        return status
     capabilities_fn = getattr(_current_broker, "effective_capabilities", None)
     capabilities = capabilities_fn() if callable(capabilities_fn) else _current_broker.capabilities()
     detail_fn = getattr(_current_broker, "status_detail", None)
@@ -84,6 +91,12 @@ def get_broker_status() -> dict:
     }
     if isinstance(detail, dict):
         status.update(detail)
+    if public and str(status["broker_type"]).lower() in {"ib", "interactive_brokers"} and status.get("error"):
+        status["error"] = {
+            "code": "IB_UNAVAILABLE",
+            "message": "无法连接IB服务器",
+            "retryable": bool(status["error"].get("retryable", True)),
+        }
     return status
 
 def _reset_connect_retry_state() -> None:
@@ -191,6 +204,7 @@ async def init_broker() -> bool:
 
     try:
         broker = BrokerFactory.create(broker_type)
+        _current_broker_type = broker_type
         normalized = broker.normalize_credentials(credentials)
         ok = await broker.connect(normalized)
         if not ok:
@@ -556,7 +570,7 @@ def _broadcast_status(broker_type: str, status: str):
             "broker_type": broker_type,
             "status": status,
             "config_version": _local_config_version,
-            "broker_detail": get_broker_status(),
+            "broker_detail": get_broker_status(public=True),
         },
     }
     try:

@@ -11,7 +11,7 @@ scjrdomain.com {
 		Referrer-Policy "same-origin"
 	}
 
-	@internal_only path /docs /openapi.json /quotes
+	@internal_only path /docs /openapi.json
 	handle @internal_only {
 		respond 404
 	}

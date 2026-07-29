@@ -12,6 +12,7 @@ Registration Client — 向 Server_manager 发起注册流程
 
 import json
 import logging
+import secrets
 import time
 import urllib.error
 import urllib.request
@@ -90,6 +91,12 @@ def submit_registration(
         state.manager_url = pending.get("manager_url") or state.manager_url
         state.node_name = pending.get("node_name") or state.node_name
         state.status = "registering"
+        try:
+            from .ib_registration_validation import start_pending_ib_validation_worker
+
+            start_pending_ib_validation_worker()
+        except Exception as worker_exc:
+            log.warning("Unable to resume pending IB validation worker: %s", worker_exc)
         log.info("Resuming pending registration: %s", pending["request_id"])
         return {
             "ok": True,
@@ -113,6 +120,7 @@ def submit_registration(
         "capabilities": capabilities or DEFAULT_CAPABILITIES,
         "contact": contact or DEFAULT_CONTACT,
         "description": description or DEFAULT_DESCRIPTION,
+        "validation_secret": secrets.token_urlsafe(32),
     }
 
     # 更新运行时状态
@@ -145,7 +153,16 @@ def submit_registration(
                     manager_url=state.manager_url,
                     node_name=payload["node_name"],
                     expire_at=expire_at,
+                    validation_secret=payload["validation_secret"],
+                    broker_type=payload["region"],
                 )
+
+                try:
+                    from .ib_registration_validation import start_pending_ib_validation_worker
+
+                    start_pending_ib_validation_worker()
+                except Exception as worker_exc:
+                    log.warning("Unable to start pending IB validation worker: %s", worker_exc)
 
                 log.info(f"Registration submitted: {request_id}, expires at {expire_at}")
                 return result

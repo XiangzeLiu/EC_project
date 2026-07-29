@@ -10,7 +10,7 @@ ts-01.ts.scjrdomain.com {
 		reverse_proxy 127.0.0.1:8900
 	}
 
-	@sm_admin path /api/admin/force-disconnect /api/register/pre-approve-check
+	@sm_admin path /api/admin/force-disconnect /api/admin/interactive-brokers/validate /api/register/pre-approve-check
 	handle @sm_admin {
 		reverse_proxy 127.0.0.1:8900
 	}

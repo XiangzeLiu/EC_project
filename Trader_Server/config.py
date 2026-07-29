@@ -62,9 +62,6 @@ TS_CADDY_START_TIMEOUT = max(
 )
 DEFAULT_TS_LOGIN_USERNAME = os.getenv("TS_LOGIN_USERNAME", "")
 DEFAULT_TS_LOGIN_PASSWORD = os.getenv("TS_LOGIN_PASSWORD", "")
-DEFAULT_TS_LOGIN_TEST_USERNAME = "test"
-DEFAULT_TS_LOGIN_TEST_PASSWORD = "test"
-ALLOW_TS_LOGIN_TEST_BACKDOOR = os.getenv("TS_LOGIN_ALLOW_TEST_BACKDOOR", "1").strip().lower() not in {"0", "false", "no"}
 
 
 def ensure_dirs():
@@ -79,8 +76,6 @@ def verify_trade_service_login(username: str, password: str) -> bool:
     if not user or not pwd:
         return False
     if user == DEFAULT_TS_LOGIN_USERNAME and pwd == DEFAULT_TS_LOGIN_PASSWORD:
-        return True
-    if ALLOW_TS_LOGIN_TEST_BACKDOOR and user == DEFAULT_TS_LOGIN_TEST_USERNAME and pwd == DEFAULT_TS_LOGIN_TEST_PASSWORD:
         return True
     return False
 
@@ -136,7 +131,9 @@ def is_registered() -> bool:
 # ── .register_state.json 操作（注册审核期间）──────────────────────────────
 
 def save_register_state(request_id: str, manager_url: str,
-                        node_name: str, expire_at: str) -> bool:
+                        node_name: str, expire_at: str,
+                        validation_secret: str = "",
+                        broker_type: str = "") -> bool:
     """
     保存注册审核期间的临时状态
     用于重启后恢复 SSE 等待连接
@@ -151,6 +148,8 @@ def save_register_state(request_id: str, manager_url: str,
         "node_name": node_name,
         "submitted_at": datetime.now(timezone.utc).isoformat(),
         "expire_at": expire_at,
+        "validation_secret": validation_secret,
+        "broker_type": broker_type,
     }
     try:
         with open(REGISTER_STATE_FILE, "w", encoding="utf-8") as f:

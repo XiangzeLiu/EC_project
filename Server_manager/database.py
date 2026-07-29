@@ -23,6 +23,7 @@ DB_SCHEMA_VERSION_V2 = 2
 DB_SCHEMA_VERSION_V3 = 3
 DB_SCHEMA_VERSION_V4 = 4
 DB_SCHEMA_VERSION_V5 = 5
+DB_SCHEMA_VERSION_V6 = 6
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -154,6 +155,7 @@ CREATE TABLE IF NOT EXISTS node_registration_requests_v2 (
     status TEXT NOT NULL DEFAULT 'pending',
     server_id TEXT NOT NULL DEFAULT '',
     token TEXT NOT NULL DEFAULT '',
+    validation_token_hash TEXT NOT NULL DEFAULT '',
     reviewed_by TEXT NOT NULL DEFAULT '',
     reviewed_at TEXT NOT NULL DEFAULT '',
     reject_reason TEXT NOT NULL DEFAULT '',
@@ -269,6 +271,7 @@ def _ensure_legacy_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "accounts", "broker_tag", "broker_tag TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "node_requests", "occupied_by", "occupied_by TEXT DEFAULT ''")
     _ensure_column(conn, "node_requests", "occupied_at", "occupied_at TEXT DEFAULT ''")
+    _ensure_column(conn, "node_requests", "validation_token_hash", "validation_token_hash TEXT DEFAULT ''")
     _ensure_column(conn, "brokers", "config_version", "config_version INTEGER DEFAULT 0")
 
 
@@ -297,6 +300,15 @@ def _ensure_v4_schema(conn: sqlite3.Connection) -> None:
 
 def _ensure_v5_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(V5_SCHEMA_SQL)
+
+
+def _ensure_v6_schema(conn: sqlite3.Connection) -> None:
+    _ensure_column(
+        conn,
+        "node_registration_requests_v2",
+        "validation_token_hash",
+        "validation_token_hash TEXT NOT NULL DEFAULT ''",
+    )
 
 
 def _has_v2_schema(conn: sqlite3.Connection) -> bool:
@@ -848,6 +860,12 @@ def migrate_v4_to_v5(conn: sqlite3.Connection) -> dict:
     }
 
 
+def migrate_v5_to_v6(conn: sqlite3.Connection) -> dict:
+    _ensure_v6_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V6)
+    return {"registration_validation_token_added": 1}
+
+
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
     _ensure_legacy_schema(conn)
@@ -855,6 +873,7 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     _ensure_v3_schema(conn)
     _ensure_v4_schema(conn)
     _ensure_v5_schema(conn)
+    _ensure_v6_schema(conn)
     version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
@@ -881,6 +900,12 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
         report = migrate_v4_to_v5(conn)
         report["from_version"] = version
         report["to_version"] = DB_SCHEMA_VERSION_V5
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V5
+    if version < DB_SCHEMA_VERSION_V6:
+        report = migrate_v5_to_v6(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V6
         reports.append(report)
     return reports
 
@@ -1242,6 +1267,7 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
                         host: str = "", capabilities: list | None = None,
                         contact: str = "", description: str = "",
                         public_ip: str = "", source_ip: str = "",
+                        validation_token_hash: str = "",
                         expire_hours: int = 24) -> dict | None:
     """?????????"""
     conn = _get_conn()
@@ -1256,11 +1282,11 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
                 """
                 INSERT INTO node_registration_requests_v2 (
                     request_id, node_name, broker_type, host, public_ip, source_ip, capabilities_json,
-                    contact, description, status, server_id, token,
+                    contact, description, status, server_id, token, validation_token_hash,
                     assigned_domain, public_endpoint, reviewed_by, reviewed_at,
                     reject_reason, expire_at, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', '', '', '', '', '', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', '', ?, '', '', '', '', '', ?, ?)
                 ON CONFLICT(request_id) DO UPDATE SET
                     node_name=excluded.node_name,
                     broker_type=excluded.broker_type,
@@ -1273,6 +1299,7 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
                     status='pending',
                     server_id='',
                     token='',
+                    validation_token_hash=excluded.validation_token_hash,
                     assigned_domain='',
                     public_endpoint='',
                     reviewed_by='',
@@ -1283,7 +1310,8 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
                 """,
                 (
                     request_id, node_name, region, host, public_ip, source_ip,
-                    capabilities_json, contact, description, expire_at, now.isoformat(),
+                    capabilities_json, contact, description, validation_token_hash,
+                    expire_at, now.isoformat(),
                 ),
             )
             row = conn.execute("SELECT * FROM node_registration_requests_v2 WHERE request_id = ?", (request_id,)).fetchone()
@@ -1293,10 +1321,13 @@ def create_node_request(request_id: str, node_name: str, region: str = "",
                 """
                 INSERT INTO node_requests
                     (request_id, node_name, region, host, capabilities,
-                     contact, description, status, expire_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                     contact, description, status, validation_token_hash, expire_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
                 """,
-                (request_id, node_name, region, host, capabilities_json, contact, description, expire_at, now.isoformat()),
+                (
+                    request_id, node_name, region, host, capabilities_json, contact,
+                    description, validation_token_hash, expire_at, now.isoformat(),
+                ),
             )
             row = conn.execute("SELECT * FROM node_requests WHERE request_id = ?", (request_id,)).fetchone()
             result = dict(row) if row else None
@@ -2149,6 +2180,20 @@ def get_dns_provider_config() -> dict | None:
             "SELECT * FROM dns_provider_config WHERE id = 1"
         ).fetchone()
         return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_node_request_validation_token_hash(request_id: str) -> str:
+    """Return the pending-registration validation token hash without exposing it in UI rows."""
+    conn = _get_conn()
+    try:
+        table = "node_registration_requests_v2" if _has_v2_schema(conn) else "node_requests"
+        row = conn.execute(
+            f"SELECT validation_token_hash FROM {table} WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        return str(row[0] or "") if row else ""
     finally:
         conn.close()
 

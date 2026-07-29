@@ -25,14 +25,14 @@ if exist "%cd%\Trader_Server\requirements.txt" (
   if errorlevel 1 goto :fail
 )
 
-%PY_CMD% -c "import fastapi,starlette,uvicorn,websockets,pydantic,httpx,PySide6,tastytrade" >nul 2>nul
+%PY_CMD% -c "import fastapi,starlette,uvicorn,websockets,pydantic,httpx,PySide6,tastytrade,ibapi" >nul 2>nul
 if errorlevel 1 (
   echo [TS] 关键依赖校验失败，尝试补装...
-  %PY_CMD% -m pip install -U fastapi "uvicorn[standard]" websockets pydantic httpx starlette PySide6 "tastytrade>=12.3,<14"
+  %PY_CMD% -m pip install -U fastapi "uvicorn[standard]" websockets pydantic httpx starlette PySide6 "tastytrade>=12.3,<14" ibapi
   if errorlevel 1 goto :fail
 )
 
-%PY_CMD% -m PyInstaller --noconfirm --clean --onedir --name TraderServer --distpath "%cd%\dist\TraderServer" --workpath "%cd%\build\TraderServer" --specpath "%cd%\build\TraderServer" --paths "%cd%" --add-data "%cd%\Trader_Server\data;Trader_Server\data" --collect-all Trader_Server --collect-all fastapi --collect-all starlette --collect-all tastytrade --collect-all uvicorn "%cd%\Trader_Server\main.py"
+%PY_CMD% -m PyInstaller --noconfirm --clean --onedir --name TraderServer --distpath "%cd%\dist\TraderServer" --workpath "%cd%\build\TraderServer" --specpath "%cd%\build\TraderServer" --paths "%cd%" --add-data "%cd%\Trader_Server\data;Trader_Server\data" --collect-all Trader_Server --collect-all fastapi --collect-all starlette --collect-all tastytrade --collect-all ibapi --collect-all uvicorn "%cd%\Trader_Server\main.py"
 if errorlevel 1 goto :fail
 
 set "TS_OUT=%cd%\dist\TraderServer\TraderServer"

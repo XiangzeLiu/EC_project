@@ -655,8 +655,6 @@
       </div>
       <div class="topbar-stats">
         <span><i class="ri-cpu-line" style="color:#3b63f6"></i> SDK: <strong>{{ sdk_status }}</strong></span>
-        <span><i class="ri-stock-line" style="color:{% if ib_color %}var(--ib-color){% else %}#8a93ab{% endif %}"></i> IB TWS: <strong>{{ ib_status }}</strong></span>
-        <span><i class="ri-group-line" style="color:#22c55e"></i> 在线客户端: <strong>{{ active_clients }}</strong></span>
         <span><i class="ri-node-tree" style="color:#9333ea"></i> 已注册节点: <strong id="status-node-count">-</strong></span>
       </div>
     </header>
@@ -1264,14 +1262,18 @@ async function refreshNodes(){
 
 async function approveNode(rid,b){
   _approvalTastytradeValidated=false;
+  _approvalIbValidated=false;
+  _approvalIbAccounts=[];
   // 获取该节点的券商信息用于自动填充
   var nodeData=_pendingCache.find(function(x){return x.request_id===rid;})||{};
   var autoBroker=nodeData.region||'';
+  var ibLocked=(autoBroker==='IB'||autoBroker==='interactive_brokers');
   var brokerOptions='';
   ['IB','TT','Test'].forEach(function(bt){
-    var sel=(bt===autoBroker||(autoBroker===''&&bt==='TT'))?'selected':'';
+    var sel=(bt===autoBroker||(bt==='IB'&&autoBroker==='interactive_brokers')||(autoBroker===''&&bt==='TT'))?'selected':'';
+    var disabled=((bt==='IB'&&!ibLocked)||(ibLocked&&bt!=='IB'))?'disabled':'';
     var label=bt==='TT'?'Tastytrade':(bt==='IB'?'Interactive Brokers':'Test 测试模式');
-    brokerOptions+='<option value="'+bt+'" '+sel+'>'+label+'</option>';
+    brokerOptions+='<option value="'+bt+'" '+sel+' '+disabled+'>'+label+'</option>';
   });
 
   var html='<div class="modal-mask" id="approve-config-modal">'
@@ -1279,10 +1281,10 @@ async function approveNode(rid,b){
     +'  <div class="modal-head"><h3>审批通过 - 节点配置</h3>'
     +'    <button class="modal-close-btn" aria-label="close"><i class="ri-close-line"></i></button></div>'
     +'  <div class="modal-body">'
-    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">审批前验证 OAuth 凭证并选择该 TS 使用的券商账户。</p>'
-    // 字段1: 券商类型（自动填充，可修改）
+    +'    <p style="color:#5b6480;font-size:13px;margin-bottom:16px">审批前验证券商连接并选择该 TS 使用的账户。</p>'
+    // 字段1: IB 注册请求锁定券商类型。
     +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
-    +'<select class="sel" id="app-broker-type" onchange="toggleBrokerFields()" style="width:100%">'
+    +'<select class="sel" id="app-broker-type" onchange="toggleBrokerFields()" style="width:100%" '+(ibLocked?'disabled':'')+'>'
     +'  <option value="" disabled>请选择...</option>'
     +brokerOptions
     +'</select></div>'
@@ -1298,9 +1300,12 @@ async function approveNode(rid,b){
     +'</div>'
 
     +'<div id="fields-ib" style="display:none">'
-    +'  <div class="field-group"><label class="field-label">Host <span style="color:#ef4444">*</span></label><input class="inp" id="app-ib-host" placeholder="IB TWS IP 地址" value="8.210.169.202" /></div>'
-    +'  <div class="field-group"><label class="field-label">Port <span style="color:#ef4444">*</span></label><input class="inp" id="app-ib-port" placeholder="7496" value="7496" /></div>'
-    +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="app-ib-clientid" placeholder="19" value="19" /></div>'
+    +'  <div class="field-group"><label class="field-label">Host</label><input class="inp" id="app-ib-host" value="127.0.0.1" readonly /></div>'
+    +'  <div class="field-group"><label class="field-label">Port</label><input class="inp" id="app-ib-port" value="4001" readonly /></div>'
+    +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="app-ib-clientid" value="1" readonly /></div>'
+    +'  <input type="hidden" id="app-ib-account" value="" />'
+    +'  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><button class="btn-xs" id="app-ib-validate-btn" onclick="validateApprovalInteractiveBrokers(\''+rid+'\',this)"><i class="ri-shield-check-line"></i> 验证并获取账户</button><span id="app-ib-validation-state" style="font-size:12px;color:#94a3b8">尚未验证</span></div>'
+    +'  <div id="app-ib-account-results"></div>'
     +'</div>'
 
     +'<div id="fields-test" style="display:none">'
@@ -1325,6 +1330,8 @@ async function approveNode(rid,b){
 }
 
 var _approvalTastytradeValidated=false;
+var _approvalIbValidated=false;
+var _approvalIbAccounts=[];
 
 function invalidateApprovalTastytrade(){
   _approvalTastytradeValidated=false;
@@ -1389,13 +1396,57 @@ async function validateApprovalTastytrade(rid,btn){
   }finally{btn.disabled=false;btn.innerHTML='<i class="ri-shield-check-line"></i> 验证并获取账户';}
 }
 
+function ibAccountListHtml(accounts,selected,selectFn){
+  var fn=selectFn||'selectApprovalIbAccount';
+  return (accounts||[]).map(function(a){
+    var account=(a.account_id||'').toString();
+    var active=account===selected;
+    return '<button type="button" class="btn-xs" style="width:100%;text-align:left;margin-bottom:6px;border-color:'+(active?'#3b63f6':'#dce1ec')+';background:'+(active?'#eef3ff':'#fff')+'" onclick="'+fn+'(\''+escapeHtml(account)+'\')"><span style="font-family:monospace">'+escapeHtml(account)+'</span></button>';
+  }).join('');
+}
+
+function selectApprovalIbAccount(accountId){
+  var input=document.getElementById('app-ib-account');
+  if(input)input.value=accountId;
+  var results=document.getElementById('app-ib-account-results');
+  if(results)results.innerHTML=ibAccountListHtml(_approvalIbAccounts,accountId,'selectApprovalIbAccount');
+  _approvalIbValidated=!!accountId;
+  document.getElementById('approve-submit-btn').disabled=!_approvalIbValidated;
+}
+
+async function validateApprovalInteractiveBrokers(rid,btn){
+  btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 验证中...';
+  var state=document.getElementById('app-ib-validation-state');
+  var results=document.getElementById('app-ib-account-results');
+  try{
+    var r=await fetch('/api/nodes/requests/'+encodeURIComponent(rid)+'/interactive-brokers/validate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});
+    var d=await r.json();
+    if(d.ok){
+      _approvalIbAccounts=d.accounts||[];_approvalIbValidated=false;
+      document.getElementById('app-ib-account').value='';
+      if(results)results.innerHTML=ibAccountListHtml(_approvalIbAccounts,'','selectApprovalIbAccount');
+      state.textContent='验证通过，请选择账户';state.style.color='#16a34a';
+      document.getElementById('approve-submit-btn').disabled=true;
+      toast('IB Gateway 验证通过，共 '+_approvalIbAccounts.length+' 个账户','ok');
+    }else{
+      _approvalIbAccounts=[];_approvalIbValidated=false;
+      if(results)results.innerHTML='';
+      state.textContent=d.error||'验证失败';state.style.color='#dc2626';
+      document.getElementById('approve-submit-btn').disabled=true;
+      toast(d.error||'验证失败','err');
+    }
+  }catch(e){
+    _approvalIbAccounts=[];_approvalIbValidated=false;state.textContent='验证请求失败';state.style.color='#dc2626';toast('验证网络错误:'+e.message,'err');
+  }finally{btn.disabled=false;btn.innerHTML='<i class="ri-shield-check-line"></i> 验证并获取账户';}
+}
+
 function toggleBrokerFields(){
   var t=document.getElementById('app-broker-type').value;
   document.getElementById('fields-tastytrade').style.display=(t==='TT')?'block':'none';
   document.getElementById('fields-ib').style.display=(t==='IB')?'block':'none';
   document.getElementById('fields-test').style.display=(t==='Test')?'block':'none';
   var submit=document.getElementById('approve-submit-btn');
-  if(submit)submit.disabled=(t==='TT'&&!_approvalTastytradeValidated);
+  if(submit)submit.disabled=(t==='TT'&&!_approvalTastytradeValidated)||(t==='IB'&&!_approvalIbValidated);
 }
 
 async function doApproveWithConfig(rid,btn){
@@ -1412,10 +1463,9 @@ async function doApproveWithConfig(rid,btn){
     if(!_approvalTastytradeValidated){toast('请先验证凭证并获取账户','warn');return;}
     creds={"secret":s,"token":t,"account_number":a};
   }else if(bt==='IB'){
-    var h=document.getElementById('app-ib-host').value.trim();
-    var p=document.getElementById('app-ib-port').value.trim();
-    if(!h||!p){toast('\u8bf7\u586b\u5199 Host \u548c Port','warn');return;}
-    creds={"host":h,"port":parseInt(p)||0,"client_id":parseInt(document.getElementById('app-ib-clientid').value)||19};
+    var accountId=document.getElementById('app-ib-account').value.trim();
+    if(!_approvalIbValidated||!accountId){toast('请先验证 IB Gateway 并选择账户','warn');return;}
+    creds={"host":"127.0.0.1","port":4001,"client_id":1,"account_id":accountId};
   }
   
   btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> \u63d0\u4ea4\u4e2d...';
@@ -1553,6 +1603,7 @@ function showNodeDetail(sid){
       +'<div>Host: <span class="detail-val-mono">'+escapeHtml(creds.host||'-')+'</span></div>'
       +'<div>Port: <span>'+escapeHtml(creds.port||'-')+'</span></div>'
       +'<div>Client ID: <span>'+escapeHtml((creds.client_id!=null&&creds.client_id!=='')?creds.client_id:'-')+'</span></div>'
+      +'<div>Account: <span class="detail-val-mono">'+escapeHtml(creds.account_id||'-')+'</span></div>'
       +'</div>';
   }else if(brokerType==='Test'){
     credsDisplay='<span style="color:#6b7280">测试模式无需凭证</span>';
@@ -1618,6 +1669,8 @@ function showNodeDetail(sid){
 // ═══════════════════════════════════════════════════
 function showNodeConfig(sid){
   _configTastytradeValidated=false;
+  _configIbValidated=false;
+  _configIbAccounts=[];
   var n=_nodesCache.find(function(x){return x.server_id===sid;});
   if(!n){toast('未找到节点信息','err');return;}
 
@@ -1629,7 +1682,9 @@ function showNodeConfig(sid){
   var ttAccount=(creds.account_number)||'';
   var ibHost=(creds.host)||'';
   var ibPort=(creds.port)||'';
-  var ibCid=(creds.client_id)||'19';
+  var ibCid=(creds.client_id)||'1';
+  var ibAccount=(creds.account_id)||'';
+  var ibLocked=(curBroker==='IB'||curBroker==='interactive_brokers');
 
   var html='<div class="modal-mask" id="node-config-modal">'
     +'<div class="modal-panel" style="max-width:560px" onclick="event.stopPropagation()">'
@@ -1638,11 +1693,11 @@ function showNodeConfig(sid){
     +'  <div class="modal-body">'
     // 券商类型
     +'    <div class="field-group"><label class="field-label">券商类型 <span style="color:#ef4444">*</span></label>'
-    +'<select class="sel" id="cfg-broker-type" onchange="toggleCfgFields()" style="width:100%">'
+    +'<select class="sel" id="cfg-broker-type" onchange="toggleCfgFields()" style="width:100%" '+(ibLocked?'disabled':'')+'>'
     +'  <option value="" disabled>\u8bf7\u9009\u62e9...</option>'
-    +'  <option value="TT" '+((curBroker==='TT'||curBroker==='tastytrade')?'selected':'')+'>Tastytrade (TT)</option>'
-    +'  <option value="IB" '+((curBroker==='IB'||curBroker==='interactive_brokers')?'selected':'')+'>Interactive Brokers (IB)</option>'
-    +'  <option value="Test" '+(curBroker==='Test'?'selected':'')+'>Test 测试模式</option>'
+    +'  <option value="TT" '+((curBroker==='TT'||curBroker==='tastytrade')?'selected':'')+' '+(ibLocked?'disabled':'')+'>Tastytrade (TT)</option>'
+    +'  <option value="IB" '+((curBroker==='IB'||curBroker==='interactive_brokers')?'selected':'')+' '+(!ibLocked?'disabled':'')+'>Interactive Brokers (IB)</option>'
+    +'  <option value="Test" '+(curBroker==='Test'?'selected':'')+' '+(ibLocked?'disabled':'')+'>Test 测试模式</option>'
     +'</select></div>'
     // 账户信息
     // TT 凭证
@@ -1655,9 +1710,12 @@ function showNodeConfig(sid){
     +'</div>'
     // IB 凭证
     +'<div id="cfg-fields-ib"' + ((curBroker==='IB'||curBroker==='interactive_brokers') ? '' : ' style="display:none"') + '>'
-    +'  <div class="field-group"><label class="field-label">Host</label><input class="inp" id="cfg-ib-host" value="'+escapeHtml(ibHost)+'" placeholder="IB TWS IP Address" /></div>'
-    +'  <div class="field-group"><label class="field-label">Port</label><input class="inp" id="cfg-ib-port" value="'+escapeHtml(ibPort+'')+'" placeholder="7496" /></div>'
-    +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="cfg-ib-clientid" value="'+escapeHtml(ibCid+'')+'" placeholder="19" /></div>'
+    +'  <div class="field-group"><label class="field-label">Host</label><input class="inp" id="cfg-ib-host" value="127.0.0.1" readonly /></div>'
+    +'  <div class="field-group"><label class="field-label">Port</label><input class="inp" id="cfg-ib-port" value="4001" readonly /></div>'
+    +'  <div class="field-group"><label class="field-label">Client ID</label><input class="inp" id="cfg-ib-clientid" value="1" readonly /></div>'
+    +'  <input type="hidden" id="cfg-ib-account" value="'+escapeHtml(ibAccount)+'" />'
+    +'  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><button class="btn-xs" id="cfg-ib-validate-btn" onclick="validateConfigInteractiveBrokers(\''+sid+'\',this)"><i class="ri-shield-check-line"></i> 验证并获取账户</button><span id="cfg-ib-validation-state" style="font-size:12px;color:#94a3b8">尚未验证</span></div>'
+    +'  <div id="cfg-ib-account-results"></div>'
     +'</div>'
     // Test 说明
     +'<div id="cfg-fields-test"' + (curBroker==='Test' ? '' : ' style="display:none"') + '>'
@@ -1667,7 +1725,7 @@ function showNodeConfig(sid){
     +'  </div>'
     +'  <div class="modal-foot">'
     +'    <button class="btn-xs" onclick="document.getElementById(\'node-config-modal\').remove()">取消</button>'
-    +'    <button class="btn-xs btn-pri" id="cfg-save-btn" '+((curBroker==='TT'||curBroker==='tastytrade'||curBroker==='')?'disabled':'')+' onclick="doSaveNodeConfig(\''+sid+'\',this)">保存配置</button>'
+    +'    <button class="btn-xs btn-pri" id="cfg-save-btn" '+((curBroker==='TT'||curBroker==='tastytrade'||curBroker===''||ibLocked)?'disabled':'')+' onclick="doSaveNodeConfig(\''+sid+'\',this)">保存配置</button>'
     +'  </div>'
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
@@ -1677,6 +1735,8 @@ function showNodeConfig(sid){
 }
 
 var _configTastytradeValidated=false;
+var _configIbValidated=false;
+var _configIbAccounts=[];
 
 function invalidateConfigTastytrade(){
   _configTastytradeValidated=false;
@@ -1719,13 +1779,48 @@ async function validateConfigTastytrade(sid,btn){
   finally{btn.disabled=false;btn.innerHTML='<i class="ri-shield-check-line"></i> 验证并获取账户';}
 }
 
+function selectConfigIbAccount(accountId){
+  var input=document.getElementById('cfg-ib-account');
+  if(input)input.value=accountId;
+  var results=document.getElementById('cfg-ib-account-results');
+  if(results)results.innerHTML=ibAccountListHtml(_configIbAccounts,accountId,'selectConfigIbAccount');
+  _configIbValidated=!!accountId;
+  document.getElementById('cfg-save-btn').disabled=!_configIbValidated;
+}
+
+async function validateConfigInteractiveBrokers(sid,btn){
+  btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> 验证中...';
+  var state=document.getElementById('cfg-ib-validation-state');
+  var results=document.getElementById('cfg-ib-account-results');
+  var current=document.getElementById('cfg-ib-account').value.trim();
+  try{
+    var r=await fetch('/api/nodes/'+encodeURIComponent(sid)+'/interactive-brokers/validate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});
+    var d=await r.json();
+    if(d.ok){
+      _configIbAccounts=d.accounts||[];
+      var exists=_configIbAccounts.some(function(a){return (a.account_id||'')===current;});
+      var selected=exists?current:'';
+      document.getElementById('cfg-ib-account').value=selected;
+      if(results)results.innerHTML=ibAccountListHtml(_configIbAccounts,selected,'selectConfigIbAccount');
+      _configIbValidated=!!selected;
+      state.textContent=selected?'验证通过':'验证通过，请选择账户';state.style.color='#16a34a';
+      document.getElementById('cfg-save-btn').disabled=!_configIbValidated;
+      toast('IB Gateway 验证通过，共 '+_configIbAccounts.length+' 个账户','ok');
+    }else{
+      _configIbAccounts=[];_configIbValidated=false;if(results)results.innerHTML='';
+      state.textContent=d.error||'验证失败';state.style.color='#dc2626';document.getElementById('cfg-save-btn').disabled=true;toast(d.error||'验证失败','err');
+    }
+  }catch(e){_configIbAccounts=[];_configIbValidated=false;state.textContent='验证请求失败';state.style.color='#dc2626';toast('验证网络错误:'+e.message,'err');}
+  finally{btn.disabled=false;btn.innerHTML='<i class="ri-shield-check-line"></i> 验证并获取账户';}
+}
+
 function toggleCfgFields(){
   var t=document.getElementById('cfg-broker-type').value;
   document.getElementById('cfg-fields-tastytrade').style.display=(t==='TT')?'block':'none';
   document.getElementById('cfg-fields-ib').style.display=(t==='IB')?'block':'none';
   document.getElementById('cfg-fields-test').style.display=(t==='Test')?'block':'none';
   var save=document.getElementById('cfg-save-btn');
-  if(save)save.disabled=(t==='TT'&&!_configTastytradeValidated);
+  if(save)save.disabled=(t==='TT'&&!_configTastytradeValidated)||(t==='IB'&&!_configIbValidated);
 }
 
 async function doSaveNodeConfig(sid,btn){
@@ -1742,9 +1837,9 @@ async function doSaveNodeConfig(sid,btn){
     if(!_configTastytradeValidated){toast('请先验证凭证并获取账户','warn');return;}
     creds={"secret":s,"token":t,"account_number":a};
   }else if(bt==='IB'){
-    var h=document.getElementById('cfg-ib-host').value.trim();
-    var p=document.getElementById('cfg-ib-port').value.trim();
-    creds={"host":h,"port":parseInt(p)||0,"client_id":parseInt(document.getElementById('cfg-ib-clientid').value)||19};
+    var accountId=document.getElementById('cfg-ib-account').value.trim();
+    if(!_configIbValidated||!accountId){toast('请先验证 IB Gateway 并选择账户','warn');return;}
+    creds={"host":"127.0.0.1","port":4001,"client_id":1,"account_id":accountId};
   }
 
   btn.disabled=true;btn.innerHTML='<i class="ri-loader-4-line" style="animation:spin 1s linear infinite"></i> \u4fdd\u5b58\u4e2d...';

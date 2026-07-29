@@ -30,6 +30,7 @@ class CaddyRenderTests(unittest.TestCase):
         rendered = ts_caddy.render_ts_caddyfile("ts-01.ts.scjrdomain.com")
         self.assertIn("admin 127.0.0.1:2020", rendered)
         self.assertIn("reverse_proxy 127.0.0.1:8900", rendered)
+        self.assertIn("/api/admin/interactive-brokers/validate", rendered)
         self.assertLess(rendered.index("handle @client_ws"), rendered.rindex("handle {"))
         self.assertLess(rendered.index("handle @sm_admin"), rendered.rindex("handle {"))
         self.assertLess(rendered.index("reverse_proxy"), rendered.index("respond 404"))

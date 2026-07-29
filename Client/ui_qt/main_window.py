@@ -159,15 +159,6 @@ def make_label(text: str, *, color: str | None = None, font=None, object_name: s
     return label
 
 
-def make_pill(text: str, bg: str, fg: str, *, min_height: int = 24) -> QLabel:
-    label = QLabel(text)
-    label.setAlignment(Qt.AlignCenter)
-    label.setMinimumHeight(min_height)
-    label.setStyleSheet(f"background: {bg}; color: {fg}; border-radius: 7px; padding: 3px 9px;")
-    label.setFont(theme.mono_font(9, bold=True))
-    return label
-
-
 def style_status_pill(label: QLabel, text: str, *, active: bool = False, danger: bool = False) -> None:
     if active:
         bg = theme.ACCENT_RED if danger else theme.ACCENT_GREEN
@@ -362,7 +353,6 @@ class TradingTerminalQt(QMainWindow):
         self._quote_requested_symbols: set[str] = set()
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
-        self._ui_backdoor_mode = False
 
         root = QWidget()
         root.setObjectName("root")
@@ -572,10 +562,6 @@ class TradingTerminalQt(QMainWindow):
         password = self._login_pass_entry.text() if self._login_pass_entry else ""
         if not username or not password:
             self._set_init_hint("请输入账号和密码")
-            return
-        if username == "dev" and password == "dev":
-            self._set_init_hint("")
-            self._enter_dev_main_interface(username)
             return
         self._set_init_hint("")
         self._show_connection_page()
@@ -1267,7 +1253,7 @@ class TradingTerminalQt(QMainWindow):
         authority = str(account.get("authority_level") or "unknown")
         read_only = authority in {"read-only", "read_only", "readonly"}
         if hasattr(self, "account_state"):
-            style_status_pill(self.account_state, "DEV" if self._ui_backdoor_mode else ("Connect" if active else "Offline"), active=True, danger=not active)
+            style_status_pill(self.account_state, "Connect" if active else "Offline", active=True, danger=not active)
         if hasattr(self, "broker_name_label"):
             self.broker_name_label.setText(f"BROKER {broker_type}" if broker_type != "NONE" else "BROKER --")
             self.broker_name_label.setStyleSheet(f"color: {theme.ACCENT_GREEN if active else theme.TEXT_LOW};")
@@ -1352,10 +1338,6 @@ class TradingTerminalQt(QMainWindow):
                 if startup:
                     QTimer.singleShot(80, self._show_startup_login)
                 return
-            if username == "dev" and password == "dev":
-                self._startup_login_required = False
-                self._enter_dev_main_interface(username)
-                return
             self._startup_login_required = startup
             self._run_bg(lambda: self._login_manager(username, password, False))
         finally:
@@ -1365,28 +1347,9 @@ class TradingTerminalQt(QMainWindow):
         self._run_bg(lambda: self._login_manager(username, password, force))
 
     def _login_manager(self, username: str, password: str, force: bool = False) -> None:
-        self._ui_backdoor_mode = False
         self.session = TradingSession(self.http)
         ok, msg = self.session.login(username, password, force=force)
         self._ui(lambda: self._handle_manager_login_result(ok, msg, username, password, force))
-
-    def _enter_dev_main_interface(self, username: str) -> None:
-        self._ui_backdoor_mode = True
-        self.session = TradingSession(self.http)
-        self.session.connected = True
-        self.session.mock_mode = False
-        self.session.se_address = default_ts_target()
-        self.http.token = "dev-ui-backdoor"
-        self._login_username = username
-        self._login_password = ""
-        self._startup_login_required = False
-        self._se_target_address = self.session.se_address
-        self._se_connected = False
-        self._show_connection_page()
-        self._update_init_step("auth", "本地后门", theme.ACCENT_BLUE)
-        self._update_init_step("sm", "已跳过", theme.TEXT_MUTED)
-        self._update_init_step("se", "未连接", theme.TEXT_MUTED)
-        self._enter_main_interface()
 
     def _handle_manager_login_result(self, ok: bool, msg: str, username: str, password: str, force: bool = False) -> None:
         if not ok:
@@ -1776,12 +1739,8 @@ class TradingTerminalQt(QMainWindow):
         self._build_root()
         self._main_ui_built = True
         self._set_se_connection_ui(self._se_connected)
-        if self._ui_backdoor_mode:
-            self._append_log("DEV UI 后门已启用", "warn")
-            self._append_log("交易服务器未连接，仅用于界面操作", "inf")
-        else:
-            self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
-            self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
+        self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
+        self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
         self._apply_broker_status_ui()
         self._refresh_broker_status_async(log_errors=False)
         self._sync_quote_subscriptions_async()

@@ -49,6 +49,9 @@ class AccessChainTests(unittest.TestCase):
         node_state.manager._states.clear()
         sm_config.active_client_tokens.clear()
         sm_main._admin_sessions.clear()
+        sm_main._ib_validation_jobs.clear()
+        sm_main._ib_validation_job_events.clear()
+        sm_main._ib_validation_cache.clear()
         self.original_admin_check = sm_main._is_admin_logged_in
         self.original_probe = sm_main._probe_ts_request_alive
         sm_main._is_admin_logged_in = lambda request: True
@@ -62,7 +65,270 @@ class AccessChainTests(unittest.TestCase):
         sm_main._probe_ts_request_alive = self.original_probe
         node_state.manager._states.clear()
         sm_config.active_client_tokens.clear()
+        sm_main._ib_validation_jobs.clear()
+        sm_main._ib_validation_job_events.clear()
+        sm_main._ib_validation_cache.clear()
         self.temp_dir.cleanup()
+
+    def test_ib_approval_requires_recent_validated_account_and_locks_broker(self):
+        imported = self.client.post(
+            "/api/domain-pool/import",
+            json={"domains": ["ib-approval.ts.scjrdomain.com"]},
+        ).json()
+        self.assertTrue(imported["ok"])
+        secret = "v" * 40
+        registered = self.client.post(
+            "/nodes/register-request",
+            json={
+                "node_name": "ib-approval",
+                "region": "IB",
+                "host": "8.8.8.8",
+                "public_ip": "8.8.8.8",
+                "validation_secret": secret,
+            },
+        ).json()
+        self.assertTrue(registered["ok"], registered)
+        stored_hash = database.get_node_request_validation_token_hash(registered["request_id"])
+        self.assertTrue(stored_hash)
+        self.assertNotEqual(stored_hash, secret)
+
+        missing_validation = self.client.post(
+            f"/api/nodes/{registered['request_id']}/approve",
+            json={"broker_type": "IB", "credentials": {"account_id": "U1"}},
+        ).json()
+        self.assertFalse(missing_validation["ok"])
+        self.assertEqual(missing_validation["code"], "IB_VALIDATION_REQUIRED")
+
+        sm_main._ib_validation_cache[registered["request_id"]] = {
+            "accounts": [{"account_id": "U1"}],
+            "expires_at": time.time() + 300,
+        }
+        switched = self.client.post(
+            f"/api/nodes/{registered['request_id']}/approve",
+            json={"broker_type": "TT", "credentials": {}},
+        ).json()
+        self.assertFalse(switched["ok"])
+
+        approved = self.client.post(
+            f"/api/nodes/{registered['request_id']}/approve",
+            json={"broker_type": "IB", "credentials": {"account_id": "U1"}},
+        ).json()
+        self.assertTrue(approved["ok"], approved)
+        config = database.get_node_broker_config(approved["server_id"])
+        self.assertEqual(config["broker_type"], "interactive_brokers")
+        self.assertEqual(
+            config["credentials"],
+            {"host": "127.0.0.1", "port": 4001, "client_id": 1, "account_id": "U1"},
+        )
+
+    def test_ib_registration_and_legacy_validation_require_registration_identity(self):
+        rejected = self.client.post(
+            "/nodes/register-request",
+            json={
+                "node_name": "ib-no-secret",
+                "region": "IB",
+                "host": "8.8.8.8",
+                "public_ip": "8.8.8.8",
+            },
+        ).json()
+        self.assertFalse(rejected["ok"])
+        self.assertIn("validation identity", rejected["error"])
+
+        request_id = "req_legacy_ib_without_validation_identity"
+        created = database.create_node_request(
+            request_id=request_id,
+            node_name="legacy-ib",
+            region="IB",
+            host="8.8.4.4",
+            public_ip="8.8.4.4",
+            validation_token_hash="",
+        )
+        self.assertIsNotNone(created)
+        validation = self.client.post(
+            f"/api/nodes/requests/{request_id}/interactive-brokers/validate",
+            json={},
+        ).json()
+        self.assertFalse(validation["ok"])
+        self.assertEqual(validation["code"], "IB_REGISTRATION_IDENTITY_MISSING")
+
+    def test_ib_approval_rejects_expired_cache_missing_account_and_unvalidated_account(self):
+        secret = "e" * 40
+        registered = self.client.post(
+            "/nodes/register-request",
+            json={
+                "node_name": "ib-cache-guard",
+                "region": "IB",
+                "host": "1.0.0.1",
+                "public_ip": "1.0.0.1",
+                "validation_secret": secret,
+            },
+        ).json()
+        request_id = registered["request_id"]
+        sm_main._ib_validation_cache[request_id] = {
+            "accounts": [{"account_id": "U1"}],
+            "expires_at": time.time() - 1,
+        }
+        expired = self.client.post(
+            f"/api/nodes/{request_id}/approve",
+            json={"broker_type": "IB", "credentials": {"account_id": "U1"}},
+        ).json()
+        self.assertFalse(expired["ok"])
+        self.assertEqual(expired["code"], "IB_VALIDATION_REQUIRED")
+
+        sm_main._ib_validation_cache[request_id] = {
+            "accounts": [{"account_id": "U1"}],
+            "expires_at": time.time() + 300,
+        }
+        missing = self.client.post(
+            f"/api/nodes/{request_id}/approve",
+            json={"broker_type": "IB", "credentials": {}},
+        ).json()
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["code"], "IB_ACCOUNT_REQUIRED")
+
+        unvalidated = self.client.post(
+            f"/api/nodes/{request_id}/approve",
+            json={"broker_type": "IB", "credentials": {"account_id": "U2"}},
+        ).json()
+        self.assertFalse(unvalidated["ok"])
+        self.assertEqual(unvalidated["code"], "IB_ACCOUNT_NOT_VALIDATED")
+        self.assertEqual(database.get_node_request_by_id(request_id)["status"], "pending")
+
+    def test_pending_ib_validation_poll_requires_registration_secret(self):
+        secret = "s" * 40
+        registered = self.client.post(
+            "/nodes/register-request",
+            json={
+                "node_name": "ib-poll",
+                "region": "IB",
+                "host": "1.1.1.1",
+                "public_ip": "1.1.1.1",
+                "validation_secret": secret,
+            },
+        ).json()
+        request_id = registered["request_id"]
+        sm_main._ib_validation_jobs[request_id] = {
+            "job_id": "job-1",
+            "claimed": False,
+            "expires_at": time.time() + 30,
+        }
+        denied = self.client.post(
+            "/nodes/registration-validation/poll",
+            headers={"Authorization": "Bearer wrong"},
+            json={"request_id": request_id},
+        )
+        self.assertEqual(denied.status_code, 401)
+        allowed = self.client.post(
+            "/nodes/registration-validation/poll",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={"request_id": request_id},
+        ).json()
+        self.assertTrue(allowed["ok"])
+        self.assertEqual(allowed["job"]["job_id"], "job-1")
+        self.assertEqual(allowed["job"]["credentials"]["port"], 4001)
+
+    def test_pending_ib_validation_job_round_trip_caches_accounts(self):
+        secret = "r" * 40
+        registered = self.client.post(
+            "/nodes/register-request",
+            json={
+                "node_name": "ib-round-trip",
+                "region": "IB",
+                "host": "9.9.9.9",
+                "public_ip": "9.9.9.9",
+                "validation_secret": secret,
+            },
+        ).json()
+        request_id = registered["request_id"]
+        holder = {}
+
+        def run_admin_validation():
+            holder["response"] = self.client.post(
+                f"/api/nodes/requests/{request_id}/interactive-brokers/validate",
+                json={},
+            ).json()
+
+        thread = threading.Thread(target=run_admin_validation)
+        thread.start()
+        deadline = time.time() + 3
+        while request_id not in sm_main._ib_validation_jobs and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertIn(request_id, sm_main._ib_validation_jobs)
+
+        polled = self.client.post(
+            "/nodes/registration-validation/poll",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={"request_id": request_id},
+        ).json()
+        job_id = polled["job"]["job_id"]
+        submitted = self.client.post(
+            "/nodes/registration-validation/result",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={
+                "request_id": request_id,
+                "job_id": job_id,
+                "result": {"ok": True, "accounts": [{"account_id": "U100"}, {"account_id": "U200"}]},
+            },
+        ).json()
+        self.assertTrue(submitted["ok"])
+        thread.join(timeout=3)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(holder["response"]["ok"])
+        self.assertEqual(len(holder["response"]["accounts"]), 2)
+        cached = sm_main._get_fresh_ib_validation(request_id)
+        self.assertEqual(cached["accounts"][0]["account_id"], "U100")
+
+    def test_saved_ib_node_revalidates_account_without_broker_switch(self):
+        self.client.post(
+            "/api/domain-pool/import",
+            json={"domains": ["ib-config.ts.scjrdomain.com"]},
+        )
+        secret = "c" * 40
+        registered = self.client.post(
+            "/nodes/register-request",
+            json={
+                "node_name": "ib-config",
+                "region": "IB",
+                "host": "4.4.4.4",
+                "public_ip": "4.4.4.4",
+                "validation_secret": secret,
+            },
+        ).json()
+        request_id = registered["request_id"]
+        sm_main._ib_validation_cache[request_id] = {
+            "accounts": [{"account_id": "U1"}],
+            "expires_at": time.time() + 300,
+        }
+        approved = self.client.post(
+            f"/api/nodes/{request_id}/approve",
+            json={"broker_type": "IB", "credentials": {"account_id": "U1"}},
+        ).json()
+        server_id = approved["server_id"]
+
+        with patch.object(
+            sm_main,
+            "_validate_ib_accounts_on_ts",
+            return_value=(True, {"ok": True, "accounts": [{"account_id": "U1"}, {"account_id": "U2"}]}),
+        ):
+            validated = self.client.post(
+                f"/api/nodes/{server_id}/interactive-brokers/validate",
+                json={},
+            ).json()
+        self.assertTrue(validated["ok"], validated)
+
+        updated = self.client.put(
+            f"/api/nodes/{server_id}/config",
+            json={"broker_type": "IB", "credentials": {"account_id": "U2"}},
+        ).json()
+        self.assertTrue(updated["ok"], updated)
+        config = database.get_node_broker_config(server_id)
+        self.assertEqual(config["credentials"]["account_id"], "U2")
+
+        switched = self.client.put(
+            f"/api/nodes/{server_id}/config",
+            json={"broker_type": "TT", "credentials": {}},
+        ).json()
+        self.assertFalse(switched["ok"])
 
     def _create_online_node(self, index: int, public_ip: str) -> tuple[dict, dict]:
         registered = self.client.post("/nodes/register-request", json={
@@ -918,17 +1184,6 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
         self.assertTrue(slot.buy.enabled)
         self.assertTrue(slot.sell.enabled)
 
-    def test_dev_ui_backdoor_does_not_bypass_broker_capabilities(self):
-        fake_window = SimpleNamespace(
-            _ui_backdoor_mode=True,
-            session=SimpleNamespace(connected=True),
-            _se_connected=False,
-            _broker_capability_enabled=lambda capability: False,
-        )
-        self.assertFalse(client_main_window.TradingTerminalQt._trade_controls_enabled(fake_window))
-        fake_window._broker_capability_enabled = lambda capability: capability == "orders"
-        self.assertTrue(client_main_window.TradingTerminalQt._trade_controls_enabled(fake_window))
-
     def test_main_connection_flow_creates_one_durable_websocket(self):
         instances = []
         occupied = []
@@ -1226,6 +1481,106 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         finally:
             ts_trading_svc.ensure_broker_connected = original_connected
             ts_trading_svc.get_current_broker = original_current
+
+    async def test_unified_ws_handlers_drive_ib_order_query_and_cancel_lifecycle(self):
+        class FakeIBBroker:
+            broker_type = "interactive_brokers"
+
+            def __init__(self):
+                self.placed = []
+                self.cancelled = []
+                self.queried = []
+
+            @staticmethod
+            def effective_capabilities():
+                return {
+                    "orders": True,
+                    "cancel_order": True,
+                    "order_query": True,
+                }
+
+            async def place_order(self, params):
+                self.placed.append(dict(params))
+                return {"order_id": "701", "status": "Live"}
+
+            async def get_orders(self, mode="live"):
+                self.queried.append(mode)
+                return [
+                    {
+                        "id": "701",
+                        "symbol": "AAPL",
+                        "action": "Buy to Open",
+                        "qty": "2",
+                        "price": "190.00",
+                        "status": "Live",
+                        "type": "LIMIT",
+                        "tif": "GTC_EXT",
+                    }
+                ]
+
+            async def cancel_order(self, order_id):
+                self.cancelled.append(order_id)
+                return {"success": True, "order_id": order_id, "status": "Cancelled"}
+
+        broker = FakeIBBroker()
+        connection = {"username": "client-user", "server_id": "ib-node"}
+        with (
+            patch.object(ts_trading_svc, "ensure_broker_connected", AsyncMock(return_value=True)),
+            patch.object(ts_trading_svc, "get_current_broker", return_value=broker),
+            patch.object(ts_trading_svc, "_ORDER_RECENT", {}),
+        ):
+            submitted = await ts_ws_server._handle_order_submit(
+                {
+                    "id": "submit-1",
+                    "payload": {
+                        "symbol": "aapl",
+                        "qty": 2,
+                        "price": 190,
+                        "action": "Buy to Open",
+                        "order_type": "limit",
+                        "tif": "GTC_EXT",
+                    },
+                },
+                "session-1",
+                "trace-submit",
+                connection,
+            )
+            queried = await ts_ws_server._handle_order_query(
+                {"id": "query-1", "payload": {"mode": "all"}},
+                "session-1",
+                "trace-query",
+                connection,
+            )
+            cancelled = await ts_ws_server._handle_order_cancel(
+                {"id": "cancel-1", "payload": {"order_id": "701"}},
+                "session-1",
+                "trace-cancel",
+                connection,
+            )
+
+        self.assertEqual(submitted["type"], "ORDER_RESPONSE")
+        self.assertTrue(submitted["payload"]["success"])
+        self.assertEqual(submitted["payload"]["order_id"], "701")
+        self.assertEqual(
+            broker.placed,
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "Buy to Open",
+                    "qty": 2,
+                    "price": 190.0,
+                    "order_type": "limit",
+                    "tif": "GTC_EXT",
+                }
+            ],
+        )
+        self.assertEqual(queried["type"], "ORDER_LIST_RESPONSE")
+        self.assertTrue(queried["payload"]["success"])
+        self.assertEqual(queried["payload"]["orders"][0]["id"], "701")
+        self.assertEqual(broker.queried, ["all"])
+        self.assertEqual(cancelled["type"], "ORDER_CANCEL_RESPONSE")
+        self.assertTrue(cancelled["payload"]["success"])
+        self.assertEqual(broker.cancelled, ["701"])
 
     async def test_broker_status_is_real_and_runtime_login_messages_are_removed(self):
         original_status = ts_ws_server._MESSAGE_HANDLERS["BROKER_STATUS_QUERY"]

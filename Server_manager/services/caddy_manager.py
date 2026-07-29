@@ -107,7 +107,7 @@ def render_sm_caddyfile(
 \t\tReferrer-Policy \"same-origin\"
 \t}}
 
-\t@internal_only path /docs /openapi.json /quotes
+\t@internal_only path /docs /openapi.json
 \thandle @internal_only {{
 \t\trespond 404
 \t}}

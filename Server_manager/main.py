@@ -14,8 +14,7 @@ Server Manager - Main Entry Point
     SERVER_PORT       服务端口       (默认: 8800)
     TASTY_SECRET      Tastytrade Secret Token
     TASTY_TOKEN       Tastytrade Session Token
-    IB_HOST           IB TWS 地址     (默认: 127.0.0.1)
-    IB_PORT           IB TWS 端口     (默认: 7496)
+    IB Gateway 连接由 Trader_Server 在本机 127.0.0.1:4001 执行。
 """
 
 import os
@@ -45,16 +44,15 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from config import (
     SERVER_HOST, SERVER_PORT, session_store,
-    quote_clients, subscribed_syms, log, read_recent_error_lines, read_error_log_text, LOG_FILE, ERROR_LOG_FILE,
-    SM_ENABLE_LEGACY_QUOTES,
+    log, read_recent_error_lines, read_error_log_text, LOG_FILE, ERROR_LOG_FILE,
     SM_ALLOWED_HOSTS, SM_COOKIE_SAMESITE, SM_COOKIE_SECURE, SM_CORS_ORIGINS,
     SM_DOMAIN_POOL_REQUIRED, SM_PUBLIC_BASE_URL,
     SM_CADDY_REQUIRED,
@@ -312,28 +310,12 @@ async def admin_dashboard(request: Request):
     # 服务状态信息（控制面不直接承载交易 SDK）
     server_mode = "CONTROL_PLANE"
     sdk_status = "N/A"
-    ib_connected = False
-
-    if SM_ENABLE_LEGACY_QUOTES:
-        try:
-            from services.quote_service import get_ib_app
-            ib_app = get_ib_app()
-            if ib_app:
-                ib_connected = ib_app.isConnected()
-        except Exception:
-            pass
-    ib_status = "\u5DF2\u8FDE\u63A5" if ib_connected else ("未启用" if not SM_ENABLE_LEGACY_QUOTES else "\u672A\u8FDE\u63A5")
-    ib_color = "green" if ib_connected else "orange"
-    active_count = len(quote_clients)
     return templates.TemplateResponse(request, "dashboard.html", {
         "admin_username": admin_username,
         "admin_role": admin_role,
         "is_super_admin": admin_role == "super_admin",
         "server_mode": server_mode,
         "sdk_status": sdk_status,
-        "ib_status": ib_status,
-        "ib_color": ib_color,
-        "active_clients": str(active_count),
         "public_base_url": SM_PUBLIC_BASE_URL,
     })
 
@@ -515,65 +497,13 @@ async def docs(request: Request):
     return _DOCS_HTML
 
 
-# ── WebSocket: 行情推送 ───────────────────────────────────────────────────
-
-@app.websocket("/quotes")
-async def quote_websocket(ws: WebSocket):
-    """
-    行情 WebSocket 端点
-    支持 subscribe / unsubscribe 动作管理订阅标的
-    """
-    if not SM_ENABLE_LEGACY_QUOTES:
-        await ws.close(code=4004, reason="Legacy quote service disabled")
-        return
-
-    token = ws.query_params.get("token", "")
-    if not token:
-        await ws.close(code=4001, reason="Missing token")
-        return
-
-    # 验证 token（支持服务端 Token 和客户端登录 Token）
-    from config import SERVER_TOKEN, active_client_tokens
-    if token != SERVER_TOKEN and token not in active_client_tokens:
-        await ws.close(code=4003, reason="Invalid token")
-        return
-
-    await ws.accept()
-    quote_clients.append(ws)
-    log.info(f"Quote WS client connected, total: {len(quote_clients)}")
-
-    try:
-        while True:
-            raw = await ws.receive_text()
-            data = __import__("json").loads(raw)
-
-            action = data.get("action", "")
-            symbols = data.get("symbols", [])
-
-            if action == "subscribe":
-                for sym in symbols:
-                    if isinstance(sym, str) and sym.strip():
-                        subscribed_syms.add(sym.strip())
-                        log.info(f"Subscribed: {sym}, total symbols: {len(subscribed_syms)}")
-
-            elif action == "unsubscribe":
-                for sym in symbols:
-                    subscribed_syms.discard(sym)
-                    log.info(f"Unsubscribed: {sym}, total symbols: {len(subscribed_syms)}")
-
-    except WebSocketDisconnect:
-        log.info(f"Quote WS client disconnected, total: {len(quote_clients) - 1}")
-    except Exception as e:
-        log.warning(f"Quote WS error: {e}")
-    finally:
-        if ws in quote_clients:
-            quote_clients.remove(ws)
-
-
 # ── 节点注册与连接管理（Trader_Server → Server_manager）────────────────
 
 import secrets
+import hashlib
+import hmac
 import json as _json
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -585,9 +515,42 @@ _node_sse_queues: dict[str, list] = {}
 # 配置变更通知 SSE 队列：{server_id: [asyncio.Queue, ...]}
 _config_sse_queues: dict[str, list] = {}
 
+# Pending IB validation is a short-lived control-plane job. The TS polls SM
+# over HTTPS, executes the Gateway check locally, and posts the result back.
+_IB_VALIDATION_TTL_SECONDS = 300
+_IB_VALIDATION_JOB_TIMEOUT_SECONDS = 25
+_ib_validation_jobs: dict[str, dict] = {}
+_ib_validation_job_events: dict[str, asyncio.Event] = {}
+_ib_validation_cache: dict[str, dict] = {}
+
 
 # 注册请求过期清理间隔（每小时扫描一次）
 _NODE_EXPIRE_CHECK_INTERVAL = 3600
+
+
+def _is_interactive_brokers(broker_type: str) -> bool:
+    return str(broker_type or "").strip().lower() in {"ib", "interactive_brokers"}
+
+
+def _validation_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+def _pending_validation_authorized(request_id: str, request: Request) -> bool:
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "", 1).strip() if auth_header.startswith("Bearer ") else ""
+    expected = database.get_node_request_validation_token_hash(request_id)
+    return bool(token and expected and hmac.compare_digest(_validation_token_hash(token), expected))
+
+
+def _get_fresh_ib_validation(request_id: str) -> dict | None:
+    cached = _ib_validation_cache.get(request_id)
+    if not cached:
+        return None
+    if float(cached.get("expires_at") or 0) <= time.time():
+        _ib_validation_cache.pop(request_id, None)
+        return None
+    return cached
 
 
 def _discard_pending_request_by_probe(request_id: str, reason: str) -> dict:
@@ -604,6 +567,8 @@ def _discard_pending_request_by_probe(request_id: str, reason: str) -> dict:
         "message": "注册已废弃",
     })
     _push_sse_result(request_id, data)
+    _ib_validation_cache.pop(request_id, None)
+    _ib_validation_jobs.pop(request_id, None)
     return result
 
 
@@ -681,6 +646,30 @@ def _force_disconnect_ts_clients(ts_host: str, node_token: str, reason: str, tim
         return False, {"error": "network_error", "detail": str(e)}
 
 
+def _validate_ib_accounts_on_ts(ts_host: str, node_token: str, timeout_s: int = 15) -> tuple[bool, dict]:
+    host = str(ts_host or "").strip()
+    if not host or not node_token:
+        return False, {"error": "ts_endpoint_or_token_missing"}
+    url = ts_api_url(host, "/api/admin/interactive-brokers/validate")
+    if not url:
+        return False, {"error": "ts_endpoint_invalid"}
+    request = urllib.request.Request(url, data=b"{}", method="POST")
+    request.add_header("Content-Type", "application/json")
+    request.add_header("Authorization", f"Bearer {node_token}")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            payload = _json.loads(response.read().decode("utf-8", errors="replace"))
+            return bool(payload.get("ok")), payload
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = _json.loads(exc.read().decode("utf-8", errors="replace"))
+        except Exception:
+            detail = {"error": f"HTTP {exc.code}"}
+        return False, detail
+    except Exception as exc:
+        return False, {"error": str(exc)}
+
+
 async def _disconnect_user_from_occupied_nodes(username: str, reason: str) -> list[dict]:
     """Disconnect and release nodes currently occupied by one managed account."""
     target_user = (username or "").strip()
@@ -741,9 +730,13 @@ async def register_request(request: Request):
     forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
     source_ip = forwarded_for or ((request.client.host if request.client else "") or "").strip()
     reported_public_ip = (body.get("public_ip") or "").strip()
+    broker_type = region.strip()
+    validation_secret = str(body.get("validation_secret") or "").strip()
 
     if not node_name:
         return {"ok": False, "error": "node_name is required"}
+    if _is_interactive_brokers(broker_type) and len(validation_secret) < 32:
+        return {"ok": False, "error": "IB registration validation identity is missing; resubmit from an updated TS"}
     try:
         public_ip = domain_pool.normalize_public_ipv4(reported_public_ip or source_ip)
     except domain_pool.DomainPoolError as exc:
@@ -765,6 +758,7 @@ async def register_request(request: Request):
         host=(body.get("host") or public_ip).strip(),
         public_ip=public_ip,
         source_ip=source_ip,
+        validation_token_hash=_validation_token_hash(validation_secret) if validation_secret else "",
         capabilities=body.get("capabilities"),
         contact=(body.get("contact") or "").strip(),
         description=(body.get("description") or "").strip(),
@@ -781,6 +775,58 @@ async def register_request(request: Request):
         "message": "\u63d0\u4ea4\u6210\u529f\uff0c\u8bf7\u7b49\u5f85\u7ba1\u7406\u5458\u5ba1\u6838",
         "expire_at": result["expire_at"],
     }
+
+
+@app.post("/nodes/registration-validation/poll")
+async def poll_registration_validation(request: Request):
+    body = await request.json() if await request.body() else {}
+    request_id = str(body.get("request_id") or "").strip()
+    pending = database.get_node_request_by_id(request_id)
+    if not pending or str(pending.get("status") or "") != "pending":
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Pending request not found"})
+    if not _is_interactive_brokers(pending.get("region", "")):
+        return JSONResponse(status_code=409, content={"ok": False, "error": "Pending request is not IB"})
+    if not _pending_validation_authorized(request_id, request):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Unauthorized"})
+
+    event = _ib_validation_job_events.setdefault(request_id, asyncio.Event())
+    deadline = time.monotonic() + 20.0
+    while True:
+        job = _ib_validation_jobs.get(request_id)
+        if job and not job.get("claimed") and float(job.get("expires_at") or 0) > time.time():
+            job["claimed"] = True
+            return {
+                "ok": True,
+                "job": {
+                    "job_id": job["job_id"],
+                    "credentials": {"host": "127.0.0.1", "port": 4001, "client_id": 1},
+                },
+            }
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {"ok": True, "job": None}
+        event.clear()
+        try:
+            await asyncio.wait_for(event.wait(), timeout=remaining)
+        except asyncio.TimeoutError:
+            return {"ok": True, "job": None}
+
+
+@app.post("/nodes/registration-validation/result")
+async def submit_registration_validation_result(request: Request):
+    body = await request.json() if await request.body() else {}
+    request_id = str(body.get("request_id") or "").strip()
+    if not _pending_validation_authorized(request_id, request):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Unauthorized"})
+    job = _ib_validation_jobs.get(request_id)
+    job_id = str(body.get("job_id") or "").strip()
+    if not job or job_id != str(job.get("job_id") or ""):
+        return JSONResponse(status_code=409, content={"ok": False, "error": "Validation job is no longer active"})
+    result = dict(body.get("result", {}) or {})
+    future = job.get("future")
+    if future and not future.done():
+        future.set_result(result)
+    return {"ok": True}
 
 
 @app.get("/nodes/await-approval")
@@ -1300,6 +1346,78 @@ async def validate_pending_node_tastytrade(request: Request, request_id: str):
     return {"ok": True, **result}
 
 
+@app.post("/api/nodes/requests/{request_id}/interactive-brokers/validate")
+async def validate_pending_node_interactive_brokers(request: Request, request_id: str):
+    """Ask the pending TS to validate its local IB Gateway connection."""
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    pending = database.get_node_request_by_id(request_id)
+    if not pending or str(pending.get("status") or "") != "pending":
+        return {"ok": False, "error": "Pending node request not found"}
+    if not _is_interactive_brokers(pending.get("region", "")):
+        return {"ok": False, "error": "Pending node request is not Interactive Brokers"}
+    if not database.get_node_request_validation_token_hash(request_id):
+        return {
+            "ok": False,
+            "code": "IB_REGISTRATION_IDENTITY_MISSING",
+            "error": "该待审批节点由旧版 TS 提交，请升级 TS 后重新发起注册",
+        }
+
+    loop = asyncio.get_running_loop()
+    existing = _ib_validation_jobs.get(request_id)
+    if existing:
+        old_future = existing.get("future")
+        if old_future and not old_future.done():
+            old_future.set_result({"ok": False, "code": "IB_VALIDATION_SUPERSEDED", "error": "Validation restarted"})
+    future = loop.create_future()
+    job = {
+        "job_id": f"ibv_{secrets.token_hex(12)}",
+        "future": future,
+        "claimed": False,
+        "created_at": time.time(),
+        "expires_at": time.time() + _IB_VALIDATION_JOB_TIMEOUT_SECONDS,
+    }
+    _ib_validation_jobs[request_id] = job
+    _ib_validation_job_events.setdefault(request_id, asyncio.Event()).set()
+    try:
+        result = await asyncio.wait_for(future, timeout=_IB_VALIDATION_JOB_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        return {
+            "ok": False,
+            "code": "IB_VALIDATION_TIMEOUT",
+            "error": "等待 TS 验证 IB Gateway 超时，请确认 TS 在线后重试",
+        }
+    finally:
+        if _ib_validation_jobs.get(request_id) is job:
+            _ib_validation_jobs.pop(request_id, None)
+
+    if not result.get("ok"):
+        return {
+            "ok": False,
+            "code": str(result.get("code") or "IB_VALIDATION_FAILED"),
+            "error": str(result.get("error") or "IB Gateway validation failed"),
+        }
+    accounts = []
+    seen = set()
+    for item in result.get("accounts", []) or []:
+        account_id = str((item or {}).get("account_id") or "").strip() if isinstance(item, dict) else ""
+        if account_id and account_id not in seen:
+            seen.add(account_id)
+            accounts.append({"account_id": account_id})
+    if not accounts:
+        return {"ok": False, "code": "IB_NO_MANAGED_ACCOUNTS", "error": "IB Gateway 未返回可管理账户"}
+
+    _ib_validation_cache[request_id] = {
+        "host": "127.0.0.1",
+        "port": 4001,
+        "client_id": 1,
+        "accounts": accounts,
+        "validated_at": time.time(),
+        "expires_at": time.time() + _IB_VALIDATION_TTL_SECONDS,
+    }
+    return {"ok": True, "accounts": accounts, "expires_in": _IB_VALIDATION_TTL_SECONDS}
+
+
 @app.post("/api/nodes/{server_id}/tastytrade/validate")
 async def validate_saved_node_tastytrade(request: Request, server_id: str):
     """Validate candidate or currently saved tastytrade credentials for a node."""
@@ -1331,6 +1449,55 @@ async def validate_saved_node_tastytrade(request: Request, server_id: str):
     return {"ok": True, **result}
 
 
+@app.post("/api/nodes/{server_id}/interactive-brokers/validate")
+async def validate_saved_node_interactive_brokers(request: Request, server_id: str):
+    if not _is_admin_logged_in(request):
+        return {"ok": False, "error": "Unauthorized"}
+    current = database.get_node_broker_config(server_id)
+    if not current:
+        return {"ok": False, "error": "Node not found"}
+    if not _is_interactive_brokers(current.get("broker_type", "")):
+        return {"ok": False, "error": "Node is not configured for Interactive Brokers"}
+    node = node_state.manager.get(server_id)
+    if not node:
+        return {"ok": False, "error": "Node runtime state not found"}
+    ts_host = (
+        node._public_endpoint
+        or node._assigned_domain
+        or node._host
+        or node.current_ip
+        or node._public_ip
+        or ""
+    ).strip()
+    node_token = str(node._token or "").strip()
+    ok, payload = await asyncio.to_thread(_validate_ib_accounts_on_ts, ts_host, node_token, 15)
+    if not ok:
+        return {
+            "ok": False,
+            "code": str(payload.get("code") or "IB_VALIDATION_FAILED"),
+            "error": str(payload.get("error") or payload.get("detail") or "IB Gateway validation failed"),
+        }
+    accounts = []
+    seen = set()
+    for item in payload.get("accounts", []) or []:
+        account_id = str((item or {}).get("account_id") or "").strip() if isinstance(item, dict) else ""
+        if account_id and account_id not in seen:
+            seen.add(account_id)
+            accounts.append({"account_id": account_id})
+    if not accounts:
+        return {"ok": False, "code": "IB_NO_MANAGED_ACCOUNTS", "error": "IB Gateway 未返回可管理账户"}
+    cache_key = f"node:{server_id}"
+    _ib_validation_cache[cache_key] = {
+        "host": "127.0.0.1",
+        "port": 4001,
+        "client_id": 1,
+        "accounts": accounts,
+        "validated_at": time.time(),
+        "expires_at": time.time() + _IB_VALIDATION_TTL_SECONDS,
+    }
+    return {"ok": True, "accounts": accounts, "expires_in": _IB_VALIDATION_TTL_SECONDS}
+
+
 @app.post("/api/nodes/{request_id}/approve")
 async def approve_node(request: Request, request_id: str):
     """管理员通过节点的注册请求（同时录入券商配置）"""
@@ -1351,9 +1518,40 @@ async def approve_node(request: Request, request_id: str):
     if (req.get("status") or "").strip() != "pending":
         return {"ok": False, "error": f"Request already processed: {req.get('status', '-')}", "status": req.get("status", "")}
 
+    registered_broker_type = str(req.get("region") or "").strip()
+    registered_is_ib = _is_interactive_brokers(registered_broker_type)
+    submitted_is_ib = _is_interactive_brokers(broker_type)
+    if registered_is_ib != submitted_is_ib:
+        return {"ok": False, "error": "审批时不能切换 Interactive Brokers 与其他券商"}
+
+    ib_validation = None
+    if registered_is_ib:
+        broker_type = "interactive_brokers"
+        ib_validation = _get_fresh_ib_validation(request_id)
+        if not ib_validation:
+            return {"ok": False, "code": "IB_VALIDATION_REQUIRED", "error": "请先验证 IB Gateway 并获取账户"}
+        account_id = str(broker_credentials.get("account_id") or "").strip()
+        valid_accounts = {
+            str(item.get("account_id") or "").strip()
+            for item in ib_validation.get("accounts", [])
+            if isinstance(item, dict)
+        }
+        if not account_id:
+            return {"ok": False, "code": "IB_ACCOUNT_REQUIRED", "error": "请选择一个 IB 账户"}
+        if account_id not in valid_accounts:
+            return {"ok": False, "code": "IB_ACCOUNT_NOT_VALIDATED", "error": "所选 IB 账户不在最近验证结果中"}
+        broker_credentials = {
+            "host": "127.0.0.1",
+            "port": 4001,
+            "client_id": 1,
+            "account_id": account_id,
+        }
+
     # 审批前问询 SE：仅在“明确废弃/异常申请”时才自动废弃
     loop = asyncio.get_event_loop()
-    if _node_sse_queues.get(request_id):
+    if registered_is_ib and ib_validation:
+        probe_state, probe_msg = "ok", ""
+    elif _node_sse_queues.get(request_id):
         probe_state, probe_msg = "ok", ""
     else:
         probe_state, probe_msg = await loop.run_in_executor(
@@ -1377,6 +1575,11 @@ async def approve_node(request: Request, request_id: str):
         log.warning(f"[approve] probe unknown, continue approval: {request_id}, detail={probe_msg}")
 
     validation_result = None
+    if registered_is_ib:
+        validation_result = {
+            "selected_account": {"account_id": broker_credentials["account_id"]},
+            "warnings": [],
+        }
     if _is_tastytrade_broker(broker_type):
         try:
             validation_result = await _validate_tastytrade_config(broker_credentials)
@@ -1420,6 +1623,8 @@ async def approve_node(request: Request, request_id: str):
                 lambda: domain_pool.abort_allocation(assignment, "node approval failed"),
             )
         return {"ok": False, "error": "Request not found or already processed"}
+
+    _ib_validation_cache.pop(request_id, None)
 
     cfg = database.get_node_broker_config(result["server_id"])
     if cfg:
@@ -1477,6 +1682,9 @@ async def reject_node(request: Request, request_id: str, reason: str = ""):
     if not ok:
         return {"ok": False, "error": "Request not found or already processed"}
 
+    _ib_validation_cache.pop(request_id, None)
+    _ib_validation_jobs.pop(request_id, None)
+
     # 向 SSE 等待队列推送结果
     data = _json.dumps({
         "approved": False,
@@ -1508,6 +1716,9 @@ async def cancel_node_request_by_se(request: Request):
     )
     if not result.get("ok"):
         return result
+
+    _ib_validation_cache.pop(request_id, None)
+    _ib_validation_jobs.pop(request_id, None)
 
     action = result.get("action", "")
     if action == "cancelled_pending":
@@ -1800,11 +2011,38 @@ async def update_node_config(request: Request, server_id: str):
     if not broker_type:
         return {"ok": False, "error": "broker_type is required"}
 
+    current = database.get_node_broker_config(server_id)
+    if not current:
+        return {"ok": False, "error": "Node not found"}
+    current_is_ib = _is_interactive_brokers(current.get("broker_type", ""))
+    requested_is_ib = _is_interactive_brokers(broker_type)
+    if current_is_ib != requested_is_ib:
+        return {"ok": False, "error": "暂不支持 Interactive Brokers 与其他券商之间切换"}
+
     validation_result = None
-    if _is_tastytrade_broker(broker_type):
-        current = database.get_node_broker_config(server_id)
-        if not current:
-            return {"ok": False, "error": "Node not found"}
+    if current_is_ib:
+        broker_type = "interactive_brokers"
+        cached = _get_fresh_ib_validation(f"node:{server_id}")
+        if not cached:
+            return {"ok": False, "code": "IB_VALIDATION_REQUIRED", "error": "请先验证 IB Gateway 并获取账户"}
+        account_id = str(credentials.get("account_id") or "").strip()
+        valid_accounts = {
+            str(item.get("account_id") or "").strip()
+            for item in cached.get("accounts", [])
+            if isinstance(item, dict)
+        }
+        if not account_id:
+            return {"ok": False, "code": "IB_ACCOUNT_REQUIRED", "error": "请选择一个 IB 账户"}
+        if account_id not in valid_accounts:
+            return {"ok": False, "code": "IB_ACCOUNT_NOT_VALIDATED", "error": "所选 IB 账户不在最近验证结果中"}
+        credentials = {
+            "host": "127.0.0.1",
+            "port": 4001,
+            "client_id": 1,
+            "account_id": account_id,
+        }
+        validation_result = {"selected_account": {"account_id": account_id}, "warnings": []}
+    elif _is_tastytrade_broker(broker_type):
         saved = dict(current.get("credentials", {}) or {})
         supplied_secret = str(credentials.get("secret") or "").strip()
         supplied_token = str(credentials.get("token") or "").strip()
@@ -1833,6 +2071,7 @@ async def update_node_config(request: Request, server_id: str):
         enabled=enabled,
     )
     if ok:
+        _ib_validation_cache.pop(f"node:{server_id}", None)
         cfg = database.get_node_broker_config(server_id)
         if cfg:
             _push_config_change(server_id, int(cfg.get("config_version", 0) or 0))
@@ -2520,16 +2759,9 @@ async def startup():
     # 启动定期 DB 同步任务
     asyncio.create_task(_db_sync_loop())
 
-    # 旧 SM 行情链路默认关闭；生产行情走 Client -> TS -> Broker
-    if SM_ENABLE_LEGACY_QUOTES:
-        from services.quote_service import ib_preconnect, quote_stream_loop
-        asyncio.create_task(ib_preconnect())
-        asyncio.create_task(quote_stream_loop())
-
     log.info("=" * 60)
     log.info(f"Server Manager started on {SERVER_HOST}:{SERVER_PORT}")
     log.info("Mode: CONTROL_PLANE (trading execution is handled by SE)")
-    log.info(f"Legacy quote service enabled: {SM_ENABLE_LEGACY_QUOTES}")
     log.info("=" * 60)
 
 
@@ -2549,8 +2781,6 @@ async def shutdown():
     session_store["session"] = None
     session_store["account"] = None
     session_store["connected"] = False
-    quote_clients.clear()
-    subscribed_syms.clear()
     log.info("Server Manager shut down cleanly")
 
 
