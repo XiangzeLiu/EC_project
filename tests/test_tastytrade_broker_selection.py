@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from Trader_Server.api import tastytrade as tt_module
 from Trader_Server.api.tastytrade import TastytradeBroker
 
 
@@ -18,6 +21,14 @@ class _DummySession:
         self.token = token
         self.session_token = "active"
         self._client = _DummyClient()
+
+
+class _DummyQuoteStreamer:
+    async def get_event(self, *_args):
+        await asyncio.sleep(60)
+
+    async def __aexit__(self, *_args) -> None:
+        return None
 
 
 def _record(account_number: str, *, authority: str = "owner", closed: bool = False) -> dict:
@@ -75,6 +86,44 @@ class TastytradeBrokerSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(capabilities["positions"])
         self.assertTrue(capabilities["order_query"])
         await broker.disconnect()
+
+    async def test_stale_quote_stream_rebuilds_and_resubscribes_existing_symbols(self):
+        broker = TastytradeBroker()
+        broker._connected = True
+        broker._session = _DummySession("secret", "token")
+        broker._account = SimpleNamespace(account_number="OPEN")
+        broker._quote_streamer = _DummyQuoteStreamer()
+        broker._quote_stream_started_at = time.monotonic() - tt_module.QUOTE_STREAM_MAX_AGE_SECONDS - 1
+        broker._subscribed_symbols = {"AAPL"}
+        broker._get_fresh = AsyncMock(return_value=(broker._session, broker._account))
+        broker._create_quote_streamer = AsyncMock(return_value=_DummyQuoteStreamer())
+        broker._streamer_subscribe = AsyncMock()
+
+        with patch.object(tt_module, "_SDK_AVAILABLE", True), patch.object(tt_module, "_DX_AVAILABLE", True), patch.object(tt_module, "DXQuote", object):
+            await broker.subscribe_quotes(["AAPL"])
+
+        broker._streamer_subscribe.assert_awaited_once_with(["AAPL"])
+        self.assertEqual(broker._subscribed_symbols, {"AAPL"})
+        await broker._stop_quote_stream()
+
+    async def test_stale_quote_stream_rebuild_includes_new_symbol(self):
+        broker = TastytradeBroker()
+        broker._connected = True
+        broker._session = _DummySession("secret", "token")
+        broker._account = SimpleNamespace(account_number="OPEN")
+        broker._quote_streamer = _DummyQuoteStreamer()
+        broker._quote_stream_started_at = time.monotonic() - tt_module.QUOTE_STREAM_MAX_AGE_SECONDS - 1
+        broker._subscribed_symbols = {"MSFT"}
+        broker._get_fresh = AsyncMock(return_value=(broker._session, broker._account))
+        broker._create_quote_streamer = AsyncMock(return_value=_DummyQuoteStreamer())
+        broker._streamer_subscribe = AsyncMock()
+
+        with patch.object(tt_module, "_SDK_AVAILABLE", True), patch.object(tt_module, "_DX_AVAILABLE", True), patch.object(tt_module, "DXQuote", object):
+            await broker.subscribe_quotes(["AAPL"])
+
+        broker._streamer_subscribe.assert_awaited_once_with(["AAPL", "MSFT"])
+        self.assertEqual(broker._subscribed_symbols, {"AAPL", "MSFT"})
+        await broker._stop_quote_stream()
 
 
 if __name__ == "__main__":

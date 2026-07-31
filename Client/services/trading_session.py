@@ -35,6 +35,7 @@ from ..network.ts_websocket import TSWebSocketClient
 from ..constants import STATUS_MAP, LIVE_STATUSES, TZ_ET_NAME, SESSION_START_H, SESSION_END_H
 
 
+ALL_ORDERS_CACHE_SECONDS = 30.0
 
 # ── Sanitize ────────────────────────────────────────────────────────────────────
 _BROKER_RE = re.compile(r'\b(tastytrade|tastyworks|tastytrade\.com|tastyworks\.com)\b', re.I)
@@ -57,6 +58,9 @@ class TradingSession:
         self.mock_mode = False
         self._ET = ZoneInfo(TZ_ET_NAME)
         self._pos_error = ""
+        self._order_cache_lock = threading.Lock()
+        self._all_orders_cache: list[dict] = []
+        self._all_orders_cache_at = 0.0
         self.last_login_error: dict = {}
         self.broker_detail = self._default_broker_detail()
         # 登录后从 SM 获取的 TS 地址
@@ -217,10 +221,38 @@ class TradingSession:
             self.http.post("/auth/logout", {})
         self.http.token = ""
         self.set_broker_detail(None)
+        self.invalidate_order_cache()
         self.connected = False
         self.mock_mode = False
 
-    def get_today_activity(self) -> list[dict]:
+    def invalidate_order_cache(self) -> None:
+        with self._order_cache_lock:
+            self._all_orders_cache = []
+            self._all_orders_cache_at = 0.0
+
+    def _request_raw_orders(self, mode: str, *, force: bool = False) -> list[dict] | None:
+        normalized = "all" if str(mode or "").lower() == "all" else "live"
+        if normalized == "all":
+            with self._order_cache_lock:
+                age = time.monotonic() - self._all_orders_cache_at if self._all_orders_cache_at else 0.0
+                if not force and self._all_orders_cache_at and age < ALL_ORDERS_CACHE_SECONDS:
+                    return list(self._all_orders_cache)
+                resp = self._request_se("ORDER_QUERY", {"mode": "all"}, timeout=12.0)
+                payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+                if not payload.get("success"):
+                    return None
+                raw = list(payload.get("orders", []) or [])
+                self._all_orders_cache = raw
+                self._all_orders_cache_at = time.monotonic()
+                return list(raw)
+
+        resp = self._request_se("ORDER_QUERY", {"mode": "live"}, timeout=12.0)
+        payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+        if not payload.get("success"):
+            return None
+        return list(payload.get("orders", []) or [])
+
+    def get_today_activity(self, *, force_orders: bool = False) -> list[dict]:
         """
         鑾峰彇浠婃棩娲诲姩鏁版嵁(鎸佷粨+宸插钩浠?
 
@@ -254,12 +286,7 @@ class TradingSession:
                 return []
 
             pos_rows = payload_pos.get("positions", []) or []
-            orders_raw = []
-            resp_ord = self._request_se("ORDER_QUERY", {"mode": "all"}, timeout=12.0)
-            if isinstance(resp_ord, dict):
-                payload_ord = resp_ord.get("payload", {}) or {}
-                if payload_ord.get("success"):
-                    orders_raw = payload_ord.get("orders", []) or []
+            orders_raw = self._request_raw_orders("all", force=force_orders) or []
 
             return self._calc_today_activity(pos_rows, orders_raw)
         except Exception as exc:
@@ -455,7 +482,7 @@ class TradingSession:
 
     # ── Orders ──────────────────────────────────────────────────────────────────
 
-    def get_orders(self, mode: str = "live") -> list[dict]:
+    def get_orders(self, mode: str = "live", *, force: bool = False) -> list[dict]:
         """
         鑾峰彇璁㈠崟鍒楄〃
 
@@ -472,11 +499,9 @@ class TradingSession:
                 return []
 
             se_mode = "live" if mode == "live" else "all"
-            se_resp = self._request_se("ORDER_QUERY", {"mode": se_mode}, timeout=12.0)
-            payload = (se_resp or {}).get("payload", {}) if isinstance(se_resp, dict) else {}
-            if not payload.get("success"):
+            raw = self._request_raw_orders(se_mode, force=force)
+            if raw is None:
                 return []
-            raw = payload.get("orders", []) or []
 
             result = []
             ET = self._ET
@@ -500,6 +525,12 @@ class TradingSession:
                     qty = str(o.get("qty", "鈥?"))
                     px = o.get("price", "MKT")
                     rs = o.get("status", "鈥?")
+                    rs = {
+                        "Routed": "Routing",
+                        "In Flight": "Routing",
+                        "Cancel Requested": "Cancelling",
+                        "Partially Filled": "Partial",
+                    }.get(rs, rs)
                     st = STATUS_MAP.get(rs, rs)
                     ot = o.get("type", "鈥?")
                     tif = o.get("tif", "鈥?")
@@ -512,6 +543,7 @@ class TradingSession:
                         symbol=sym, action=act,
                         qty=qty, price=px, status=st,
                         raw_status=rs, otype=ot, tif=tif,
+                        can_cancel=bool(o.get("can_cancel", rs in LIVE_STATUSES)),
                     ))
                 except Exception:
                     continue
@@ -530,6 +562,7 @@ class TradingSession:
             resp = self._request_se("ORDER_CANCEL", {"order_id": order_id}, timeout=10.0)
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):
+                self.invalidate_order_cache()
                 return True, f"订单已撤销：{str(order_id)[-6:]}"
             return False, sanitize(payload.get("message", "撤单失败"))
         except Exception as exc:
@@ -571,6 +604,7 @@ class TradingSession:
             }, timeout=12.0)
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):
+                self.invalidate_order_cache()
                 oid = payload.get("order_id", "")
                 return True, f"下单已提交，订单号：{str(oid)[-8:]}"
             return False, sanitize(payload.get("message", "下单失败"))

@@ -176,11 +176,19 @@ def _action_from_order_ref(order_ref: Any) -> str:
 if _IB_AVAILABLE:
 
     class _IBApp(EWrapper, EClient):
-        def __init__(self, loop: asyncio.AbstractEventLoop, quote_queue: asyncio.Queue):
+        def __init__(
+            self,
+            loop: asyncio.AbstractEventLoop,
+            quote_queue: asyncio.Queue,
+            order_event_queue: asyncio.Queue | None = None,
+            position_event_queue: asyncio.Queue | None = None,
+        ):
             EWrapper.__init__(self)
             EClient.__init__(self, self)
             self._loop = loop
             self._quote_queue = quote_queue
+            self._order_event_queue = order_event_queue
+            self._position_event_queue = position_event_queue
             self.ready_event = asyncio.Event()
             self.accounts_event = asyncio.Event()
             self.closed_event = asyncio.Event()
@@ -195,6 +203,7 @@ if _IB_AVAILABLE:
             self._execution_waiters: dict[int, tuple[list[dict], asyncio.Future]] = {}
             self._positions_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._portfolio_waiter: tuple[str, dict[str, dict], asyncio.Future] | None = None
+            self._portfolio_cache: dict[str, dict[str, dict]] = {}
             self._open_orders_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._completed_orders_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._submit_waiters: dict[int, asyncio.Future] = {}
@@ -205,9 +214,19 @@ if _IB_AVAILABLE:
             self._quotes: dict[str, dict] = {}
             self.known_orders: dict[int, dict] = {}
             self.order_updates: dict[int, str] = {}
+            self._order_event_suppressed_until = 0.0
+            self._account_updates_persistent = False
+            self._account_updates_account = ""
 
         def _soon(self, callback: Callable, *args: Any) -> None:
             self._loop.call_soon_threadsafe(callback, *args)
+
+        def _order_events_suppressed(self) -> bool:
+            return bool(
+                self._open_orders_waiter
+                or self._completed_orders_waiter
+                or self._loop.time() < self._order_event_suppressed_until
+            )
 
         @staticmethod
         def _resolve(future: asyncio.Future | None, value: Any = None, error: Exception | None = None) -> None:
@@ -432,11 +451,8 @@ if _IB_AVAILABLE:
             unrealized_pnl: float,
             realized_pnl: float,
         ) -> None:
-            waiter = self._portfolio_waiter
-            if not waiter or waiter[0] != account:
-                return
             key = str(getattr(contract, "conId", 0) or getattr(contract, "symbol", ""))
-            waiter[1][key] = {
+            item = {
                 "account": account,
                 "contract": contract,
                 "position": position,
@@ -446,6 +462,17 @@ if _IB_AVAILABLE:
                 "unrealized_pnl": unrealized_pnl,
                 "realized_pnl": realized_pnl,
             }
+            self._portfolio_cache.setdefault(account, {})[key] = item
+            waiter = self._portfolio_waiter
+            if waiter and waiter[0] == account:
+                waiter[1][key] = item
+            elif self._position_event_queue is not None:
+                self._position_event_queue.put_nowait({
+                    "account_id": account,
+                    "symbol": str(getattr(contract, "symbol", "") or "").upper(),
+                    "order_id": "",
+                    "updated_at": _iso_now(),
+                })
 
         def accountDownloadEnd(self, accountName: str) -> None:
             self._soon(self._on_account_download_end, str(accountName))
@@ -456,6 +483,8 @@ if _IB_AVAILABLE:
                 self._resolve(waiter[2], dict(waiter[1]))
 
         async def request_portfolio(self, account: str, timeout: float = 10.0) -> dict[str, dict]:
+            if self._account_updates_persistent and self._account_updates_account == account:
+                return dict(self._portfolio_cache.get(account, {}))
             if self._portfolio_waiter and not self._portfolio_waiter[2].done():
                 raise RuntimeError("IB portfolio request already in progress")
             future = self._loop.create_future()
@@ -464,11 +493,34 @@ if _IB_AVAILABLE:
             try:
                 return await asyncio.wait_for(future, timeout=timeout)
             finally:
+                if not self._account_updates_persistent:
+                    try:
+                        self.reqAccountUpdates(False, account)
+                    except Exception:
+                        pass
+                self._portfolio_waiter = None
+
+        def start_account_updates(self, account: str) -> None:
+            if self._account_updates_persistent and self._account_updates_account == account:
+                return
+            if self._account_updates_persistent and self._account_updates_account:
+                try:
+                    self.reqAccountUpdates(False, self._account_updates_account)
+                except Exception:
+                    pass
+            self._account_updates_persistent = True
+            self._account_updates_account = account
+            self.reqAccountUpdates(True, account)
+
+        def stop_account_updates(self) -> None:
+            account = self._account_updates_account
+            self._account_updates_persistent = False
+            self._account_updates_account = ""
+            if account:
                 try:
                     self.reqAccountUpdates(False, account)
                 except Exception:
                     pass
-                self._portfolio_waiter = None
 
         def tickPrice(self, reqId: int, tickType: int, price: float, attrib: Any = None) -> None:
             self._soon(self._on_tick_price, int(reqId), int(tickType), float(price))
@@ -551,6 +603,8 @@ if _IB_AVAILABLE:
             self.order_updates[order_id] = item["updated_at"]
             if self._open_orders_waiter:
                 self._open_orders_waiter[0].append(item)
+            elif self._order_event_queue is not None and not self._order_events_suppressed():
+                self._order_event_queue.put_nowait({"kind": "open", "order_id": order_id})
 
         def openOrderEnd(self) -> None:
             self._soon(self._on_open_order_end)
@@ -621,6 +675,8 @@ if _IB_AVAILABLE:
                     )
             if normalized == "Cancelled":
                 self._resolve(self._cancel_waiters.get(order_id), {"order_id": order_id, "status": normalized})
+            if self._order_event_queue is not None and not self._order_events_suppressed():
+                self._order_event_queue.put_nowait({"kind": "status", "order_id": order_id})
 
         def completedOrder(self, contract: Any, order: Any, orderState: Any) -> None:
             self._soon(self._on_completed_order, contract, order, orderState)
@@ -645,6 +701,8 @@ if _IB_AVAILABLE:
                 self.known_orders[item["order_id"]] = item
             if self._completed_orders_waiter:
                 self._completed_orders_waiter[0].append(item)
+            elif self._order_event_queue is not None and item["order_id"] and not self._order_events_suppressed():
+                self._order_event_queue.put_nowait({"kind": "completed", "order_id": item["order_id"]})
 
         def completedOrdersEnd(self) -> None:
             self._soon(self._on_completed_orders_end)
@@ -658,9 +716,16 @@ if _IB_AVAILABLE:
 
         def _on_exec_details(self, req_id: int, contract: Any, execution: Any) -> None:
             waiter = self._execution_waiters.get(req_id)
-            if not waiter:
+            if waiter:
+                waiter[0].append({"contract": contract, "execution": execution})
                 return
-            waiter[0].append({"contract": contract, "execution": execution})
+            if self._position_event_queue is not None:
+                self._position_event_queue.put_nowait({
+                    "account_id": str(getattr(execution, "acctNumber", "") or ""),
+                    "symbol": str(getattr(contract, "symbol", "") or "").upper(),
+                    "order_id": str(getattr(execution, "orderId", "") or ""),
+                    "updated_at": _ib_time_to_iso(getattr(execution, "time", "")) or _iso_now(),
+                })
 
         def execDetailsEnd(self, reqId: int) -> None:
             self._soon(self._on_exec_details_end, int(reqId))
@@ -680,6 +745,7 @@ if _IB_AVAILABLE:
                 return await asyncio.wait_for(future, timeout=timeout)
             finally:
                 self._open_orders_waiter = None
+                self._order_event_suppressed_until = self._loop.time() + 0.25
 
         async def request_completed_orders(self, timeout: float = 8.0) -> list[dict]:
             if self._completed_orders_waiter and not self._completed_orders_waiter[1].done():
@@ -691,6 +757,7 @@ if _IB_AVAILABLE:
                 return await asyncio.wait_for(future, timeout=timeout)
             finally:
                 self._completed_orders_waiter = None
+                self._order_event_suppressed_until = self._loop.time() + 0.25
 
         async def request_executions(self, account: str, timeout: float = 8.0) -> list[dict]:
             req_id = self.next_request_id()
@@ -757,6 +824,10 @@ class IBBroker(BaseBrokerAPI):
         self._ib_thread: threading.Thread | None = None
         self._quote_queue: asyncio.Queue | None = None
         self._quote_task: asyncio.Task | None = None
+        self._order_event_queue: asyncio.Queue | None = None
+        self._position_event_queue: asyncio.Queue | None = None
+        self._order_event_task: asyncio.Task | None = None
+        self._position_event_task: asyncio.Task | None = None
         self._host = "127.0.0.1"
         self._port = 4001
         self._client_id = 1
@@ -815,7 +886,9 @@ class IBBroker(BaseBrokerAPI):
 
         loop = asyncio.get_running_loop()
         self._quote_queue = asyncio.Queue()
-        app = _IBApp(loop, self._quote_queue)
+        self._order_event_queue = asyncio.Queue()
+        self._position_event_queue = asyncio.Queue()
+        app = _IBApp(loop, self._quote_queue, self._order_event_queue, self._position_event_queue)
         self._ib_app = app
 
         try:
@@ -867,6 +940,7 @@ class IBBroker(BaseBrokerAPI):
         return False
 
     async def disconnect(self) -> None:
+        await self.stop_account_events()
         quote_task = self._quote_task
         self._quote_task = None
         if quote_task and not quote_task.done():
@@ -894,6 +968,85 @@ class IBBroker(BaseBrokerAPI):
         self._account_verified = False
         self._managed_accounts = []
         self._contract_cache.clear()
+        self._order_event_queue = None
+        self._position_event_queue = None
+
+    async def start_account_events(self) -> None:
+        if not self._connected or not self._account_id:
+            return
+        if self._order_event_queue is not None and (
+            self._order_event_task is None or self._order_event_task.done()
+        ):
+            self._order_event_task = asyncio.create_task(
+                self._forward_order_events(),
+                name="ib-order-events",
+            )
+        if self._position_event_queue is not None and (
+            self._position_event_task is None or self._position_event_task.done()
+        ):
+            self._position_event_task = asyncio.create_task(
+                self._forward_position_events(),
+                name="ib-position-events",
+            )
+        start_updates = getattr(self._ib_app, "start_account_updates", None)
+        if callable(start_updates):
+            start_updates(self._account_id)
+
+    async def stop_account_events(self) -> None:
+        stop_updates = getattr(self._ib_app, "stop_account_updates", None)
+        if callable(stop_updates):
+            stop_updates()
+        tasks = [self._order_event_task, self._position_event_task]
+        self._order_event_task = None
+        self._position_event_task = None
+        for task in tasks:
+            if task and not task.done():
+                task.cancel()
+        for task in tasks:
+            if not task:
+                continue
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    async def _forward_order_events(self) -> None:
+        queue = self._order_event_queue
+        while queue is not None and self._ib_app is not None:
+            event = await queue.get()
+            order_id = int(event.get("order_id") or 0)
+            item = self._ib_app.known_orders.get(order_id) if self._ib_app else None
+            if not self._is_owned_order(item):
+                continue
+            order = item.get("order")
+            contract = item.get("contract")
+            filled = _to_float(item.get("filled"))
+            remaining = _to_float(item.get("remaining"))
+            status = _normalize_status(item.get("status"), filled, remaining)
+            self._on_order_event({
+                "order_id": str(order_id),
+                "symbol": str(getattr(contract, "symbol", "") or "").upper(),
+                "status": status,
+                "filled_qty": filled,
+                "remaining_qty": remaining,
+                "avg_fill_price": _to_float(item.get("avg_fill_price")),
+                "can_cancel": status in _LIVE_STATUSES,
+                "updated_at": str(item.get("updated_at") or _iso_now()),
+                "action": _action_from_order_ref(getattr(order, "orderRef", "")),
+            })
+
+    async def _forward_position_events(self) -> None:
+        queue = self._position_event_queue
+        while queue is not None and self._ib_app is not None:
+            event = await queue.get()
+            if str(event.get("account_id") or "") != self._account_id:
+                continue
+            self._on_position_event({
+                "reason": "execution",
+                "symbol": str(event.get("symbol") or "").upper(),
+                "order_id": str(event.get("order_id") or ""),
+                "updated_at": str(event.get("updated_at") or _iso_now()),
+            })
 
     async def is_connected(self) -> bool:
         app = self._ib_app
@@ -1195,6 +1348,7 @@ class IBBroker(BaseBrokerAPI):
             "type": "LIMIT" if order_type == "LMT" else "MARKET",
             "tif": _tif_from_ib(getattr(order, "tif", "DAY"), getattr(order, "outsideRth", False)),
             "status": status,
+            "can_cancel": status in _LIVE_STATUSES,
             "updated_at": str(item.get("updated_at") or _iso_now()),
             "legs": [
                 {

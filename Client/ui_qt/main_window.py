@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import quote
 
@@ -45,6 +46,8 @@ from Client.constants import (
     DEFAULT_TS_PORT,
     DEFAULT_TS_WS_URL,
     HEARTBEAT_INTERVAL,
+    LIVE_STATUSES,
+    ORDERS_ACTIVE_INTERVAL,
     ORDERS_INTERVAL,
     POSITIONS_INTERVAL,
     TS_RECONNECT_ENABLED,
@@ -53,6 +56,20 @@ from Client.constants import (
 from Client.network.http_client import HttpClient
 from Client.network.ts_websocket import TSWebSocketClient
 from Client.services.trading_session import TradingSession, sanitize
+from Client.ui_qt.action_rate_limiter import ActionRateLimiter
+from Client.ui_qt.hotkey_config import (
+    BATCH_CANCEL_POLICY,
+    ENTER_INPUT_GUARD_MS,
+    HOTKEY_BINDINGS,
+    IDENTICAL_ORDER_COOLDOWN_MS,
+    ORDER_CANCEL_POLICY,
+    ORDER_SUBMIT_POLICY,
+    QUOTE_FRESHNESS_MS,
+    HotkeyAction,
+    HotkeyBinding,
+    HotkeyContext,
+)
+from Client.ui_qt.shortcut_controller import ShortcutController
 
 
 ACTION_LABELS = {
@@ -90,6 +107,7 @@ def localize_user_message(msg: str) -> str:
         "Quote subscribe failed": "行情订阅失败",
         "Quote unsubscribe failed": "行情取消订阅失败",
         "Position fetch failed": "持仓获取失败",
+        "Duplicate order blocked by TS safety window": "相同订单提交过于频繁",
         "Server disconnected": "管理服务连接已断开",
         "Trade server connected": "交易服务器已连接",
         "Trade server disconnected": "交易服务器已断开",
@@ -196,8 +214,22 @@ def make_button(text: str, *, object_name: str | None = None, min_width: int | N
     return button
 
 
-def make_input(text: str = "", *, password: bool = False, placeholder: str = "") -> QLineEdit:
-    field = QLineEdit()
+class TradePriceInput(QLineEdit):
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.isAutoRepeat():
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+def make_input(
+    text: str = "",
+    *,
+    password: bool = False,
+    placeholder: str = "",
+    field_type: type[QLineEdit] = QLineEdit,
+) -> QLineEdit:
+    field = field_type()
     field.setText(text)
     field.setPlaceholderText(placeholder)
     field.setMinimumHeight(40)
@@ -223,6 +255,14 @@ def make_select(value: str, values: list[str] | None = None) -> QComboBox:
 
 class UiSignals(QObject):
     call = Signal(object)
+
+
+class TradingPanelFrame(QFrame):
+    activated = Signal()
+
+    def mousePressEvent(self, event) -> None:
+        self.activated.emit()
+        super().mousePressEvent(event)
 
 
 class DataTableModel(QAbstractTableModel):
@@ -260,6 +300,8 @@ class TradingSlot:
     def __init__(self, panel_id: int):
         self.panel_id = panel_id
         self.current_symbol = ""
+        self.container: QFrame | None = None
+        self.qty_box: QFrame | None = None
         self.symbol: QComboBox | None = None
         self.order_type: QComboBox | None = None
         self.tif: QComboBox | None = None
@@ -272,6 +314,10 @@ class TradingSlot:
         self.sell: QPushButton | None = None
         self.minus: QPushButton | None = None
         self.plus: QPushButton | None = None
+        self.pending_action = ""
+        self.pending_symbol = ""
+        self.pending_created_at = 0.0
+        self.confirm_guard_until = 0.0
 
     def symbol_text(self) -> str:
         return self.symbol.currentText().strip().upper() if self.symbol else ""
@@ -326,6 +372,21 @@ class TradingTerminalQt(QMainWindow):
         self._signals.call.connect(lambda fn: fn())
         self._clock: QLabel | None = None
         self.slots: dict[int, TradingSlot] = {}
+        self._active_panel_id = 1
+        self._shortcut_controller: ShortcutController | None = None
+        self._action_limiter = ActionRateLimiter()
+        self._quote_sync_timers: dict[int, QTimer] = {}
+        self._refresh_state_lock = threading.Lock()
+        self._refresh_in_flight = {"orders": False, "positions": False}
+        self._refresh_pending = {"orders": False, "positions": False}
+        self._refresh_force_pending = {"orders": False, "positions": False}
+        self._event_refresh_flags = {"orders": False, "positions": False, "force_positions": False}
+        self._event_refresh_timer = QTimer(self)
+        self._event_refresh_timer.setSingleShot(True)
+        self._event_refresh_timer.timeout.connect(self._flush_event_refresh)
+        self._seen_broker_events: dict[str, float] = {}
+        self._canceling_order_ids: set[str] = set()
+        self._batch_canceling_symbols: set[str] = set()
         self._log_rows: list[tuple[str, str, str]] = []
         self._main_ui_built = False
         self._init_ready = False
@@ -340,6 +401,7 @@ class TradingTerminalQt(QMainWindow):
         self._last_ui_error_at = 0.0
         self._last_reconnect_notice_attempt = 0
         self._reconnect_failed = False
+        self._connection_status_label = "OFFLINE"
         self._order_mode = "live"
         self._orders_raw: list[dict] = []
         self._positions_raw: list[dict] = []
@@ -353,6 +415,10 @@ class TradingTerminalQt(QMainWindow):
         self._quote_requested_symbols: set[str] = set()
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
+
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._on_focus_changed)
 
         root = QWidget()
         root.setObjectName("root")
@@ -601,6 +667,131 @@ class TradingTerminalQt(QMainWindow):
         layout.addWidget(self._build_header())
         layout.addWidget(self._build_workspace(), 1)
 
+    @staticmethod
+    def _repolish(widget: QWidget | None) -> None:
+        if widget is None:
+            return
+        style = widget.style()
+        style.unpolish(widget)
+        style.polish(widget)
+        widget.update()
+
+    def _activate_panel(self, panel_id: int) -> None:
+        if panel_id not in self.slots:
+            return
+        self._active_panel_id = panel_id
+        for pid, slot in self.slots.items():
+            if slot.container:
+                slot.container.setProperty("activePanel", pid == panel_id)
+                self._repolish(slot.container)
+
+    def _active_slot(self) -> TradingSlot | None:
+        return self.slots.get(self._active_panel_id)
+
+    @staticmethod
+    def _widget_is_within(widget: QWidget | None, container: QWidget | None) -> bool:
+        if widget is None or container is None:
+            return False
+        return widget is container or container.isAncestorOf(widget)
+
+    def _on_focus_changed(self, _old: QWidget | None, current: QWidget | None) -> None:
+        if not self._main_ui_built or current is None:
+            return
+        for pid, slot in self.slots.items():
+            if self._widget_is_within(current, slot.container):
+                self._activate_panel(pid)
+                return
+
+    def _setup_shortcuts(self) -> None:
+        self._teardown_shortcuts()
+        controller = ShortcutController(
+            self,
+            HOTKEY_BINDINGS,
+            self._dispatch_hotkey,
+            self._shortcut_context_matches,
+        )
+        self._shortcut_controller = controller
+        if controller.errors:
+            self._append_log(f"快捷键配置无效：{'; '.join(controller.errors)}", "warn")
+            return
+        controller.install()
+
+    def _teardown_shortcuts(self) -> None:
+        if self._shortcut_controller:
+            self._shortcut_controller.shutdown()
+            self._shortcut_controller.deleteLater()
+            self._shortcut_controller = None
+
+    def _shortcut_context_matches(self, binding: HotkeyBinding) -> bool:
+        if not self._main_ui_built or QApplication.activeWindow() is not self:
+            return False
+        if QApplication.activeModalWidget() is not None or QApplication.activePopupWidget() is not None:
+            return False
+        focus = QApplication.focusWidget()
+        slot = self._active_slot()
+        context = binding.context
+        if context == HotkeyContext.MAIN_WINDOW:
+            return True
+        if slot is None:
+            return False
+        if context == HotkeyContext.TRADE_PANEL:
+            return self._widget_is_within(focus, slot.container)
+        if context == HotkeyContext.SYMBOL_INPUT:
+            return bool(slot.symbol and (focus is slot.symbol or focus is slot.symbol.lineEdit()))
+        if context == HotkeyContext.QUANTITY_CONTROL:
+            return self._widget_is_within(focus, slot.qty_box)
+        if context == HotkeyContext.PRICE_INPUT:
+            return focus is slot.price
+        if context == HotkeyContext.ORDERS_TABLE:
+            return hasattr(self, "orders_table") and self._widget_is_within(focus, self.orders_table)
+        if context == HotkeyContext.POSITIONS_TABLE:
+            return hasattr(self, "positions_table") and self._widget_is_within(focus, self.positions_table)
+        return False
+
+    def _dispatch_hotkey(self, binding: HotkeyBinding) -> None:
+        action = binding.action
+        params = binding.params
+        panel_id = int(params.get("panel_id") or self._active_panel_id)
+        if action == HotkeyAction.PANEL_ACTIVATE:
+            self._activate_panel(panel_id)
+            slot = self._active_slot()
+            if slot and slot.symbol:
+                slot.symbol.setFocus()
+        elif action == HotkeyAction.ORDER_MARKET:
+            self._submit_market_order(str(params.get("side") or ""), panel_id)
+        elif action == HotkeyAction.ORDER_PREPARE_LIMIT:
+            self._prepare_limit_order(
+                str(params.get("side") or ""),
+                panel_id,
+                str(params.get("price_source") or ""),
+            )
+        elif action == HotkeyAction.ORDER_CONFIRM_PENDING:
+            self._confirm_pending_order(panel_id)
+        elif action == HotkeyAction.ORDER_CANCEL_PENDING:
+            self._cancel_pending_order(panel_id, log=True)
+        elif action == HotkeyAction.ORDER_CANCEL_SELECTED:
+            self._cancel_selected_order()
+        elif action == HotkeyAction.ORDER_CANCEL_SYMBOL_LIVE:
+            self._cancel_symbol_live_orders(panel_id)
+        elif action == HotkeyAction.QUANTITY_SET:
+            self._set_qty(int(params.get("value") or 0), panel_id)
+        elif action == HotkeyAction.QUANTITY_ADJUST:
+            self._adj_qty(int(params.get("delta") or 0), panel_id)
+        elif action == HotkeyAction.PRICE_ADJUST:
+            self._adj_price(float(params.get("delta") or 0), panel_id)
+        elif action == HotkeyAction.ORDERS_SWITCH_MODE:
+            self._switch_order_mode(str(params.get("mode") or "live"))
+        elif action == HotkeyAction.REFRESH_ORDERS:
+            self._refresh_orders(force=True)
+        elif action == HotkeyAction.REFRESH_POSITIONS:
+            self._refresh_positions(force_orders=True)
+        elif action == HotkeyAction.REFRESH_ALL:
+            self._refresh_broker_status_async(log_errors=False)
+            self._refresh_orders(force=True)
+            self._refresh_positions(force_orders=True)
+        elif action == HotkeyAction.LOGS_CLEAR:
+            self._clear_logs()
+
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("topHeader")
@@ -635,21 +826,12 @@ class TradingTerminalQt(QMainWindow):
         status_layout.setSpacing(8)
         self.status_dot = make_label("\u25cf", color=theme.ACCENT_RED, font=theme.ui_font(9, bold=True))
         self.status_text = make_label("OFFLINE", color=theme.ACCENT_RED, font=theme.mono_font(9, bold=True))
+        self.read_only_label = make_label("READ ONLY", color=theme.ACCENT_YELLOW, font=theme.mono_font(9, bold=True))
+        self.read_only_label.hide()
         status_layout.addWidget(self.status_dot)
         status_layout.addWidget(self.status_text)
+        status_layout.addWidget(self.read_only_label)
         layout.addWidget(status)
-
-
-        broker = QWidget()
-        broker_layout = QHBoxLayout(broker)
-        broker_layout.setContentsMargins(0, 0, 0, 0)
-        broker_layout.setSpacing(7)
-        self.broker_name_label = make_label("BROKER --", color=theme.TEXT_DIM, font=theme.mono_font(9, bold=True))
-        self.broker_account_label = make_label("ACCOUNT --", color=theme.TEXT_LOW, font=theme.mono_font(9))
-        self.broker_account_label.setMaximumWidth(320)
-        broker_layout.addWidget(self.broker_name_label)
-        broker_layout.addWidget(self.broker_account_label)
-        layout.addWidget(broker)
 
         layout.addStretch(1)
         self.latency_label = make_label("--ms", color=theme.TEXT_LOW, font=theme.mono_font(9))
@@ -693,13 +875,17 @@ class TradingTerminalQt(QMainWindow):
         layout.addLayout(middle, 1)
 
         layout.addWidget(self._build_console())
+        self._activate_panel(1)
         return workspace
 
     def _build_slot(self, idx: int, symbol: str, qty: str, price: str, minus_step: int, plus_step: int) -> QFrame:
         slot = TradingSlot(idx)
         self.slots[idx] = slot
-        card = QFrame()
+        card = TradingPanelFrame()
         card.setObjectName("slotCard")
+        card.setProperty("activePanel", False)
+        card.activated.connect(lambda pid=idx: self._activate_panel(pid))
+        slot.container = card
         layout = QVBoxLayout(card)
         layout.setContentsMargins(18, 17, 18, 17)
         layout.setSpacing(0)
@@ -731,13 +917,15 @@ class TradingTerminalQt(QMainWindow):
         right_config_layout.addWidget(self._control_block("TIF", slot.tif), 1)
 
         qty_box, slot.qty_label, slot.minus, slot.plus = self._build_qty(qty, minus_step, plus_step)
+        slot.qty_box = qty_box
         slot.minus.clicked.connect(lambda _checked=False, pid=idx, delta=minus_step: self._adj_qty(delta, pid))
         slot.plus.clicked.connect(lambda _checked=False, pid=idx, delta=plus_step: self._adj_qty(delta, pid))
         right_config_layout.addWidget(self._control_block("QTY", qty_box), 1)
         slot_grid.addWidget(right_config, 1, 1)
 
-        slot.price = make_input(price)
-        slot.price.returnPressed.connect(lambda pid=idx: self._place_order("Buy to Open", pid))
+        slot.price = make_input(price, field_type=TradePriceInput)
+        slot.price.setProperty("pendingSide", "")
+        slot.price.returnPressed.connect(lambda pid=idx: self._on_price_enter(pid))
         slot_grid.addWidget(self._control_block("PRICE", slot.price), 2, 0)
 
         buttons = QWidget()
@@ -753,8 +941,8 @@ class TradingTerminalQt(QMainWindow):
         slot.sell = make_button("SELL", object_name="sellButton")
         slot.buy.setMinimumHeight(44)
         slot.sell.setMinimumHeight(44)
-        slot.buy.clicked.connect(lambda _checked=False, pid=idx: self._place_order("Buy to Open", pid))
-        slot.sell.clicked.connect(lambda _checked=False, pid=idx: self._place_order("Sell to Close", pid))
+        slot.buy.clicked.connect(lambda _checked=False, pid=idx: self._place_order_from_panel("Buy to Open", pid))
+        slot.sell.clicked.connect(lambda _checked=False, pid=idx: self._place_order_from_panel("Sell to Close", pid))
         button_row_layout.addWidget(slot.buy, 1)
         button_row_layout.addWidget(slot.sell, 1)
         buttons_layout.addWidget(button_row)
@@ -821,7 +1009,7 @@ class TradingTerminalQt(QMainWindow):
         self.live_orders_btn.clicked.connect(lambda: self._switch_order_mode("live"))
         self.all_orders_btn.clicked.connect(lambda: self._switch_order_mode("all"))
         self.cancel_order_btn.clicked.connect(self._cancel_selected_order)
-        self.orders_refresh_btn.clicked.connect(self._refresh_orders)
+        self.orders_refresh_btn.clicked.connect(lambda: self._refresh_orders(force=True))
         tabs.addWidget(self.live_orders_btn)
         tabs.addWidget(self.all_orders_btn)
         tabs.addWidget(self.order_count_label)
@@ -956,9 +1144,18 @@ class TradingTerminalQt(QMainWindow):
             if now - self._last_pos_time > POSITIONS_INTERVAL / 1000 and self._broker_capability_enabled("positions"):
                 self._last_pos_time = now
                 self._refresh_positions()
-            if now - self._last_orders_time > ORDERS_INTERVAL / 1000 and self._broker_capability_enabled("order_query"):
+            orders_interval = self._orders_poll_interval_ms()
+            if now - self._last_orders_time > orders_interval / 1000 and self._broker_capability_enabled("order_query"):
                 self._last_orders_time = now
                 self._refresh_orders()
+
+    def _orders_poll_interval_ms(self) -> int:
+        if self._order_mode == "live" and any(
+            str(order.get("raw_status") or "") in LIVE_STATUSES
+            for order in self._orders_raw
+        ):
+            return ORDERS_ACTIVE_INTERVAL
+        return ORDERS_INTERVAL
 
     def _heartbeat_check(self) -> None:
         if not self.http.is_connected:
@@ -968,30 +1165,33 @@ class TradingTerminalQt(QMainWindow):
     def _set_ts_connection_state(self, state: str, detail: str = "") -> None:
         state = (state or "offline").strip().lower()
         self._se_connected = state == "online"
+        if state != "online":
+            self._invalidate_quote_freshness()
+            self._cancel_all_pending_orders()
         if state == "online":
             self._reconnect_failed = False
             self._last_reconnect_notice_attempt = 0
         if not self._main_ui_built:
             return
         if state == "online":
+            self._connection_status_label = "ONLINE"
             self.status_dot.setStyleSheet(f"color: {theme.ACCENT_GREEN};")
-            self.status_text.setText("ONLINE")
             self.status_text.setStyleSheet(f"color: {theme.ACCENT_GREEN};")
         elif state == "reconnecting":
+            self._connection_status_label = "RECONNECTING"
             self.status_dot.setStyleSheet(f"color: {theme.ACCENT_YELLOW};")
-            self.status_text.setText("RECONNECTING")
             self.status_text.setStyleSheet(f"color: {theme.ACCENT_YELLOW};")
             self.latency_label.setText("重连中")
             self.latency_label.setStyleSheet(f"color: {theme.ACCENT_YELLOW};")
         elif state == "failed":
+            self._connection_status_label = "FAILED"
             self.status_dot.setStyleSheet(f"color: {theme.ACCENT_RED};")
-            self.status_text.setText("FAILED")
             self.status_text.setStyleSheet(f"color: {theme.ACCENT_RED};")
             self.latency_label.setText("--ms")
             self.latency_label.setStyleSheet(f"color: {theme.TEXT_LOW};")
         else:
+            self._connection_status_label = "OFFLINE"
             self.status_dot.setStyleSheet(f"color: {theme.ACCENT_RED};")
-            self.status_text.setText("OFFLINE")
             self.status_text.setStyleSheet(f"color: {theme.ACCENT_RED};")
             self.latency_label.setText("--ms")
             self.latency_label.setStyleSheet(f"color: {theme.TEXT_LOW};")
@@ -1057,6 +1257,8 @@ class TradingTerminalQt(QMainWindow):
             self._ui(lambda: self._reset_to_login_page("交易服务器重连失败，已释放占用，请重新登录。"))
 
     def _reset_to_login_page(self, hint: str = "") -> None:
+        self._teardown_shortcuts()
+        self._reset_runtime_action_state()
         self.session = None
         self._main_ui_built = False
         self._init_ready = False
@@ -1227,6 +1429,26 @@ class TradingTerminalQt(QMainWindow):
             return raw
         return {"broker_type": "none", "connected": False, "capabilities": {}, "account": {}}
 
+    @staticmethod
+    def _broker_display_name(broker_type: str) -> str:
+        normalized = str(broker_type or "none").strip().lower()
+        if normalized in {"", "none"}:
+            return ""
+        if normalized == "tastytrade":
+            return "TASTYTRADE"
+        if normalized == "interactive_brokers":
+            return "INTERACTIVE BROKERS"
+        return normalized.replace("_", " ").upper()
+
+    def _update_header_broker_status(self, broker_type: str, read_only: bool) -> None:
+        if not hasattr(self, "status_text"):
+            return
+        broker_name = self._broker_display_name(broker_type)
+        status = self._connection_status_label or "OFFLINE"
+        self.status_text.setText(f"{status} {broker_name}".strip())
+        if hasattr(self, "read_only_label"):
+            self.read_only_label.setVisible(read_only)
+
     def _broker_capability_enabled(self, capability: str) -> bool:
         if not self.session:
             return False
@@ -1248,24 +1470,16 @@ class TradingTerminalQt(QMainWindow):
         active = bool(detail.get("connected") and self.session and self.session.connected and self._se_connected)
         account = detail.get("account") if isinstance(detail.get("account"), dict) else {}
         broker_type = str(detail.get("broker_type") or "none").upper()
-        account_number = str(account.get("account_number") or "")
-        nickname = str(account.get("nickname") or "")
         authority = str(account.get("authority_level") or "unknown")
         read_only = authority in {"read-only", "read_only", "readonly"}
         if hasattr(self, "account_state"):
             style_status_pill(self.account_state, "Connect" if active else "Offline", active=True, danger=not active)
-        if hasattr(self, "broker_name_label"):
-            self.broker_name_label.setText(f"BROKER {broker_type}" if broker_type != "NONE" else "BROKER --")
-            self.broker_name_label.setStyleSheet(f"color: {theme.ACCENT_GREEN if active else theme.TEXT_LOW};")
-        if hasattr(self, "broker_account_label"):
-            account_text = nickname or account_number or "--"
-            if nickname and account_number:
-                account_text = f"{nickname} · {account_number}"
-            suffix = " · READ ONLY" if read_only else ""
-            self.broker_account_label.setText(f"ACCOUNT {account_text}{suffix}")
-            self.broker_account_label.setStyleSheet(f"color: {theme.ACCENT_YELLOW if read_only else theme.TEXT_LOW};")
+        self._update_header_broker_status(broker_type, read_only)
+        orders_enabled = self._broker_capability_enabled("orders")
         for slot in self.slots.values():
-            slot.set_trade_enabled(self._broker_capability_enabled("orders"))
+            slot.set_trade_enabled(orders_enabled)
+        if not orders_enabled:
+            self._cancel_all_pending_orders()
         self.orders_refresh_btn.setEnabled(self._broker_capability_enabled("order_query"))
         self.positions_refresh_btn.setEnabled(self._broker_capability_enabled("positions"))
         self.cancel_order_btn.setEnabled(self._broker_capability_enabled("cancel_order"))
@@ -1604,14 +1818,35 @@ class TradingTerminalQt(QMainWindow):
             self._handle_quote_payload(payload)
         elif msg_type == "BROKER_STATUS_CHANGE":
             status = str(payload.get("status") or "").lower()
+            invalidate_quotes = getattr(self, "_invalidate_quote_freshness", None)
+            if callable(invalidate_quotes):
+                invalidate_quotes()
             detail = payload.get("broker_detail")
             if self.session and isinstance(detail, dict):
                 self.session.set_broker_detail(detail)
             self._apply_broker_status_ui()
             if status in {"connected", "reconnected", "reloaded"}:
                 self._sync_quote_subscriptions_async(force_resubscribe=True)
+                if self.session:
+                    self.session.invalidate_order_cache()
                 self._refresh_positions()
                 self._refresh_orders()
+        elif msg_type == "ORDER_STATUS_UPDATE":
+            if self._accept_broker_event(payload):
+                if self.session:
+                    self.session.invalidate_order_cache()
+                status = str(payload.get("status") or "")
+                position_changed = status in {"Partial", "Filled"}
+                self._queue_event_refresh(
+                    orders=True,
+                    positions=position_changed,
+                    force_positions=position_changed,
+                )
+                if status == "Filled":
+                    QTimer.singleShot(1000, lambda: self._refresh_positions(force_orders=True))
+        elif msg_type == "POSITION_INVALIDATED":
+            if self._accept_broker_event(payload):
+                self._queue_event_refresh(positions=True)
         elif msg_type == "FORCE_DISCONNECT":
             reason = payload.get("reason", "admin_force_release")
             self._log_user_error_once(f"交易服务器连接被强制断开，原因：{reason}", "warn")
@@ -1620,6 +1855,41 @@ class TradingTerminalQt(QMainWindow):
             code = payload.get("code", "")
             message = localize_user_message(payload.get("message", ""))
             self._log_user_error_once(f"交易服务器错误[{code}]：{message}")
+    def _accept_broker_event(self, payload: dict) -> bool:
+        event_id = str(payload.get("event_id") or "").strip()
+        if not event_id:
+            return True
+        now = time.monotonic()
+        cutoff = now - 120.0
+        self._seen_broker_events = {
+            key: seen_at for key, seen_at in self._seen_broker_events.items()
+            if seen_at >= cutoff
+        }
+        if event_id in self._seen_broker_events:
+            return False
+        self._seen_broker_events[event_id] = now
+        return True
+
+    def _queue_event_refresh(
+        self,
+        *,
+        orders: bool = False,
+        positions: bool = False,
+        force_positions: bool = False,
+    ) -> None:
+        self._event_refresh_flags["orders"] |= orders
+        self._event_refresh_flags["positions"] |= positions
+        self._event_refresh_flags["force_positions"] |= force_positions
+        self._event_refresh_timer.start(300)
+
+    def _flush_event_refresh(self) -> None:
+        flags = dict(self._event_refresh_flags)
+        self._event_refresh_flags = {"orders": False, "positions": False, "force_positions": False}
+        if flags["orders"]:
+            self._refresh_orders(force=True)
+        if flags["positions"]:
+            self._refresh_positions(force_orders=flags["force_positions"])
+
     def _on_init_se_status(self, msg: str) -> None:
         self._ui(lambda: self._handle_init_se_status_ui(msg))
 
@@ -1738,6 +2008,7 @@ class TradingTerminalQt(QMainWindow):
                 self.session.bind_se_client(self._se_client)
         self._build_root()
         self._main_ui_built = True
+        self._setup_shortcuts()
         self._set_se_connection_ui(self._se_connected)
         self._append_log("SM\u767b\u5f55\u6210\u529f", "ok")
         self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u8fde\u63a5", "ok")
@@ -1746,6 +2017,7 @@ class TradingTerminalQt(QMainWindow):
         self._sync_quote_subscriptions_async()
 
     def _se_disconnect(self) -> None:
+        self._reset_runtime_action_state()
         if self.session:
             self.session.bind_se_client(None)
             self.session.set_broker_detail(None)
@@ -1776,13 +2048,25 @@ class TradingTerminalQt(QMainWindow):
             last = float(payload.get("last", 0) or 0)
             if last <= 0 and bid > 0 and ask > 0:
                 last = round((bid + ask) / 2, 2)
-            quote = {"symbol": sym, "bid": bid, "ask": ask, "last": last, "volume": int(float(payload.get("volume", 0) or 0))}
+            quote = {
+                "symbol": sym,
+                "bid": bid,
+                "ask": ask,
+                "last": last,
+                "volume": int(float(payload.get("volume", 0) or 0)),
+                "received_monotonic": time.monotonic(),
+            }
         except Exception:
             return
         self.current_quote[sym] = quote
         for slot in self.slots.values():
             if slot.symbol_text() == sym:
                 slot.update_quote(quote)
+
+    def _invalidate_quote_freshness(self) -> None:
+        for quote_data in self.current_quote.values():
+            if isinstance(quote_data, dict):
+                quote_data["received_monotonic"] = 0.0
 
     def _refresh_broker_status_async(self, log_errors: bool = False) -> None:
         if not self.session or not self.session.connected or not self._se_connected:
@@ -1795,17 +2079,29 @@ class TradingTerminalQt(QMainWindow):
         self._ui(lambda: (self._apply_broker_status_ui(), self._log_user_error_once(msg, "warn") if (not ok and log_errors and msg) else None))
 
     def _on_symbol_enter(self, pid: int) -> None:
+        timer = self._quote_sync_timers.get(pid)
+        if timer and timer.isActive():
+            timer.stop()
         slot = self.slots[pid]
+        self._activate_panel(pid)
         sym = slot.symbol_text()
         if not sym:
             return
+        if slot.current_symbol and slot.current_symbol != sym:
+            self._cancel_pending_order(pid)
         slot.current_symbol = sym
         if sym in self.current_quote:
             slot.update_quote(self.current_quote[sym])
         self._sync_quote_subscriptions_async()
 
     def _schedule_quote_sync(self, pid: int) -> None:
-        QTimer.singleShot(250, lambda: self._on_symbol_enter(pid))
+        timer = self._quote_sync_timers.get(pid)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda pid=pid: self._on_symbol_enter(pid))
+            self._quote_sync_timers[pid] = timer
+        timer.start(350)
 
     def _sync_quote_subscriptions_async(self, force_resubscribe: bool = False) -> None:
         if not self.session or not self._se_connected:
@@ -1834,6 +2130,8 @@ class TradingTerminalQt(QMainWindow):
     def _on_order_type_change(self, pid: int) -> None:
         slot = self.slots[pid]
         is_market = slot.order_type.currentText() == "Market" if slot.order_type else False
+        if is_market:
+            self._cancel_pending_order(pid)
         if slot.price:
             slot.price.setEnabled(not is_market)
             if is_market:
@@ -1842,10 +2140,173 @@ class TradingTerminalQt(QMainWindow):
                 slot.price.setText("")
 
     def _adj_qty(self, delta: int, pid: int) -> None:
+        if pid not in self.slots or delta == 0:
+            return
+        self._activate_panel(pid)
         slot = self.slots[pid]
         slot.set_qty(slot.qty_value() + delta)
 
-    def _place_order(self, action: str, pid: int) -> None:
+    def _set_qty(self, value: int, pid: int) -> None:
+        if pid not in self.slots or value <= 0:
+            return
+        self._activate_panel(pid)
+        self.slots[pid].set_qty(value)
+
+    def _adj_price(self, delta: float, pid: int) -> None:
+        if pid not in self.slots or delta == 0:
+            return
+        self._activate_panel(pid)
+        slot = self.slots[pid]
+        if not slot.price or not slot.order_type or slot.order_type.currentText() == "Market":
+            return
+        try:
+            current = Decimal(slot.price.text().strip() or "0")
+            adjusted = max(Decimal("0"), current + Decimal(str(delta)))
+            slot.price.setText(f"{adjusted.quantize(Decimal('0.01')):.2f}")
+        except (InvalidOperation, ValueError):
+            slot.price.setText("0.00")
+
+    def _place_order_from_panel(self, action: str, pid: int) -> None:
+        self._activate_panel(pid)
+        self._cancel_pending_order(pid)
+        self._place_order(action, pid)
+
+    def _on_price_enter(self, pid: int) -> None:
+        if pid not in self.slots:
+            return
+        self._activate_panel(pid)
+        slot = self.slots[pid]
+        now = time.monotonic()
+        if now < slot.confirm_guard_until:
+            return
+        slot.confirm_guard_until = now + ENTER_INPUT_GUARD_MS / 1000
+        if slot.pending_action:
+            self._confirm_pending_order(pid)
+            return
+        self._place_order("Buy to Open", pid)
+
+    def _shortcut_symbol(self, pid: int) -> str:
+        slot = self.slots.get(pid)
+        if not slot:
+            return ""
+        symbol = slot.symbol_text()
+        if not symbol:
+            self._log_user_error_once("请先输入并确认股票代码", "warn")
+            return ""
+        if slot.current_symbol != symbol:
+            self._log_user_error_once("请先确认股票代码", "warn")
+            return ""
+        return symbol
+
+    def _submit_market_order(self, side: str, pid: int) -> None:
+        if side not in {"buy", "sell"} or not self._shortcut_symbol(pid):
+            return
+        self._cancel_pending_order(pid)
+        action = "Buy to Open" if side == "buy" else "Sell to Close"
+        self._place_order(action, pid, order_type_override="market", price_override=0.0, source="hotkey")
+
+    def _prepare_limit_order(self, side: str, pid: int, price_source: str = "") -> None:
+        if side not in {"buy", "sell"} or pid not in self.slots:
+            return
+        if not self.session or not self._trade_controls_enabled():
+            message = self.session.broker_unavailable_message("orders") if self.session else "券商服务不可用"
+            self._log_user_error_once(message, "warn")
+            return
+        symbol = self._shortcut_symbol(pid)
+        if not symbol:
+            return
+
+        self._activate_panel(pid)
+        slot = self.slots[pid]
+        if slot.order_type:
+            slot.order_type.setCurrentText("Limit")
+        quote = self.current_quote.get(symbol, {})
+        received_at = float(quote.get("received_monotonic", 0) or 0)
+        fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= QUOTE_FRESHNESS_MS
+        source = price_source if price_source in {"bid", "ask"} else ("ask" if side == "buy" else "bid")
+        quote_price = float(quote.get(source, 0) or 0) if fresh else 0.0
+        if slot.price:
+            slot.price.setText(f"{quote_price:.2f}" if quote_price > 0 else "")
+            slot.price.setProperty("pendingSide", side)
+            self._repolish(slot.price)
+            slot.price.setFocus()
+            slot.price.selectAll()
+        slot.pending_action = "Buy to Open" if side == "buy" else "Sell to Close"
+        slot.pending_symbol = symbol
+        slot.pending_created_at = time.monotonic()
+        direction = "买入" if side == "buy" else "卖出"
+        if quote_price > 0:
+            self._append_log(f"限价{direction}待确认：{symbol} @ ${quote_price:.2f}", "inf")
+        else:
+            self._append_log(f"限价{direction}待确认：{symbol}，请填写价格", "warn")
+
+    def _confirm_pending_order(self, pid: int) -> None:
+        slot = self.slots.get(pid)
+        if not slot or not slot.pending_action:
+            return
+        if slot.pending_symbol != slot.symbol_text():
+            self._cancel_pending_order(pid)
+            self._log_user_error_once("股票代码已变化，待提交订单已取消", "warn")
+            return
+        action = slot.pending_action
+        slot.confirm_guard_until = max(
+            slot.confirm_guard_until,
+            time.monotonic() + ENTER_INPUT_GUARD_MS / 1000,
+        )
+        self._cancel_pending_order(pid)
+        self._place_order(action, pid, order_type_override="limit", source="hotkey")
+
+    def _cancel_pending_order(self, pid: int, log: bool = False) -> None:
+        slot = self.slots.get(pid)
+        if not slot or not slot.pending_action:
+            return
+        slot.pending_action = ""
+        slot.pending_symbol = ""
+        slot.pending_created_at = 0.0
+        if slot.price:
+            slot.price.setProperty("pendingSide", "")
+            self._repolish(slot.price)
+        if log:
+            self._append_log("已取消限价待提交状态", "inf")
+
+    def _cancel_all_pending_orders(self) -> None:
+        for pid in list(self.slots):
+            self._cancel_pending_order(pid)
+
+    def _reset_runtime_action_state(self) -> None:
+        self._cancel_all_pending_orders()
+        self._action_limiter.reset()
+        with self._refresh_state_lock:
+            self._refresh_in_flight = {"orders": False, "positions": False}
+            self._refresh_pending = {"orders": False, "positions": False}
+            self._refresh_force_pending = {"orders": False, "positions": False}
+        self._event_refresh_flags = {"orders": False, "positions": False, "force_positions": False}
+        self._seen_broker_events.clear()
+        self._event_refresh_timer.stop()
+        self._canceling_order_ids.clear()
+        self._batch_canceling_symbols.clear()
+
+    @staticmethod
+    def _order_signature(symbol: str, qty: int, price: float, action: str, order_type: str, tif: str) -> str:
+        return "|".join((symbol, action, str(qty), f"{price:.6f}", order_type, tif))
+
+    def _rate_limit_message(self, reason: str) -> str:
+        return {
+            "duplicate": "相同订单提交过于频繁",
+            "burst": "短时间订单过多，本次订单未提交",
+            "in_flight": "已有多笔订单正在提交，请稍后",
+            "cooldown": "操作过快，本次订单未提交",
+        }.get(reason, "操作过快，本次请求未执行")
+
+    def _place_order(
+        self,
+        action: str,
+        pid: int,
+        *,
+        order_type_override: str | None = None,
+        price_override: float | None = None,
+        source: str = "button",
+    ) -> None:
         if not self.session or not self._trade_controls_enabled():
             message = self.session.broker_unavailable_message("orders") if self.session else "券商服务不可用"
             self._log_user_error_once(message, "warn")
@@ -1853,8 +2314,8 @@ class TradingTerminalQt(QMainWindow):
         slot = self.slots[pid]
         sym = slot.symbol_text()
         qty = slot.qty_value()
-        order_type = "market" if slot.order_type and slot.order_type.currentText() == "Market" else "limit"
-        price = slot.price_value()
+        order_type = order_type_override or ("market" if slot.order_type and slot.order_type.currentText() == "Market" else "limit")
+        price = float(price_override) if price_override is not None else slot.price_value()
         tif = slot.tif.currentText() if slot.tif else "Day"
         if not sym:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u8bf7\u8f93\u5165\u4ee3\u7801")
@@ -1865,36 +2326,113 @@ class TradingTerminalQt(QMainWindow):
         if order_type != "market" and price <= 0:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u9650\u4ef7\u5fc5\u987b\u5927\u4e8e 0")
             return
+        signature = self._order_signature(sym, qty, price, action, order_type, tif)
+        decision = self._action_limiter.acquire(
+            "order.submit",
+            f"panel:{pid}",
+            ORDER_SUBMIT_POLICY,
+            signature=signature,
+            identical_cooldown_ms=IDENTICAL_ORDER_COOLDOWN_MS,
+        )
+        if not decision.allowed:
+            self._log_user_error_once(self._rate_limit_message(decision.reason), "warn", window_seconds=1.0)
+            return
         price_str = "Market" if order_type == "market" else f"${price:.2f}"
         action_label = ACTION_LABELS.get(action, action)
         tif_label = TIF_LABELS.get(tif, tif)
-        self._append_log(f"{action_label} {qty} \u80a1 {sym} @ {price_str} | {tif_label}", "inf")
-        self._run_bg(lambda: self._submit_order_bg(sym, qty, price, action, order_type, tif))
+        prefix = "[快捷] " if source == "hotkey" else ""
+        self._append_log(f"{prefix}{action_label} {qty} \u80a1 {sym} @ {price_str} | {tif_label}", "inf")
+        generation = self._se_generation
+        session = self.session
+        self._run_bg(
+            lambda: self._submit_order_bg(
+                sym,
+                qty,
+                price,
+                action,
+                order_type,
+                tif,
+                decision.token,
+                generation,
+                session,
+            )
+        )
 
-    def _submit_order_bg(self, symbol: str, qty: int, price: float, action: str, order_type: str, tif: str) -> None:
-        ok, msg = self.session.place_order(symbol, qty, price, action, order_type, tif=tif) if self.session else (False, "\u672a\u8fde\u63a5")
-        self._ui(lambda: self._handle_order_result(ok, msg))
+    def _submit_order_bg(
+        self,
+        symbol: str,
+        qty: int,
+        price: float,
+        action: str,
+        order_type: str,
+        tif: str,
+        limiter_token: str = "",
+        generation: int | None = None,
+        session: TradingSession | None = None,
+    ) -> None:
+        active_session = session or self.session
+        try:
+            ok, msg = active_session.place_order(symbol, qty, price, action, order_type, tif=tif) if active_session else (False, "\u672a\u8fde\u63a5")
+        except Exception as exc:
+            ok, msg = False, sanitize(f"下单失败：{exc}")
+        self._ui(lambda: self._handle_order_result(ok, msg, limiter_token, generation))
 
-    def _handle_order_result(self, ok: bool, msg: str) -> None:
+    def _handle_order_result(self, ok: bool, msg: str, limiter_token: str = "", generation: int | None = None) -> None:
+        self._action_limiter.release(limiter_token)
+        if generation is not None and generation != self._se_generation:
+            return
         if ok:
             self._append_log(msg, "ok")
-            self._refresh_orders()
-            QTimer.singleShot(1200, self._refresh_positions)
+            self._refresh_orders(force=True)
+            QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
         else:
             self._log_user_error_once(msg)
 
     def _switch_order_mode(self, mode: str) -> None:
         self._order_mode = mode
-        self._refresh_orders()
+        self._refresh_orders(force=True)
 
-    def _refresh_orders(self) -> None:
+    def _refresh_orders(self, *, force: bool = False) -> None:
         if not self.session:
             return
-        self._run_bg(self._refresh_orders_bg)
+        self._last_orders_time = time.time()
+        with self._refresh_state_lock:
+            if self._refresh_in_flight["orders"]:
+                self._refresh_pending["orders"] = True
+                self._refresh_force_pending["orders"] |= force
+                return
+            self._refresh_in_flight["orders"] = True
+        session = self.session
+        mode = self._order_mode
+        generation = self._se_generation
+        self._run_bg(lambda: self._refresh_orders_bg(session, mode, generation, force))
 
-    def _refresh_orders_bg(self) -> None:
-        orders = self.session.get_orders(self._order_mode) if self.session else []
-        self._ui(lambda: self._update_orders(orders))
+    def _refresh_orders_bg(
+        self,
+        session: TradingSession | None = None,
+        mode: str | None = None,
+        generation: int | None = None,
+        force: bool = False,
+    ) -> None:
+        active_session = session or self.session
+        try:
+            orders = active_session.get_orders(mode or self._order_mode, force=force) if active_session else []
+        except Exception:
+            orders = []
+        self._ui(lambda: self._finish_orders_refresh(orders, generation))
+
+    def _finish_orders_refresh(self, orders: list[dict], generation: int | None = None) -> None:
+        if generation is not None and generation != self._se_generation:
+            return
+        self._update_orders(orders)
+        with self._refresh_state_lock:
+            self._refresh_in_flight["orders"] = False
+            rerun = self._refresh_pending["orders"]
+            self._refresh_pending["orders"] = False
+            force = self._refresh_force_pending["orders"]
+            self._refresh_force_pending["orders"] = False
+        if rerun:
+            QTimer.singleShot(0, lambda: self._refresh_orders(force=force))
 
     def _update_orders(self, orders: list[dict]) -> None:
         self._orders_raw = orders
@@ -1912,46 +2450,222 @@ class TradingTerminalQt(QMainWindow):
         self.orders_model.set_rows(rows)
         self.order_count_label.setText(f"{len(rows)} \u7b14\u8ba2\u5355" if rows else "\u6682\u65e0\u8ba2\u5355")
 
-    def _selected_order_id(self) -> str:
+    def _selected_order(self) -> dict:
         indexes = self.orders_table.selectionModel().selectedRows() if self.orders_table.selectionModel() else []
         if not indexes:
-            return ""
+            return {}
         row = indexes[0].row()
         if 0 <= row < len(self._orders_raw):
-            return str(self._orders_raw[row].get("id", ""))
-        return ""
+            return self._orders_raw[row]
+        return {}
+
+    def _selected_order_id(self) -> str:
+        return str(self._selected_order().get("id", ""))
 
     def _cancel_selected_order(self) -> None:
         if not self.session or not self._broker_capability_enabled("cancel_order"):
             message = self.session.broker_unavailable_message("cancel_order") if self.session else "券商服务不可用"
             self._log_user_error_once(message, "warn")
             return
-        order_id = self._selected_order_id()
+        selected_order = self._selected_order()
+        if selected_order and not bool(selected_order.get("can_cancel", True)):
+            self._log_user_error_once("该订单不可由当前 Client 撤销", "warn")
+            return
+        order_id = str(selected_order.get("id", ""))
         if not order_id:
             self._log_user_error_once("\u8bf7\u9009\u62e9\u4e00\u7b14\u8981\u64a4\u9500\u7684\u8ba2\u5355", "warn")
             return
-        self._run_bg(lambda: self._cancel_order_bg(order_id))
+        symbol = str(selected_order.get("symbol") or "").strip().upper()
+        if symbol and symbol in self._batch_canceling_symbols:
+            self._log_user_error_once("当前股票批量撤单正在执行", "warn", window_seconds=1.0)
+            return
+        if order_id in self._canceling_order_ids:
+            self._log_user_error_once("该订单正在撤销", "warn", window_seconds=1.0)
+            return
+        decision = self._action_limiter.acquire("order.cancel", order_id, ORDER_CANCEL_POLICY)
+        if not decision.allowed:
+            self._log_user_error_once("撤单操作过快", "warn", window_seconds=1.0)
+            return
+        self._canceling_order_ids.add(order_id)
+        session = self.session
+        generation = self._se_generation
+        self._run_bg(lambda: self._cancel_order_bg(order_id, decision.token, generation, session))
 
-    def _cancel_order_bg(self, order_id: str) -> None:
-        ok, msg = self.session.cancel_order(order_id) if self.session else (False, "\u672a\u8fde\u63a5")
-        self._ui(lambda: self._handle_cancel_result(ok, msg))
+    def _cancel_order_bg(
+        self,
+        order_id: str,
+        limiter_token: str = "",
+        generation: int | None = None,
+        session: TradingSession | None = None,
+    ) -> None:
+        active_session = session or self.session
+        try:
+            ok, msg = active_session.cancel_order(order_id) if active_session else (False, "\u672a\u8fde\u63a5")
+        except Exception as exc:
+            ok, msg = False, sanitize(f"撤单失败：{exc}")
+        self._ui(lambda: self._handle_cancel_result(ok, msg, order_id, limiter_token, generation))
 
-    def _handle_cancel_result(self, ok: bool, msg: str) -> None:
+    def _handle_cancel_result(
+        self,
+        ok: bool,
+        msg: str,
+        order_id: str = "",
+        limiter_token: str = "",
+        generation: int | None = None,
+    ) -> None:
+        self._action_limiter.release(limiter_token)
+        if order_id:
+            self._canceling_order_ids.discard(order_id)
+        if generation is not None and generation != self._se_generation:
+            return
         if ok:
             self._append_log(msg, "ok")
-            self._refresh_orders()
+            self._refresh_orders(force=True)
+            QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
         else:
             self._log_user_error_once(msg)
 
-    def _refresh_positions(self) -> None:
+    def _cancel_symbol_live_orders(self, pid: int) -> None:
+        if not self.session or not self._broker_capability_enabled("cancel_order"):
+            message = self.session.broker_unavailable_message("cancel_order") if self.session else "券商服务不可用"
+            self._log_user_error_once(message, "warn")
+            return
+        if not self._broker_capability_enabled("order_query"):
+            self._log_user_error_once("当前账户不支持订单查询，无法批量撤单", "warn")
+            return
+        symbol = self._shortcut_symbol(pid)
+        if not symbol:
+            return
+        if symbol in self._batch_canceling_symbols:
+            self._log_user_error_once("当前股票批量撤单正在执行", "warn", window_seconds=1.0)
+            return
+        decision = self._action_limiter.acquire("order.cancel.batch", symbol, BATCH_CANCEL_POLICY)
+        if not decision.allowed:
+            self._log_user_error_once("批量撤单操作过快", "warn", window_seconds=1.0)
+            return
+        self._batch_canceling_symbols.add(symbol)
+        session = self.session
+        generation = self._se_generation
+        skip_order_ids = set(self._canceling_order_ids)
+        self._run_bg(
+            lambda: self._cancel_symbol_live_orders_bg(
+                symbol,
+                decision.token,
+                generation,
+                session,
+                skip_order_ids,
+            )
+        )
+
+    def _cancel_symbol_live_orders_bg(
+        self,
+        symbol: str,
+        limiter_token: str,
+        generation: int,
+        session: TradingSession | None,
+        skip_order_ids: set[str] | None = None,
+    ) -> None:
+        skipped = skip_order_ids or set()
+        try:
+            orders = session.get_orders("live") if session else []
+        except Exception:
+            orders = []
+        order_ids = list(dict.fromkeys(
+            str(order.get("id") or "")
+            for order in orders
+            if str(order.get("symbol") or "").strip().upper() == symbol
+            and order.get("id")
+            and bool(order.get("can_cancel", True))
+            and str(order.get("id") or "") not in skipped
+            and (not order.get("raw_status") or order.get("raw_status") in LIVE_STATUSES)
+        ))
+        success = 0
+        failures: list[str] = []
+        for order_id in order_ids:
+            try:
+                ok, msg = session.cancel_order(order_id) if session else (False, "未连接")
+            except Exception as exc:
+                ok, msg = False, sanitize(f"撤单失败：{exc}")
+            if ok:
+                success += 1
+            else:
+                failures.append(localize_user_message(msg))
+        self._ui(
+            lambda: self._handle_batch_cancel_result(
+                symbol,
+                len(order_ids),
+                success,
+                failures,
+                limiter_token,
+                generation,
+            )
+        )
+
+    def _handle_batch_cancel_result(
+        self,
+        symbol: str,
+        total: int,
+        success: int,
+        failures: list[str],
+        limiter_token: str,
+        generation: int,
+    ) -> None:
+        self._action_limiter.release(limiter_token)
+        self._batch_canceling_symbols.discard(symbol)
+        if generation != self._se_generation:
+            return
+        if total == 0:
+            self._append_log(f"{symbol} 暂无活动订单", "inf")
+        elif failures:
+            self._append_log(f"{symbol} 批量撤单：成功 {success}，失败 {len(failures)}", "warn")
+        else:
+            self._append_log(f"{symbol} 已撤销 {success} 笔活动订单", "ok")
+        self._refresh_orders(force=True)
+
+    def _refresh_positions(self, *, force_orders: bool = False) -> None:
         if not self.session:
             return
-        self._run_bg(self._refresh_positions_bg)
+        with self._refresh_state_lock:
+            if self._refresh_in_flight["positions"]:
+                self._refresh_pending["positions"] = True
+                self._refresh_force_pending["positions"] |= force_orders
+                return
+            self._refresh_in_flight["positions"] = True
+        session = self.session
+        generation = self._se_generation
+        self._run_bg(lambda: self._refresh_positions_bg(session, generation, force_orders))
 
-    def _refresh_positions_bg(self) -> None:
-        positions = self.session.get_today_activity() if self.session else []
-        err = getattr(self.session, "_pos_error", "") if self.session else ""
-        self._ui(lambda: self._update_positions(positions, err))
+    def _refresh_positions_bg(
+        self,
+        session: TradingSession | None = None,
+        generation: int | None = None,
+        force_orders: bool = False,
+    ) -> None:
+        active_session = session or self.session
+        try:
+            positions = active_session.get_today_activity(force_orders=force_orders) if active_session else []
+        except Exception:
+            positions = []
+        err = getattr(active_session, "_pos_error", "") if active_session else ""
+        self._ui(lambda: self._finish_positions_refresh(positions, err, generation))
+
+    def _finish_positions_refresh(
+        self,
+        positions: list[dict],
+        err: str = "",
+        generation: int | None = None,
+    ) -> None:
+        if generation is not None and generation != self._se_generation:
+            return
+        self._update_positions(positions, err)
+        with self._refresh_state_lock:
+            self._refresh_in_flight["positions"] = False
+            rerun = self._refresh_pending["positions"]
+            self._refresh_pending["positions"] = False
+            force_orders = self._refresh_force_pending["positions"]
+            self._refresh_force_pending["positions"] = False
+        if rerun:
+            QTimer.singleShot(0, lambda: self._refresh_positions(force_orders=force_orders))
 
     def _update_positions(self, positions: list[dict], err: str = "") -> None:
         self._positions_raw = positions
@@ -2011,6 +2725,8 @@ class TradingTerminalQt(QMainWindow):
 
     def closeEvent(self, event) -> None:
         try:
+            self._teardown_shortcuts()
+            self._reset_runtime_action_state()
             self._release_se_occupation(sync=True)
             if self.session:
                 try:

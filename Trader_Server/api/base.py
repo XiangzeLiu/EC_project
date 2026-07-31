@@ -25,6 +25,8 @@ class BaseBrokerAPI(ABC):
         self._connected = False
         self._credentials = {}
         self._quote_callback: Callable | None = None
+        self._order_event_callback: Callable | None = None
+        self._position_event_callback: Callable | None = None
         self._last_connect_error: dict[str, Any] = {
             "code": "",
             "message": "",
@@ -198,6 +200,32 @@ class BaseBrokerAPI(ABC):
                 self._quote_callback(quote)
             except Exception as e:
                 log.warning(f"Quote callback error: {e}")
+
+    def set_order_event_callback(self, callback: Callable[[dict], None] | None) -> None:
+        self._order_event_callback = callback
+
+    def set_position_event_callback(self, callback: Callable[[dict], None] | None) -> None:
+        self._position_event_callback = callback
+
+    def _on_order_event(self, event: dict) -> None:
+        if self._order_event_callback:
+            try:
+                self._order_event_callback(dict(event or {}))
+            except Exception as exc:
+                log.warning("Order event callback error: %s", exc)
+
+    def _on_position_event(self, event: dict) -> None:
+        if self._position_event_callback:
+            try:
+                self._position_event_callback(dict(event or {}))
+            except Exception as exc:
+                log.warning("Position event callback error: %s", exc)
+
+    async def start_account_events(self) -> None:
+        """Start optional broker account event streams."""
+
+    async def stop_account_events(self) -> None:
+        """Stop optional broker account event streams."""
 
     def set_connection_error(self, code: str, message: str, retryable: bool = True) -> None:
         self._last_connect_error = {
