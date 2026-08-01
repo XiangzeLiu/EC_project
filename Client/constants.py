@@ -57,6 +57,7 @@ SESSION_END_H    = 20
 POLL_INTERVAL      = 150    # 主轮询间隔
 POSITIONS_INTERVAL = 15000  # 持仓刷新间隔 (15s)
 ORDERS_INTERVAL    = 30000  # 订单轮询间隔 (30s)
+ORDERS_ACTIVE_INTERVAL = 5000  # 有活动订单时的兜底刷新间隔 (5s)
 HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
 MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)
 

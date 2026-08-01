@@ -11,21 +11,24 @@ Tastytrade 券商适配器
 import asyncio
 import datetime
 import logging
+import time
 from decimal import Decimal
 from typing import Any
 
 from .base import BaseBrokerAPI
 
 log = logging.getLogger("trader_server.api.tastytrade")
+QUOTE_STREAM_MAX_AGE_SECONDS = 6 * 60 * 60
+QUOTE_STREAM_IDLE_SECONDS = 15 * 60
 # SDK 导入标记
 _SDK_AVAILABLE = False
 _DX_AVAILABLE = False
 try:
-    from tastytrade import Session, DXLinkStreamer
-    from tastytrade.account import Account
+    from tastytrade import AlertStreamer, Session, DXLinkStreamer
+    from tastytrade.account import Account, CurrentPosition
     from tastytrade.instruments import Equity
     from tastytrade.order import (
-        NewOrder, OrderAction, OrderTimeInForce, OrderType,
+        NewOrder, OrderAction, OrderTimeInForce, OrderType, PlacedOrder,
     )
     try:
         from tastytrade.dxfeed import Quote as DXQuote
@@ -34,6 +37,9 @@ try:
         DXQuote = None
     _SDK_AVAILABLE = True
 except ImportError:
+    AlertStreamer = None
+    CurrentPosition = None
+    PlacedOrder = None
     DXQuote = None
     log.warning("Tastytrade SDK not available, TastytradeBroker will be non-functional")
 
@@ -112,6 +118,12 @@ class TastytradeBroker(BaseBrokerAPI):
         self._quote_task: asyncio.Task | None = None
         self._subscribed_symbols: set[str] = set()
         self._quote_lock = asyncio.Lock()
+        self._quote_stream_started_at = 0.0
+        self._account_streamer: Any | None = None
+        self._account_streamer_cm: Any | None = None
+        self._account_event_tasks: list[asyncio.Task] = []
+        self._account_event_restart_task: asyncio.Task | None = None
+        self._account_event_lock = asyncio.Lock()
         self._last_connect_detail: dict[str, Any] = {}
 
     def set_connection_error(
@@ -264,6 +276,7 @@ class TastytradeBroker(BaseBrokerAPI):
 
     async def disconnect(self) -> None:
         """断开连接，清除缓存"""
+        await self.stop_account_events()
         await self._stop_quote_stream()
         session = self._session
         self._session = None
@@ -278,6 +291,164 @@ class TastytradeBroker(BaseBrokerAPI):
             except Exception:
                 pass
         log.info("TastytradeBroker disconnected")
+
+    async def start_account_events(self) -> None:
+        if not AlertStreamer or not PlacedOrder or not CurrentPosition:
+            raise RuntimeError("Tastytrade account alert stream is unavailable")
+        if not self._connected or not self._session or not self._account:
+            return
+        async with self._account_event_lock:
+            if self._account_event_tasks and any(not task.done() for task in self._account_event_tasks):
+                return
+            await self._stop_account_events_locked()
+            streamer = AlertStreamer(self._session)
+            self._account_streamer_cm = streamer if hasattr(streamer, "__aenter__") else None
+            if self._account_streamer_cm is not None:
+                entered = await self._maybe_await(streamer.__aenter__())
+                self._account_streamer = entered if entered is not None else streamer
+            else:
+                self._account_streamer = streamer
+            await self._account_streamer.subscribe_accounts([self._account])
+            self._account_event_tasks = [
+                asyncio.create_task(
+                    self._consume_account_alerts(PlacedOrder, self._handle_order_alert),
+                    name="tt-order-alerts",
+                ),
+                asyncio.create_task(
+                    self._consume_account_alerts(CurrentPosition, self._handle_position_alert),
+                    name="tt-position-alerts",
+                ),
+            ]
+            log.info("TT account event stream started")
+
+    async def stop_account_events(self) -> None:
+        restart_task = self._account_event_restart_task
+        self._account_event_restart_task = None
+        if restart_task and restart_task is not asyncio.current_task() and not restart_task.done():
+            restart_task.cancel()
+        async with self._account_event_lock:
+            await self._stop_account_events_locked()
+
+    async def _stop_account_events_locked(self) -> None:
+        current = asyncio.current_task()
+        tasks = list(self._account_event_tasks)
+        self._account_event_tasks = []
+        for task in tasks:
+            if task is not current and not task.done():
+                task.cancel()
+        for task in tasks:
+            if task is current:
+                continue
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if self._account_streamer_cm is not None:
+            try:
+                await self._maybe_await(self._account_streamer_cm.__aexit__(None, None, None))
+            except Exception as exc:
+                log.warning("TT account streamer close failed: %s", exc)
+        else:
+            close_fn = getattr(self._account_streamer, "close", None)
+            if close_fn:
+                try:
+                    await self._maybe_await(close_fn())
+                except Exception as exc:
+                    log.warning("TT account streamer close failed: %s", exc)
+        self._account_streamer = None
+        self._account_streamer_cm = None
+
+    async def _consume_account_alerts(self, alert_type: Any, handler: Any) -> None:
+        try:
+            stream = self._account_streamer.listen(alert_type)
+            async for alert in stream:
+                if not self._connected:
+                    return
+                handler(alert)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("TT account event stream failed (%s): %s", getattr(alert_type, "__name__", alert_type), exc)
+            self._schedule_account_event_restart()
+
+    def _schedule_account_event_restart(self) -> None:
+        if not self._connected:
+            return
+        task = self._account_event_restart_task
+        if task and not task.done():
+            return
+        self._account_event_restart_task = asyncio.create_task(
+            self._restart_account_events(),
+            name="tt-account-events-restart",
+        )
+
+    async def _restart_account_events(self) -> None:
+        try:
+            await asyncio.sleep(1.0)
+            await self.stop_account_events()
+            if self._connected:
+                await self.start_account_events()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("TT account event stream restart failed: %s", exc)
+        finally:
+            if self._account_event_restart_task is asyncio.current_task():
+                self._account_event_restart_task = None
+
+    @staticmethod
+    def _filled_quantity(order: Any) -> float:
+        total = 0.0
+        for leg in getattr(order, "legs", []) or []:
+            for fill in getattr(leg, "fills", []) or []:
+                try:
+                    total += float(getattr(fill, "quantity", 0) or 0)
+                except (TypeError, ValueError):
+                    pass
+        return total
+
+    def _handle_order_alert(self, order: Any) -> None:
+        account_number = str(getattr(order, "account_number", "") or "")
+        selected = str(getattr(self._account, "account_number", "") or "")
+        if selected and account_number != selected:
+            return
+        status = str(getattr(order, "status", "") or "")
+        filled = self._filled_quantity(order)
+        try:
+            quantity = float(getattr(order, "size", 0) or 0)
+        except (TypeError, ValueError):
+            quantity = 0.0
+        remaining = max(0.0, quantity - filled)
+        if filled > 0 and remaining > 0:
+            status = "Partial"
+        elif status == "Routed":
+            status = "Routing"
+        elif status == "In Flight":
+            status = "Routing"
+        elif status == "Cancel Requested":
+            status = "Cancelling"
+        self._on_order_event({
+            "order_id": str(getattr(order, "id", "") or ""),
+            "symbol": str(getattr(order, "underlying_symbol", "") or "").upper(),
+            "status": status,
+            "status_message": str(getattr(order, "reject_reason", "") or ""),
+            "filled_qty": filled,
+            "remaining_qty": remaining,
+            "avg_fill_price": 0.0,
+            "can_cancel": bool(getattr(order, "cancellable", False)),
+            "updated_at": str(getattr(order, "updated_at", "") or ""),
+        })
+
+    def _handle_position_alert(self, position: Any) -> None:
+        account_number = str(getattr(position, "account_number", "") or "")
+        selected = str(getattr(self._account, "account_number", "") or "")
+        if selected and account_number != selected:
+            return
+        self._on_position_event({
+            "reason": "position_update",
+            "symbol": str(getattr(position, "symbol", "") or "").upper(),
+            "updated_at": str(getattr(position, "updated_at", "") or ""),
+        })
 
 
     async def is_connected(self) -> bool:
@@ -303,6 +474,35 @@ class TastytradeBroker(BaseBrokerAPI):
         if not self._connected or not self._session or not self._account:
             raise RuntimeError("TastytradeBroker not connected. Call connect() first.")
         return self._session, self._account
+
+    @staticmethod
+    def _normalize_place_order_response(response: Any) -> dict:
+        placed_order = getattr(response, "order", None) if response else None
+        if placed_order is None:
+            return {
+                "success": False,
+                "code": "ORDER_RESPONSE_INVALID",
+                "order_id": "",
+                "status": "Rejected",
+                "status_message": "券商未返回订单信息",
+            }
+        order_id = str(getattr(placed_order, "id", "") or "")
+        order_status = str(getattr(placed_order, "status", "") or "").split(".")[-1]
+        status_message = str(getattr(placed_order, "reject_reason", "") or "")
+        if order_status == "Rejected":
+            return {
+                "success": False,
+                "code": "ORDER_REJECTED",
+                "order_id": order_id,
+                "status": order_status,
+                "status_message": status_message or "订单被券商拒绝",
+            }
+        return {
+            "success": True,
+            "order_id": order_id,
+            "status": order_status or "Received",
+            "status_message": status_message,
+        }
 
     async def place_order(self, order_params: dict) -> dict:
         """下单"""
@@ -332,9 +532,19 @@ class TastytradeBroker(BaseBrokerAPI):
             )
 
         resp = await a.place_order(s, order, dry_run=False)
-        order_id = str(resp.order.id) if resp and resp.order else ""
+        result = self._normalize_place_order_response(resp)
+        if not result["success"]:
+            log.warning(
+                "Order rejected: %s %s %s @ %s reason=%s",
+                action_str,
+                qty,
+                symbol,
+                price,
+                result["status_message"] or "unknown",
+            )
+            return result
         log.info(f"Order placed: {action_str} {qty} {symbol} @ {price}")
-        return {"success": True, "order_id": order_id}
+        return result
 
     async def cancel_order(self, order_id: str) -> dict:
         """撤单"""
@@ -388,14 +598,23 @@ class TastytradeBroker(BaseBrokerAPI):
 
         async with self._quote_lock:
             _, _ = await self._get_fresh()
-            await self._ensure_quote_streamer_locked()
+            wanted_symbols = set(self._subscribed_symbols) | valid
+
+            if self._quote_stream_needs_rebuild_locked():
+                await self._rebuild_quote_stream_locked(wanted_symbols)
+                log.info(f"TT quote stream rebuilt; subscribed: {sorted(wanted_symbols)}")
+                return
+
+            await self._ensure_quote_streamer_locked(start_consumer=False)
 
             new_syms = sorted(valid - self._subscribed_symbols)
             if not new_syms:
+                await self._ensure_quote_streamer_locked(start_consumer=True)
                 return
 
             await self._streamer_subscribe(new_syms)
             self._subscribed_symbols.update(new_syms)
+            await self._ensure_quote_streamer_locked(start_consumer=True)
             log.info(f"TT quote subscribed: {new_syms}")
 
 
@@ -418,12 +637,21 @@ class TastytradeBroker(BaseBrokerAPI):
             self._subscribed_symbols.difference_update(remove_syms)
             log.info(f"TT quote unsubscribed: {remove_syms}")
 
-    async def _ensure_quote_streamer_locked(self) -> None:
+    async def _ensure_quote_streamer_locked(self, start_consumer: bool = True) -> None:
         if self._quote_streamer is None:
             self._quote_streamer = await self._create_quote_streamer()
+            self._quote_stream_started_at = time.monotonic()
 
-        if self._quote_task is None or self._quote_task.done():
+        if start_consumer and (self._quote_task is None or self._quote_task.done()):
             self._quote_task = asyncio.create_task(self._quote_consume_loop())
+
+    def _quote_stream_needs_rebuild_locked(self) -> bool:
+        if self._quote_streamer is None:
+            return False
+        if self._quote_task is not None and self._quote_task.done():
+            return True
+        age = time.monotonic() - self._quote_stream_started_at if self._quote_stream_started_at else 0
+        return age > QUOTE_STREAM_MAX_AGE_SECONDS
 
     async def _create_quote_streamer(self):
         if hasattr(DXLinkStreamer, "create"):
@@ -442,39 +670,74 @@ class TastytradeBroker(BaseBrokerAPI):
     async def _stop_quote_stream(self) -> None:
         async with self._quote_lock:
             self._subscribed_symbols.clear()
+            await self._stop_quote_stream_locked()
 
-            if self._quote_task and not self._quote_task.done():
-                self._quote_task.cancel()
-                try:
-                    await self._quote_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    pass
+    async def _stop_quote_stream_locked(self) -> None:
+        task = self._quote_task
+        current = asyncio.current_task()
+        if task and not task.done() and task is not current:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
 
+        if task is current:
+            self._quote_task = None
+        else:
             self._quote_task = None
 
-            if self._quote_streamer_cm is not None:
-                try:
-                    await self._maybe_await(self._quote_streamer_cm.__aexit__(None, None, None))
-                except Exception as e:
-                    log.warning(f"TT quote streamer context close failed: {e}")
-                self._quote_streamer_cm = None
-            elif self._quote_streamer is not None:
-                try:
-                    close_fn = getattr(self._quote_streamer, "close", None)
-                    if close_fn:
-                        await self._maybe_await(close_fn())
-                except Exception as e:
-                    log.warning(f"TT quote streamer close failed: {e}")
+        if self._quote_streamer_cm is not None:
+            try:
+                await self._maybe_await(self._quote_streamer_cm.__aexit__(None, None, None))
+            except Exception as e:
+                log.warning(f"TT quote streamer context close failed: {e}")
+            self._quote_streamer_cm = None
+        elif self._quote_streamer is not None:
+            try:
+                close_fn = getattr(self._quote_streamer, "close", None)
+                if close_fn:
+                    await self._maybe_await(close_fn())
+            except Exception as e:
+                log.warning(f"TT quote streamer close failed: {e}")
 
-            self._quote_streamer = None
+        self._quote_streamer = None
+        self._quote_stream_started_at = 0.0
+
+    async def _rebuild_quote_stream_locked(self, symbols: set[str] | list[str] | tuple[str, ...]) -> None:
+        wanted = sorted({str(sym).strip().upper() for sym in symbols if str(sym).strip()})
+        await self._stop_quote_stream_locked()
+        self._quote_streamer = await self._create_quote_streamer()
+        self._quote_stream_started_at = time.monotonic()
+        self._subscribed_symbols = set()
+        if wanted:
+            await self._streamer_subscribe(wanted)
+            self._subscribed_symbols.update(wanted)
+            self._quote_task = asyncio.create_task(self._quote_consume_loop())
+
+    async def _restart_quote_stream_after_consume_error(self, reason: str) -> None:
+        async with self._quote_lock:
+            wanted = set(self._subscribed_symbols)
+            if not self._connected or not wanted:
+                await self._stop_quote_stream_locked()
+                return
+            try:
+                await self._rebuild_quote_stream_locked(wanted)
+                log.info("TT quote stream restarted after %s; subscribed: %s", reason, sorted(wanted))
+            except Exception as exc:
+                log.warning("TT quote stream restart failed after %s: %s", reason, exc)
 
     async def _quote_consume_loop(self) -> None:
         while self._connected and self._quote_streamer is not None:
             try:
                 if hasattr(self._quote_streamer, "get_event"):
-                    event = await self._streamer_get_event()
+                    waitable = self._streamer_get_event()
+                    if self._subscribed_symbols:
+                        event = await asyncio.wait_for(waitable, timeout=QUOTE_STREAM_IDLE_SECONDS)
+                    else:
+                        event = await waitable
                     quote = self._normalize_quote_event(event)
                     if quote and self._quote_callback:
                         self._quote_callback(quote)
@@ -494,9 +757,14 @@ class TastytradeBroker(BaseBrokerAPI):
                 return
             except asyncio.CancelledError:
                 break
+            except asyncio.TimeoutError:
+                log.warning("TT quote stream idle for %ss; restarting", QUOTE_STREAM_IDLE_SECONDS)
+                await self._restart_quote_stream_after_consume_error("idle timeout")
+                return
             except Exception as e:
                 log.warning(f"TT quote consume loop error: {e}")
-                await asyncio.sleep(0.5)
+                await self._restart_quote_stream_after_consume_error(type(e).__name__)
+                return
 
     async def _streamer_subscribe(self, symbols: list[str]) -> None:
         fn = getattr(self._quote_streamer, "subscribe", None)
@@ -659,6 +927,8 @@ class TastytradeBroker(BaseBrokerAPI):
                 "type":       str(order_obj.order_type).split(".")[-1] if order_obj.order_type else "\u2014",
                 "tif":        str(order_obj.time_in_force).split(".")[-1] if hasattr(order_obj, "time_in_force") else "\u2014",
                 "status":     str(order_obj.status).split(".")[-1] if order_obj.status else "\u2014",
+                "status_message": str(getattr(order_obj, "reject_reason", "") or ""),
+                "can_cancel": bool(getattr(order_obj, "cancellable", False)),
                 "updated_at": str(getattr(order_obj, "updated_at", "") or ""),
                 "legs":       legs_data,
             }

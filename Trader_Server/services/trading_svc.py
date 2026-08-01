@@ -11,7 +11,7 @@ from .config_sync import ensure_broker_connected, get_broker_status, get_current
 
 log = logging.getLogger("trader_server.trading_svc")
 
-ORDER_DUPLICATE_WINDOW_SECONDS = 0.5
+ORDER_DUPLICATE_WINDOW_SECONDS = 0.0
 _ORDER_RECENT: dict[str, float] = {}
 _VALID_ACTIONS = {"Buy to Open", "Buy to Close", "Sell to Open", "Sell to Close"}
 _VALID_ORDER_TYPES = {"limit", "market"}
@@ -114,6 +114,8 @@ def _validate_order_params(params: dict[str, Any], trace_id: str = "") -> tuple[
 
 
 def _check_duplicate_order(order: dict[str, Any], session_id: str, username: str, trace_id: str = "") -> dict[str, Any] | None:
+    if ORDER_DUPLICATE_WINDOW_SECONDS <= 0:
+        return None
     now = time.monotonic()
     stale_before = now - max(ORDER_DUPLICATE_WINDOW_SECONDS * 4, 10.0)
     for key, ts in list(_ORDER_RECENT.items()):
@@ -185,6 +187,21 @@ async def place_order(params: dict[str, Any], session_id: str, username: str = "
     try:
         result = await broker.place_order(order)
         order_id = result.get("order_id", "")
+        if result.get("success") is False:
+            code = str(result.get("code") or "ORDER_REJECTED")
+            message = str(
+                result.get("status_message")
+                or result.get("message")
+                or "Order rejected by broker"
+            )
+            log.warning(
+                "[%s][%s] PLACE_ORDER rejected: order_id=%s code=%s",
+                session_id,
+                trace_id,
+                order_id,
+                code,
+            )
+            return _error(code, message, trace_id=trace_id)
         log.info("[%s][%s] PLACE_ORDER OK: order_id=%s", session_id, trace_id, order_id)
         return _ok({"order_id": order_id, "status": result.get("status", "submitted")}, code="ORDER_OK", trace_id=trace_id)
     except NotImplementedError as exc:

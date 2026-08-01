@@ -19,6 +19,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 from ..api.factory import BrokerFactory
 from ..api.base import BaseBrokerAPI
@@ -42,6 +43,7 @@ _next_connect_retry_at: float = 0.0
 _auto_retry_paused: bool = False
 _auto_retry_pause_reason: str = ""
 _last_connect_error: dict[str, object] = {"code": "", "message": "", "retryable": True}
+_runtime_loop: asyncio.AbstractEventLoop | None = None
 
 
 # ── 公共接口 ────────────────────────────────────────────────────
@@ -160,6 +162,61 @@ async def _restore_quote_subscriptions(broker: BaseBrokerAPI) -> None:
         log.warning("Quote subscription restore failed: %s", exc)
 
 
+async def _bind_broker_events(broker: BaseBrokerAPI) -> None:
+    global _runtime_loop
+    _runtime_loop = asyncio.get_running_loop()
+    broker.set_quote_callback(_on_quote_from_broker)
+    set_order_callback = getattr(broker, "set_order_event_callback", None)
+    if callable(set_order_callback):
+        set_order_callback(_on_order_event_from_broker)
+    set_position_callback = getattr(broker, "set_position_event_callback", None)
+    if callable(set_position_callback):
+        set_position_callback(_on_position_event_from_broker)
+    start_events = getattr(broker, "start_account_events", None)
+    if not callable(start_events):
+        return
+    try:
+        await start_events()
+    except Exception as exc:
+        log.warning("Account event stream unavailable for %s: %s", broker.broker_type, exc)
+
+
+def _schedule_broker_push(message: dict) -> None:
+    loop = _runtime_loop
+    if not loop or not loop.is_running():
+        log.warning("Broker event loop unavailable, dropping %s", message.get("type", "event"))
+        return
+
+    def submit() -> None:
+        asyncio.create_task(ws_server.broadcast_message(message))
+
+    loop.call_soon_threadsafe(submit)
+
+
+def _on_order_event_from_broker(event: dict) -> None:
+    payload = dict(event or {})
+    payload.setdefault("event_id", f"ordevt_{uuid.uuid4().hex}")
+    payload.setdefault("updated_at", "")
+    _schedule_broker_push({
+        "type": "ORDER_STATUS_UPDATE",
+        "id": payload["event_id"],
+        "timestamp": int(time.time() * 1000),
+        "payload": payload,
+    })
+
+
+def _on_position_event_from_broker(event: dict) -> None:
+    payload = dict(event or {})
+    payload.setdefault("event_id", f"posevt_{uuid.uuid4().hex}")
+    payload.setdefault("reason", "account_update")
+    _schedule_broker_push({
+        "type": "POSITION_INVALIDATED",
+        "id": payload["event_id"],
+        "timestamp": int(time.time() * 1000),
+        "payload": payload,
+    })
+
+
 async def ensure_broker_connected() -> bool:
     """
     业务触发前保障券商已连接。
@@ -215,7 +272,7 @@ async def init_broker() -> bool:
 
         _current_broker = broker
         _current_broker_type = broker_type
-        broker.set_quote_callback(_on_quote_from_broker)
+        await _bind_broker_events(broker)
         await _restore_quote_subscriptions(broker)
         _reset_connect_retry_state()
         _start_auto_reconnect()
@@ -427,7 +484,7 @@ async def _do_hot_reload(trigger: str = "auto") -> bool:
         _current_broker = broker
         _current_broker_type = new_type
         _local_config_version = new_version
-        broker.set_quote_callback(_on_quote_from_broker)
+        await _bind_broker_events(broker)
         await _restore_quote_subscriptions(broker)
         _reset_connect_retry_state()
         _start_auto_reconnect()
