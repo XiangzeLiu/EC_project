@@ -24,7 +24,7 @@ INPUT_BG = "#0B0E11"
 
 BORDER = "#2A2E39"
 BORDER_SOFT = "#23272F"
-BORDER_WARN = "#5A4423"
+BORDER_WARN = "#A47B31"
 
 ACCENT_GREEN = "#00C076"
 ACCENT_RED = "#FF334B"
@@ -121,7 +121,7 @@ QFrame#slotCard {{
 }}
 
 QFrame#slotCard[activePanel="true"] {{
-    border: 2px solid {ACCENT_BLUE};
+    border: 2px solid {ACCENT_YELLOW};
 }}
 
 QFrame#dataPanel {{
@@ -209,11 +209,49 @@ QPushButton#loginButton {{
     font-weight: 700;
 }}
 
-QPushButton#refreshButton {{
+QPushButton#refreshIconButton {{
     background: {PANEL_ALT_BG};
-    border-radius: 8px;
-    min-width: 36px;
-    max-width: 42px;
+    border: 1px solid {BORDER};
+    border-radius: 16px;
+    color: {TEXT_DIM};
+    font-family: "Segoe UI Symbol";
+    font-size: 15pt;
+    padding: 0;
+    min-width: 32px;
+    max-width: 32px;
+    min-height: 32px;
+    max-height: 32px;
+}}
+
+QPushButton#refreshIconButton:hover {{
+    background: {BORDER_SOFT};
+    border-color: {TEXT_LOW};
+    color: {TEXT_PRIMARY};
+}}
+
+QPushButton#refreshIconButton:pressed {{
+    background: {INPUT_BG};
+}}
+
+QPushButton#liveOrdersButton {{
+    background: transparent;
+    border-color: transparent;
+    color: {TEXT_LOW};
+    font-weight: 700;
+}}
+
+QPushButton#liveOrdersButton[online="true"] {{
+    color: {ACCENT_GREEN};
+}}
+
+QPushButton#cancelOrderButton {{
+    background: {ACCENT_RED};
+    color: white;
+    font-weight: 700;
+    font-size: 8pt;
+    padding: 0 10px;
+    min-height: 21px;
+    max-height: 21px;
 }}
 
 QPushButton#qtyStepButton {{

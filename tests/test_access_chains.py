@@ -30,6 +30,7 @@ import node_state
 from fastapi.testclient import TestClient
 
 from Client.network.ts_websocket import TSWebSocketClient
+from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
 from Client import constants as client_constants
 from Client.services.trading_session import TradingSession
 from Client.ui_qt import main_window as client_main_window
@@ -1202,40 +1203,214 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
             def start(self):
                 self.started = True
 
-        fake_window = SimpleNamespace(
-            _last_connected_se="",
-            _se_generation=0,
-            _se_server_id="node-1",
-            _se_client=None,
-            _se_connection_id="",
-            http=SimpleNamespace(token="client-token"),
+            def stop(self, wait=True):
+                self.started = False
+
+        class FakeHttp:
+            token = "client-token"
+
+            @staticmethod
+            def get(path):
+                return 200, {
+                    "ok": True,
+                    "online": True,
+                    "server_id": "node-1",
+                    "occupied_by": "",
+                }
+
+            @staticmethod
+            def post(path, payload):
+                if path.endswith("/occupy"):
+                    occupied.append(payload["connection_id"])
+                return 200, {"ok": True}
+
+        coordinator = TSConnectionCoordinator(
+            http_client=FakeHttp(),
+            session_provider=lambda: SimpleNamespace(connected=True),
+            username_provider=lambda: "trader",
+            reconnect_allowed_provider=lambda: True,
+            background_runner=lambda job: job(),
+            websocket_factory=FakeWebSocketClient,
         )
-        fake_window._wrap_se_message_handler = lambda generation: None
-        fake_window._wrap_se_status_handler = lambda generation: None
-        fake_window._wrap_ts_latency_handler = lambda generation: None
-        fake_window._wrap_se_state_handler = lambda generation: None
-        fake_window._prepare_ts_reconnect = lambda generation, attempt, connection_id: True
-
-        def occupy(connection_id="", **_kwargs):
-            occupied.append(connection_id)
-            return True
-
-        fake_window._occupy_se_node = occupy
-
-        original_client = client_main_window.TSWebSocketClient
-        try:
-            client_main_window.TSWebSocketClient = FakeWebSocketClient
-            client_main_window.TradingTerminalQt._connect_ts_with_retry(
-                fake_window,
-                "ts-01.ts.scjrdomain.com",
-            )
-        finally:
-            client_main_window.TSWebSocketClient = original_client
+        coordinator.validate_and_connect("ts-01.ts.scjrdomain.com")
 
         self.assertEqual(len(instances), 1)
         self.assertTrue(instances[0].started)
-        self.assertIs(fake_window._se_client, instances[0])
+        self.assertIs(coordinator.client, instances[0])
+        self.assertEqual(coordinator.server_id, "node-1")
         self.assertEqual(occupied, ["conn-single-durable"])
+
+    def test_stale_websocket_callbacks_cannot_reach_new_connection(self):
+        instances = []
+
+        class FakeWebSocketClient:
+            @staticmethod
+            def normalize_endpoint(endpoint, default_port=8900):
+                return f"wss://{endpoint}/ws"
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.connection_id = f"conn-{len(instances) + 1}"
+                self.is_active = False
+                instances.append(self)
+
+            def start(self):
+                self.is_active = True
+
+            def stop(self, wait=True):
+                self.is_active = False
+
+        class FakeHttp:
+            token = "token"
+
+            @staticmethod
+            def get(path):
+                return 200, {"ok": True, "online": True, "server_id": "node-1"}
+
+            @staticmethod
+            def post(path, payload):
+                return 200, {"ok": True}
+
+        coordinator = TSConnectionCoordinator(
+            http_client=FakeHttp(),
+            session_provider=lambda: SimpleNamespace(connected=True),
+            username_provider=lambda: "trader",
+            reconnect_allowed_provider=lambda: True,
+            background_runner=lambda job: job(),
+            websocket_factory=FakeWebSocketClient,
+        )
+        received = []
+        coordinator.message_received.connect(lambda generation, message: received.append(message))
+
+        coordinator.validate_and_connect("ts-01.example.com")
+        first_callback = instances[0].kwargs["on_message_callback"]
+        coordinator.validate_and_connect("ts-02.example.com")
+        second_callback = instances[1].kwargs["on_message_callback"]
+        first_callback({"type": "OLD"})
+        second_callback({"type": "CURRENT"})
+
+        self.assertEqual(received, [{"type": "CURRENT"}])
+
+    def test_main_window_rechecks_generation_when_queued_message_is_delivered(self):
+        received = []
+        window = SimpleNamespace(
+            _se_generation=2,
+            _init_ready=True,
+            _handle_se_message_ui=received.append,
+            _handle_init_se_message_ui=lambda message: None,
+        )
+
+        client_main_window.TradingTerminalQt._route_ts_message(
+            window,
+            1,
+            {"type": "STALE"},
+        )
+        client_main_window.TradingTerminalQt._route_ts_message(
+            window,
+            2,
+            {"type": "CURRENT"},
+        )
+
+        self.assertEqual(received, [{"type": "CURRENT"}])
+
+    def test_stale_release_cannot_clear_new_connection_identity(self):
+        release_jobs = []
+        connection_number = [0]
+
+        class FakeWebSocketClient:
+            @staticmethod
+            def normalize_endpoint(endpoint, default_port=8900):
+                return f"wss://{endpoint}/ws"
+
+            def __init__(self, **kwargs):
+                connection_number[0] += 1
+                self.connection_id = f"conn-{connection_number[0]}"
+
+            def start(self):
+                pass
+
+            def stop(self, wait=True):
+                pass
+
+        class FakeHttp:
+            token = "token"
+
+            @staticmethod
+            def get(path):
+                server_id = "node-2" if "ts-02" in path else "node-1"
+                return 200, {"ok": True, "online": True, "server_id": server_id}
+
+            @staticmethod
+            def post(path, payload):
+                return 200, {"ok": True}
+
+        coordinator = TSConnectionCoordinator(
+            http_client=FakeHttp(),
+            session_provider=lambda: SimpleNamespace(connected=True),
+            username_provider=lambda: "trader",
+            reconnect_allowed_provider=lambda: True,
+            background_runner=release_jobs.append,
+            websocket_factory=FakeWebSocketClient,
+        )
+        coordinator.validate_and_connect("ts-01.example.com")
+        coordinator.release(sync=False)
+        coordinator.validate_and_connect("ts-02.example.com")
+        release_jobs[0]()
+
+        self.assertEqual(coordinator.server_id, "node-2")
+        self.assertEqual(coordinator.connection_id, "conn-2")
+
+    def test_reconnect_revalidates_same_node_before_reoccupying(self):
+        server_id = ["node-1"]
+        occupied = []
+
+        class FakeWebSocketClient:
+            @staticmethod
+            def normalize_endpoint(endpoint, default_port=8900):
+                return f"wss://{endpoint}/ws"
+
+            def __init__(self, **kwargs):
+                self.connection_id = "conn-initial"
+
+            def start(self):
+                pass
+
+            def stop(self, wait=True):
+                pass
+
+        class FakeHttp:
+            token = "token"
+
+            @staticmethod
+            def get(path):
+                return 200, {
+                    "ok": True,
+                    "online": True,
+                    "server_id": server_id[0],
+                    "occupied_by": "trader",
+                }
+
+            @staticmethod
+            def post(path, payload):
+                if path.endswith("/occupy"):
+                    occupied.append(payload["connection_id"])
+                return 200, {"ok": True}
+
+        coordinator = TSConnectionCoordinator(
+            http_client=FakeHttp(),
+            session_provider=lambda: SimpleNamespace(connected=True),
+            username_provider=lambda: "trader",
+            reconnect_allowed_provider=lambda: True,
+            background_runner=lambda job: job(),
+            websocket_factory=FakeWebSocketClient,
+        )
+        coordinator.validate_and_connect("ts-01.example.com")
+        generation = coordinator.generation
+
+        self.assertTrue(coordinator.prepare_reconnect(generation, 1, "conn-reconnect"))
+        server_id[0] = "node-2"
+        self.assertFalse(coordinator.prepare_reconnect(generation, 2, "conn-wrong-node"))
+        self.assertEqual(occupied, ["conn-initial", "conn-reconnect"])
 
     def test_stop_interrupts_retry_wait_without_extra_connection(self):
         reconnecting = threading.Event()
@@ -1597,6 +1772,54 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("BROKER_LOGOUT", ts_ws_server._MESSAGE_HANDLERS)
         finally:
             self.assertIs(ts_ws_server._MESSAGE_HANDLERS["BROKER_STATUS_QUERY"], original_status)
+
+    async def test_broker_rejection_is_returned_as_failed_order_submission(self):
+        original_connected = ts_trading_svc.ensure_broker_connected
+        original_current = ts_trading_svc.get_current_broker
+
+        class RejectingBroker:
+            broker_type = "tastytrade"
+
+            @staticmethod
+            def effective_capabilities():
+                return {"orders": True}
+
+            @staticmethod
+            async def place_order(params):
+                return {
+                    "success": False,
+                    "code": "ORDER_REJECTED",
+                    "order_id": "7",
+                    "status": "Rejected",
+                    "status_message": "price outside allowed range",
+                }
+
+        try:
+            async def fake_connected():
+                return True
+
+            ts_trading_svc.ensure_broker_connected = fake_connected
+            ts_trading_svc.get_current_broker = lambda: RejectingBroker()
+            result = await ts_trading_svc.place_order(
+                {
+                    "symbol": "AAPL",
+                    "action": "Buy to Open",
+                    "qty": 1,
+                    "price": 100,
+                    "order_type": "limit",
+                    "tif": "Day",
+                },
+                username="client-user",
+                server_id="node-1",
+                session_id="session-1",
+            )
+
+            self.assertFalse(result["success"])
+            self.assertEqual(result["code"], "ORDER_REJECTED")
+            self.assertEqual(result["message"], "price outside allowed range")
+        finally:
+            ts_trading_svc.ensure_broker_connected = original_connected
+            ts_trading_svc.get_current_broker = original_current
 
     async def test_read_only_capabilities_reject_order_and_cancel(self):
         original_connected = ts_trading_svc.ensure_broker_connected

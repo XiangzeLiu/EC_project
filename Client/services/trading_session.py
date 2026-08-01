@@ -8,6 +8,7 @@ import datetime
 import re
 import threading
 import time
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 try:
@@ -37,6 +38,14 @@ from ..constants import STATUS_MAP, LIVE_STATUSES, TZ_ET_NAME, SESSION_START_H, 
 
 ALL_ORDERS_CACHE_SECONDS = 30.0
 
+
+@dataclass(slots=True)
+class QueryResult:
+    success: bool
+    data: list[dict] = field(default_factory=list)
+    error_code: str = ""
+    message: str = ""
+
 # ── Sanitize ────────────────────────────────────────────────────────────────────
 _BROKER_RE = re.compile(r'\b(tastytrade|tastyworks|tastytrade\.com|tastyworks\.com)\b', re.I)
 
@@ -58,7 +67,11 @@ class TradingSession:
         self.mock_mode = False
         self._ET = ZoneInfo(TZ_ET_NAME)
         self._pos_error = ""
+        self._order_query_error: dict[str, str] = {}
         self._order_cache_lock = threading.Lock()
+        self._order_fetch_lock = threading.Lock()
+        self._order_cache_generation = 0
+        self._order_cache_fetch_serial = 0
         self._all_orders_cache: list[dict] = []
         self._all_orders_cache_at = 0.0
         self.last_login_error: dict = {}
@@ -227,30 +240,60 @@ class TradingSession:
 
     def invalidate_order_cache(self) -> None:
         with self._order_cache_lock:
+            self._order_cache_generation += 1
             self._all_orders_cache = []
             self._all_orders_cache_at = 0.0
 
     def _request_raw_orders(self, mode: str, *, force: bool = False) -> list[dict] | None:
+        self._order_query_error = {}
         normalized = "all" if str(mode or "").lower() == "all" else "live"
         if normalized == "all":
             with self._order_cache_lock:
+                request_fetch_serial = self._order_cache_fetch_serial
                 age = time.monotonic() - self._all_orders_cache_at if self._all_orders_cache_at else 0.0
                 if not force and self._all_orders_cache_at and age < ALL_ORDERS_CACHE_SECONDS:
                     return list(self._all_orders_cache)
+
+            with self._order_fetch_lock:
+                with self._order_cache_lock:
+                    age = time.monotonic() - self._all_orders_cache_at if self._all_orders_cache_at else 0.0
+                    cache_is_fresh = self._all_orders_cache_at and age < ALL_ORDERS_CACHE_SECONDS
+                    fetched_after_start = self._order_cache_fetch_serial > request_fetch_serial
+                    if cache_is_fresh and (not force or fetched_after_start):
+                        return list(self._all_orders_cache)
+                    cache_generation = self._order_cache_generation
+
                 resp = self._request_se("ORDER_QUERY", {"mode": "all"}, timeout=12.0)
                 payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
                 if not payload.get("success"):
+                    self._set_order_query_error(resp, payload)
                     return None
                 raw = list(payload.get("orders", []) or [])
-                self._all_orders_cache = raw
-                self._all_orders_cache_at = time.monotonic()
+                with self._order_cache_lock:
+                    if cache_generation == self._order_cache_generation:
+                        self._all_orders_cache = raw
+                        self._all_orders_cache_at = time.monotonic()
+                        self._order_cache_fetch_serial += 1
                 return list(raw)
 
         resp = self._request_se("ORDER_QUERY", {"mode": "live"}, timeout=12.0)
         payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
         if not payload.get("success"):
+            self._set_order_query_error(resp, payload)
             return None
         return list(payload.get("orders", []) or [])
+
+    def _set_order_query_error(self, response: object, payload: dict) -> None:
+        if not isinstance(response, dict):
+            self._order_query_error = {
+                "code": "ORDER_QUERY_TIMEOUT",
+                "message": "订单查询超时或交易服务器不可用",
+            }
+            return
+        self._order_query_error = {
+            "code": str(payload.get("code") or payload.get("error_code") or "ORDER_QUERY_FAILED"),
+            "message": sanitize(payload.get("message") or "订单查询失败"),
+        }
 
     def get_today_activity(self, *, force_orders: bool = False) -> list[dict]:
         """
@@ -260,19 +303,25 @@ class TradingSession:
             鎸佷粨瀛楀吀鍒楄〃锛屾瘡涓寘鍚?symbol, qty, direction, avg_open,
             close_px, unrealized, realized_today, qty_bot, qty_sld, exes
         """
+        return self.query_today_activity(force_orders=force_orders).data
+
+    def query_today_activity(self, *, force_orders: bool = False) -> QueryResult:
+        self._pos_error = ""
         if self.mock_mode:
-            return self._mock_positions()
+            return QueryResult(True, self._mock_positions())
         if not self.connected:
-            return []
+            message = "交易服务未连接"
+            self._pos_error = message
+            return QueryResult(False, error_code="CLIENT_DISCONNECTED", message=message)
         try:
             if not self.has_broker_capability("positions"):
                 self._pos_error = self.broker_unavailable_message("positions")
-                return []
+                return QueryResult(False, error_code="POSITION_QUERY_NOT_SUPPORTED", message=self._pos_error)
 
             resp_pos = self._request_se("POSITION_QUERY", {}, timeout=12.0)
             if not isinstance(resp_pos, dict):
                 self._pos_error = "\u4ea4\u6613\u670d\u52a1\u8bf7\u6c42\u8d85\u65f6\u6216\u5238\u5546\u670d\u52a1\u4e0d\u53ef\u7528"
-                return []
+                return QueryResult(False, error_code="POSITION_QUERY_TIMEOUT", message=self._pos_error)
 
             payload_pos = resp_pos.get("payload", {}) or {}
             if not payload_pos.get("success"):
@@ -283,15 +332,27 @@ class TradingSession:
                     self._pos_error = "\u672a\u52a0\u8f7d\u5238\u5546\u914d\u7f6e"
                 else:
                     self._pos_error = sanitize(payload_pos.get("message", "持仓查询失败"))
-                return []
+                return QueryResult(
+                    False,
+                    error_code=str(err_code or "POSITION_QUERY_FAILED"),
+                    message=self._pos_error,
+                )
 
             pos_rows = payload_pos.get("positions", []) or []
-            orders_raw = self._request_raw_orders("all", force=force_orders) or []
+            orders_raw = self._request_raw_orders("all", force=force_orders)
+            if orders_raw is None:
+                error = dict(self._order_query_error)
+                self._pos_error = error.get("message") or "订单历史查询失败，持仓数据未更新"
+                return QueryResult(
+                    False,
+                    error_code=error.get("code") or "ORDER_HISTORY_QUERY_FAILED",
+                    message=self._pos_error,
+                )
 
-            return self._calc_today_activity(pos_rows, orders_raw)
+            return QueryResult(True, self._calc_today_activity(pos_rows, orders_raw))
         except Exception as exc:
             self._pos_error = sanitize(str(exc))
-            return []
+            return QueryResult(False, error_code="POSITION_QUERY_FAILED", message=self._pos_error)
 
     def _mock_positions(self) -> list[dict]:
         """模拟模式下的预定义持仓数据"""
@@ -492,16 +553,30 @@ class TradingSession:
         Returns:
             璁㈠崟瀛楀吀鍒楄〃
         """
-        if self.mock_mode or not self.connected:
-            return []
+        return self.query_orders(mode, force=force).data
+
+    def query_orders(self, mode: str = "live", *, force: bool = False) -> QueryResult:
+        if self.mock_mode:
+            return QueryResult(True, [])
+        if not self.connected:
+            return QueryResult(False, error_code="CLIENT_DISCONNECTED", message="交易服务未连接")
         try:
             if not self.has_broker_capability("order_query"):
-                return []
+                return QueryResult(
+                    False,
+                    error_code="ORDER_QUERY_NOT_SUPPORTED",
+                    message=self.broker_unavailable_message("order_query"),
+                )
 
             se_mode = "live" if mode == "live" else "all"
             raw = self._request_raw_orders(se_mode, force=force)
             if raw is None:
-                return []
+                error = dict(self._order_query_error)
+                return QueryResult(
+                    False,
+                    error_code=error.get("code") or "ORDER_QUERY_FAILED",
+                    message=error.get("message") or "订单查询失败",
+                )
 
             result = []
             ET = self._ET
@@ -535,21 +610,25 @@ class TradingSession:
                     ot = o.get("type", "鈥?")
                     tif = o.get("tif", "鈥?")
 
-                    if mode == "live" and rs not in LIVE_STATUSES:
-                        continue
-
                     result.append(dict(
                         id=o.get("id", ""),
                         symbol=sym, action=act,
                         qty=qty, price=px, status=st,
                         raw_status=rs, otype=ot, tif=tif,
+                        status_message=sanitize(
+                            o.get("status_message") or o.get("reject_reason") or ""
+                        ),
                         can_cancel=bool(o.get("can_cancel", rs in LIVE_STATUSES)),
                     ))
                 except Exception:
                     continue
-            return result
-        except Exception:
-            return []
+            return QueryResult(True, result)
+        except Exception as exc:
+            return QueryResult(
+                False,
+                error_code="ORDER_QUERY_FAILED",
+                message=sanitize(str(exc) or "订单查询失败"),
+            )
 
     def cancel_order(self, order_id: str) -> tuple[bool, str]:
         """鎾ら攢璁㈠崟"""

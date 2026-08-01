@@ -187,6 +187,21 @@ async def place_order(params: dict[str, Any], session_id: str, username: str = "
     try:
         result = await broker.place_order(order)
         order_id = result.get("order_id", "")
+        if result.get("success") is False:
+            code = str(result.get("code") or "ORDER_REJECTED")
+            message = str(
+                result.get("status_message")
+                or result.get("message")
+                or "Order rejected by broker"
+            )
+            log.warning(
+                "[%s][%s] PLACE_ORDER rejected: order_id=%s code=%s",
+                session_id,
+                trace_id,
+                order_id,
+                code,
+            )
+            return _error(code, message, trace_id=trace_id)
         log.info("[%s][%s] PLACE_ORDER OK: order_id=%s", session_id, trace_id, order_id)
         return _ok({"order_id": order_id, "status": result.get("status", "submitted")}, code="ORDER_OK", trace_id=trace_id)
     except NotImplementedError as exc:

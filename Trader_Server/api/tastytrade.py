@@ -431,6 +431,7 @@ class TastytradeBroker(BaseBrokerAPI):
             "order_id": str(getattr(order, "id", "") or ""),
             "symbol": str(getattr(order, "underlying_symbol", "") or "").upper(),
             "status": status,
+            "status_message": str(getattr(order, "reject_reason", "") or ""),
             "filled_qty": filled,
             "remaining_qty": remaining,
             "avg_fill_price": 0.0,
@@ -474,6 +475,35 @@ class TastytradeBroker(BaseBrokerAPI):
             raise RuntimeError("TastytradeBroker not connected. Call connect() first.")
         return self._session, self._account
 
+    @staticmethod
+    def _normalize_place_order_response(response: Any) -> dict:
+        placed_order = getattr(response, "order", None) if response else None
+        if placed_order is None:
+            return {
+                "success": False,
+                "code": "ORDER_RESPONSE_INVALID",
+                "order_id": "",
+                "status": "Rejected",
+                "status_message": "券商未返回订单信息",
+            }
+        order_id = str(getattr(placed_order, "id", "") or "")
+        order_status = str(getattr(placed_order, "status", "") or "").split(".")[-1]
+        status_message = str(getattr(placed_order, "reject_reason", "") or "")
+        if order_status == "Rejected":
+            return {
+                "success": False,
+                "code": "ORDER_REJECTED",
+                "order_id": order_id,
+                "status": order_status,
+                "status_message": status_message or "订单被券商拒绝",
+            }
+        return {
+            "success": True,
+            "order_id": order_id,
+            "status": order_status or "Received",
+            "status_message": status_message,
+        }
+
     async def place_order(self, order_params: dict) -> dict:
         """下单"""
         s, a = await self._get_fresh()
@@ -502,9 +532,19 @@ class TastytradeBroker(BaseBrokerAPI):
             )
 
         resp = await a.place_order(s, order, dry_run=False)
-        order_id = str(resp.order.id) if resp and resp.order else ""
+        result = self._normalize_place_order_response(resp)
+        if not result["success"]:
+            log.warning(
+                "Order rejected: %s %s %s @ %s reason=%s",
+                action_str,
+                qty,
+                symbol,
+                price,
+                result["status_message"] or "unknown",
+            )
+            return result
         log.info(f"Order placed: {action_str} {qty} {symbol} @ {price}")
-        return {"success": True, "order_id": order_id}
+        return result
 
     async def cancel_order(self, order_id: str) -> dict:
         """撤单"""
@@ -887,6 +927,7 @@ class TastytradeBroker(BaseBrokerAPI):
                 "type":       str(order_obj.order_type).split(".")[-1] if order_obj.order_type else "\u2014",
                 "tif":        str(order_obj.time_in_force).split(".")[-1] if hasattr(order_obj, "time_in_force") else "\u2014",
                 "status":     str(order_obj.status).split(".")[-1] if order_obj.status else "\u2014",
+                "status_message": str(getattr(order_obj, "reject_reason", "") or ""),
                 "can_cancel": bool(getattr(order_obj, "cancellable", False)),
                 "updated_at": str(getattr(order_obj, "updated_at", "") or ""),
                 "legs":       legs_data,

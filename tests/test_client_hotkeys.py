@@ -293,12 +293,61 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._set_ts_connection_state("online")
         self.assertEqual(self.window.status_text.text(), "ONLINE INTERACTIVE BROKERS")
         self.assertFalse(self.window.read_only_label.isHidden())
+        self.assertTrue(self.window.live_orders_btn.property("online"))
 
         self.session.broker_detail["broker_type"] = "tastytrade"
         self.session.broker_detail["account"] = {"authority_level": "full"}
         self.window._apply_broker_status_ui()
         self.assertEqual(self.window.status_text.text(), "ONLINE TASTYTRADE")
         self.assertTrue(self.window.read_only_label.isHidden())
+
+        self.window._set_ts_connection_state("offline")
+        self.assertFalse(self.window.live_orders_btn.property("online"))
+
+    def test_inactive_trade_panel_uses_glow_effect(self):
+        first_effect = self.window.slots[1].container.graphicsEffect()
+        second_effect = self.window.slots[2].container.graphicsEffect()
+        self.assertTrue(first_effect.isEnabled())
+        self.assertTrue(second_effect.isEnabled())
+        self.assertGreater(first_effect.blurRadius(), second_effect.blurRadius())
+
+        self.window._activate_panel(2)
+
+        self.assertTrue(first_effect.isEnabled())
+        self.assertTrue(second_effect.isEnabled())
+        self.assertGreater(second_effect.blurRadius(), first_effect.blurRadius())
+
+    def test_cancel_button_reuses_sell_style_without_changing_click_contract(self):
+        self.assertEqual(self.window.cancel_order_btn.objectName(), "cancelOrderButton")
+        self.assertTrue(self.window.cancel_order_btn.isEnabled())
+        self.window.cancel_order_btn.setDown(True)
+        self.assertTrue(self.window.cancel_order_btn.isDown())
+        self.window.cancel_order_btn.setDown(False)
+
+    def test_refresh_buttons_use_independent_cooldowns_and_force_fresh_data(self):
+        clock = FakeClock()
+        self.window._action_limiter = ActionRateLimiter(clock)
+        order_calls = []
+        position_calls = []
+        self.window._order_refresh.refresh_orders = lambda **kwargs: order_calls.append(kwargs)
+        self.window._order_refresh.refresh_positions = lambda **kwargs: position_calls.append(kwargs)
+
+        for _ in range(3):
+            self.window.orders_refresh_btn.click()
+            self.window.positions_refresh_btn.click()
+
+        self.assertEqual(order_calls, [{"force": True}])
+        self.assertEqual(position_calls, [{"force_orders": True}])
+
+        clock.advance(1.01)
+        self.window.orders_refresh_btn.click()
+        self.window.positions_refresh_btn.click()
+
+        self.assertEqual(order_calls, [{"force": True}, {"force": True}])
+        self.assertEqual(
+            position_calls,
+            [{"force_orders": True}, {"force_orders": True}],
+        )
 
     def test_market_action_does_not_change_panel_order_type(self):
         self.window._submit_market_order("sell", 1)

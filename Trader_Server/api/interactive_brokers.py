@@ -57,6 +57,7 @@ _ACTION_TO_REF = {
 }
 _REF_TO_ACTION = {value: key for key, value in _ACTION_TO_REF.items()}
 _LIVE_STATUSES = {"Received", "Routing", "Live", "Cancelling", "Partial"}
+_POSITION_EVENT_COALESCE_SECONDS = 0.5
 _ACCOUNT_SUMMARY_TAGS = ",".join(
     (
         "AccountType",
@@ -204,6 +205,7 @@ if _IB_AVAILABLE:
             self._positions_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._portfolio_waiter: tuple[str, dict[str, dict], asyncio.Future] | None = None
             self._portfolio_cache: dict[str, dict[str, dict]] = {}
+            self._portfolio_signatures: dict[str, dict[str, tuple[float, float, float]]] = {}
             self._open_orders_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._completed_orders_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._submit_waiters: dict[int, asyncio.Future] = {}
@@ -217,6 +219,7 @@ if _IB_AVAILABLE:
             self._order_event_suppressed_until = 0.0
             self._account_updates_persistent = False
             self._account_updates_account = ""
+            self._account_updates_initializing = ""
 
         def _soon(self, callback: Callable, *args: Any) -> None:
             self._loop.call_soon_threadsafe(callback, *args)
@@ -463,11 +466,24 @@ if _IB_AVAILABLE:
                 "realized_pnl": realized_pnl,
             }
             self._portfolio_cache.setdefault(account, {})[key] = item
+            signature = (
+                _to_float(position),
+                _to_float(average_cost),
+                _to_float(realized_pnl),
+            )
+            account_signatures = self._portfolio_signatures.setdefault(account, {})
+            previous_signature = account_signatures.get(key)
+            account_signatures[key] = signature
             waiter = self._portfolio_waiter
             if waiter and waiter[0] == account:
                 waiter[1][key] = item
-            elif self._position_event_queue is not None:
+            elif (
+                self._position_event_queue is not None
+                and self._account_updates_initializing != account
+                and previous_signature != signature
+            ):
                 self._position_event_queue.put_nowait({
+                    "reason": "portfolio",
                     "account_id": account,
                     "symbol": str(getattr(contract, "symbol", "") or "").upper(),
                     "order_id": "",
@@ -481,6 +497,8 @@ if _IB_AVAILABLE:
             waiter = self._portfolio_waiter
             if waiter and waiter[0] == account:
                 self._resolve(waiter[2], dict(waiter[1]))
+            if self._account_updates_initializing == account:
+                self._account_updates_initializing = ""
 
         async def request_portfolio(self, account: str, timeout: float = 10.0) -> dict[str, dict]:
             if self._account_updates_persistent and self._account_updates_account == account:
@@ -510,12 +528,16 @@ if _IB_AVAILABLE:
                     pass
             self._account_updates_persistent = True
             self._account_updates_account = account
+            self._account_updates_initializing = account
+            self._portfolio_cache[account] = {}
+            self._portfolio_signatures[account] = {}
             self.reqAccountUpdates(True, account)
 
         def stop_account_updates(self) -> None:
             account = self._account_updates_account
             self._account_updates_persistent = False
             self._account_updates_account = ""
+            self._account_updates_initializing = ""
             if account:
                 try:
                     self.reqAccountUpdates(False, account)
@@ -721,6 +743,7 @@ if _IB_AVAILABLE:
                 return
             if self._position_event_queue is not None:
                 self._position_event_queue.put_nowait({
+                    "reason": "execution",
                     "account_id": str(getattr(execution, "acctNumber", "") or ""),
                     "symbol": str(getattr(contract, "symbol", "") or "").upper(),
                     "order_id": str(getattr(execution, "orderId", "") or ""),
@@ -1038,14 +1061,40 @@ class IBBroker(BaseBrokerAPI):
     async def _forward_position_events(self) -> None:
         queue = self._position_event_queue
         while queue is not None and self._ib_app is not None:
-            event = await queue.get()
-            if str(event.get("account_id") or "") != self._account_id:
+            events = [await queue.get()]
+            deadline = asyncio.get_running_loop().time() + _POSITION_EVENT_COALESCE_SECONDS
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    events.append(await asyncio.wait_for(queue.get(), timeout=remaining))
+                except asyncio.TimeoutError:
+                    break
+            account_events = [
+                event for event in events
+                if str(event.get("account_id") or "") == self._account_id
+            ]
+            if not account_events:
                 continue
+            latest = account_events[-1]
+            symbols = {
+                str(event.get("symbol") or "").upper()
+                for event in account_events
+                if str(event.get("symbol") or "").strip()
+            }
+            order_ids = {
+                str(event.get("order_id") or "")
+                for event in account_events
+                if str(event.get("order_id") or "").strip()
+            }
             self._on_position_event({
-                "reason": "execution",
-                "symbol": str(event.get("symbol") or "").upper(),
-                "order_id": str(event.get("order_id") or ""),
-                "updated_at": str(event.get("updated_at") or _iso_now()),
+                "reason": "execution" if any(
+                    event.get("reason") == "execution" for event in account_events
+                ) else "portfolio",
+                "symbol": next(iter(symbols)) if len(symbols) == 1 else "",
+                "order_id": next(iter(order_ids)) if len(order_ids) == 1 else "",
+                "updated_at": str(latest.get("updated_at") or _iso_now()),
             })
 
     async def is_connected(self) -> bool:

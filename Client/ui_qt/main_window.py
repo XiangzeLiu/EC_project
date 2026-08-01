@@ -9,9 +9,9 @@ import threading
 import time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from urllib.parse import quote
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -47,16 +48,13 @@ from Client.constants import (
     DEFAULT_TS_WS_URL,
     HEARTBEAT_INTERVAL,
     LIVE_STATUSES,
-    ORDERS_ACTIVE_INTERVAL,
-    ORDERS_INTERVAL,
-    POSITIONS_INTERVAL,
-    TS_RECONNECT_ENABLED,
     TS_RECONNECT_MAX_ATTEMPTS,
 )
 from Client.network.http_client import HttpClient
-from Client.network.ts_websocket import TSWebSocketClient
 from Client.services.trading_session import TradingSession, sanitize
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
+from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
+from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
 from Client.ui_qt.hotkey_config import (
     BATCH_CANCEL_POLICY,
     ENTER_INPUT_GUARD_MS,
@@ -65,6 +63,7 @@ from Client.ui_qt.hotkey_config import (
     ORDER_CANCEL_POLICY,
     ORDER_SUBMIT_POLICY,
     QUOTE_FRESHNESS_MS,
+    REFRESH_POLICY,
     HotkeyAction,
     HotkeyBinding,
     HotkeyContext,
@@ -87,13 +86,21 @@ TIF_LABELS = {
     "GTC_EXT": "长期盘前盘后",
 }
 
+ORDER_STATUS_COLORS = {
+    "Received": theme.ACCENT_BLUE,
+    "Routing": theme.ACCENT_BLUE,
+    "Live": theme.ACCENT_GREEN,
+    "Partial": theme.ACCENT_YELLOW,
+    "Cancelling": theme.ACCENT_YELLOW,
+    "Filled": theme.ACCENT_GREEN,
+    "Cancelled": theme.TEXT_MUTED,
+    "Rejected": theme.ACCENT_RED,
+    "Expired": theme.TEXT_LOW,
+}
+
 
 def default_ts_target() -> str:
     return DEFAULT_TS_WS_URL or f"{DEFAULT_TS_HOST}:{DEFAULT_TS_PORT}"
-
-
-def encode_query_value(value: str) -> str:
-    return quote(value or "", safe="")
 
 
 def localize_user_message(msg: str) -> str:
@@ -270,6 +277,7 @@ class DataTableModel(QAbstractTableModel):
         super().__init__()
         self.headers = headers
         self.rows = rows or []
+        self.cell_colors: list[list[str | None]] = []
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self.rows)
@@ -278,7 +286,17 @@ class DataTableModel(QAbstractTableModel):
         return len(self.headers)
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid() or role not in (Qt.DisplayRole, Qt.EditRole):
+        if not index.isValid():
+            return None
+        if role == Qt.TextAlignmentRole:
+            return Qt.AlignCenter
+        if role == Qt.ForegroundRole:
+            try:
+                color = self.cell_colors[index.row()][index.column()]
+                return QColor(color) if color else None
+            except (IndexError, TypeError):
+                return None
+        if role not in (Qt.DisplayRole, Qt.EditRole):
             return None
         try:
             return self.rows[index.row()][index.column()]
@@ -288,11 +306,18 @@ class DataTableModel(QAbstractTableModel):
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
             return self.headers[section]
+        if role == Qt.TextAlignmentRole and orientation == Qt.Horizontal:
+            return Qt.AlignCenter
         return None
 
-    def set_rows(self, rows: list[list[object]]) -> None:
+    def set_rows(
+        self,
+        rows: list[list[object]],
+        cell_colors: list[list[str | None]] | None = None,
+    ) -> None:
         self.beginResetModel()
         self.rows = rows
+        self.cell_colors = cell_colors or []
         self.endResetModel()
 
 
@@ -376,15 +401,32 @@ class TradingTerminalQt(QMainWindow):
         self._shortcut_controller: ShortcutController | None = None
         self._action_limiter = ActionRateLimiter()
         self._quote_sync_timers: dict[int, QTimer] = {}
-        self._refresh_state_lock = threading.Lock()
-        self._refresh_in_flight = {"orders": False, "positions": False}
-        self._refresh_pending = {"orders": False, "positions": False}
-        self._refresh_force_pending = {"orders": False, "positions": False}
-        self._event_refresh_flags = {"orders": False, "positions": False, "force_positions": False}
-        self._event_refresh_timer = QTimer(self)
-        self._event_refresh_timer.setSingleShot(True)
-        self._event_refresh_timer.timeout.connect(self._flush_event_refresh)
-        self._seen_broker_events: dict[str, float] = {}
+        self._ts_connection = TSConnectionCoordinator(
+            http_client=self.http,
+            session_provider=lambda: self.session,
+            username_provider=lambda: self._login_username,
+            reconnect_allowed_provider=lambda: not self._reconnect_failed,
+            background_runner=self._run_bg,
+            parent=self,
+        )
+        self._ts_connection.validation_started.connect(
+            self._on_ts_validation_started
+        )
+        self._ts_connection.connection_failed.connect(self._on_ts_connection_failed)
+        self._ts_connection.status_received.connect(self._route_ts_status)
+        self._ts_connection.message_received.connect(self._route_ts_message)
+        self._ts_connection.latency_received.connect(self._route_ts_latency)
+        self._ts_connection.state_changed.connect(self._route_ts_state)
+        self._order_refresh = OrderRefreshCoordinator(
+            session_provider=lambda: self.session,
+            generation_provider=lambda: self._se_generation,
+            background_runner=self._run_bg,
+            parent=self,
+        )
+        self._order_refresh.orders_ready.connect(self._update_orders)
+        self._order_refresh.positions_ready.connect(self._update_positions)
+        self._order_refresh.orders_failed.connect(self._handle_orders_refresh_failed)
+        self._order_refresh.positions_failed.connect(self._handle_positions_refresh_failed)
         self._canceling_order_ids: set[str] = set()
         self._batch_canceling_symbols: set[str] = set()
         self._log_rows: list[tuple[str, str, str]] = []
@@ -395,23 +437,14 @@ class TradingTerminalQt(QMainWindow):
         self._login_username = ""
         self._login_password = ""
         self._last_heartbeat = 0.0
-        self._last_pos_time = 0.0
-        self._last_orders_time = 0.0
         self._last_ui_error_message = ""
         self._last_ui_error_at = 0.0
         self._last_reconnect_notice_attempt = 0
         self._reconnect_failed = False
         self._connection_status_label = "OFFLINE"
-        self._order_mode = "live"
         self._orders_raw: list[dict] = []
         self._positions_raw: list[dict] = []
         self.current_quote: dict[str, dict] = {}
-        self._se_client = None
-        self._se_generation = 0
-        self._se_connected = False
-        self._se_target_address = ""
-        self._se_server_id = ""
-        self._se_connection_id = ""
         self._quote_requested_symbols: set[str] = set()
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
@@ -599,6 +632,42 @@ class TradingTerminalQt(QMainWindow):
     def _run_bg(self, fn) -> None:
         threading.Thread(target=fn, daemon=True).start()
 
+    @property
+    def _se_client(self):
+        return self._ts_connection.client
+
+    @property
+    def _se_generation(self) -> int:
+        return self._ts_connection.generation
+
+    @property
+    def _se_connected(self) -> bool:
+        return self._ts_connection.connected
+
+    @_se_connected.setter
+    def _se_connected(self, value: bool) -> None:
+        self._ts_connection.connected = value
+
+    @property
+    def _se_target_address(self) -> str:
+        return self._ts_connection.target_address
+
+    @_se_target_address.setter
+    def _se_target_address(self, value: str) -> None:
+        self._ts_connection.target_address = value
+
+    @property
+    def _se_server_id(self) -> str:
+        return self._ts_connection.server_id
+
+    @property
+    def _se_connection_id(self) -> str:
+        return self._ts_connection.connection_id
+
+    @property
+    def _last_connected_se(self) -> str:
+        return self._ts_connection.last_endpoint
+
     def _show_login_page(self) -> None:
         if hasattr(self, "_login_form") and self._login_form:
             self._login_form.show()
@@ -682,8 +751,20 @@ class TradingTerminalQt(QMainWindow):
         self._active_panel_id = panel_id
         for pid, slot in self.slots.items():
             if slot.container:
-                slot.container.setProperty("activePanel", pid == panel_id)
+                active = pid == panel_id
+                slot.container.setProperty("activePanel", active)
+                effect = slot.container.graphicsEffect()
+                if isinstance(effect, QGraphicsDropShadowEffect):
+                    effect.setEnabled(True)
+                    effect.setBlurRadius(16 if active else 12)
+                    effect.setColor(QColor(245, 189, 67, 104 if active else 68))
                 self._repolish(slot.container)
+
+    def _set_live_orders_online(self, online: bool) -> None:
+        if not hasattr(self, "live_orders_btn"):
+            return
+        self.live_orders_btn.setProperty("online", bool(online))
+        self._repolish(self.live_orders_btn)
 
     def _active_slot(self) -> TradingSlot | None:
         return self.slots.get(self._active_panel_id)
@@ -884,6 +965,11 @@ class TradingTerminalQt(QMainWindow):
         card = TradingPanelFrame()
         card.setObjectName("slotCard")
         card.setProperty("activePanel", False)
+        glow = QGraphicsDropShadowEffect(card)
+        glow.setBlurRadius(14)
+        glow.setOffset(0, 0)
+        glow.setColor(QColor(245, 189, 67, 72))
+        card.setGraphicsEffect(glow)
         card.activated.connect(lambda pid=idx: self._activate_panel(pid))
         slot.container = card
         layout = QVBoxLayout(card)
@@ -1001,15 +1087,21 @@ class TradingTerminalQt(QMainWindow):
         tabs = QHBoxLayout(head)
         tabs.setContentsMargins(12, 7, 12, 7)
         tabs.setSpacing(6)
-        self.live_orders_btn = make_button("\u25cf \u5b9e\u65f6")
+        self.live_orders_btn = make_button("\u25cf \u5b9e\u65f6", object_name="liveOrdersButton")
+        self.live_orders_btn.setProperty("online", False)
         self.all_orders_btn = make_button("All")
         self.order_count_label = make_label("\u6682\u65e0\u8ba2\u5355", color=theme.TEXT_DIM, font=theme.ui_font(9))
-        self.cancel_order_btn = make_button("\u64a4\u5355", object_name="consoleButton", min_width=60)
-        self.orders_refresh_btn = make_button("\u5237\u65b0", object_name="refreshButton")
+        self.cancel_order_btn = make_button("\u64a4\u5355", object_name="cancelOrderButton", min_width=60)
+        self.cancel_order_btn.setFixedHeight(21)
+        self.cancel_order_btn.setFont(theme.ui_font(8, bold=True))
+        self.orders_refresh_btn = make_button("\u21bb", object_name="refreshIconButton")
+        self.orders_refresh_btn.setFixedSize(32, 32)
+        self.orders_refresh_btn.setToolTip("刷新订单")
+        self.orders_refresh_btn.setAccessibleName("刷新订单")
         self.live_orders_btn.clicked.connect(lambda: self._switch_order_mode("live"))
         self.all_orders_btn.clicked.connect(lambda: self._switch_order_mode("all"))
         self.cancel_order_btn.clicked.connect(self._cancel_selected_order)
-        self.orders_refresh_btn.clicked.connect(lambda: self._refresh_orders(force=True))
+        self.orders_refresh_btn.clicked.connect(self._manual_refresh_orders)
         tabs.addWidget(self.live_orders_btn)
         tabs.addWidget(self.all_orders_btn)
         tabs.addWidget(self.order_count_label)
@@ -1029,8 +1121,11 @@ class TradingTerminalQt(QMainWindow):
         head_layout.setContentsMargins(12, 7, 12, 7)
         head_layout.addWidget(make_label("\u6301\u4ed3\u4e0e\u76c8\u4e8f", color=theme.TEXT_PRIMARY, font=theme.ui_font(10, bold=True)))
         head_layout.addStretch(1)
-        self.positions_refresh_btn = make_button("\u5237\u65b0", object_name="refreshButton")
-        self.positions_refresh_btn.clicked.connect(self._refresh_positions)
+        self.positions_refresh_btn = make_button("\u21bb", object_name="refreshIconButton")
+        self.positions_refresh_btn.setFixedSize(32, 32)
+        self.positions_refresh_btn.setToolTip("刷新持仓")
+        self.positions_refresh_btn.setAccessibleName("刷新持仓")
+        self.positions_refresh_btn.clicked.connect(self._manual_refresh_positions)
         head_layout.addWidget(self.positions_refresh_btn)
         body.addWidget(head)
 
@@ -1141,21 +1236,12 @@ class TradingTerminalQt(QMainWindow):
             if now - self._last_heartbeat > HEARTBEAT_INTERVAL / 1000:
                 self._last_heartbeat = now
                 threading.Thread(target=self._heartbeat_check, daemon=True).start()
-            if now - self._last_pos_time > POSITIONS_INTERVAL / 1000 and self._broker_capability_enabled("positions"):
-                self._last_pos_time = now
-                self._refresh_positions()
-            orders_interval = self._orders_poll_interval_ms()
-            if now - self._last_orders_time > orders_interval / 1000 and self._broker_capability_enabled("order_query"):
-                self._last_orders_time = now
-                self._refresh_orders()
-
-    def _orders_poll_interval_ms(self) -> int:
-        if self._order_mode == "live" and any(
-            str(order.get("raw_status") or "") in LIVE_STATUSES
-            for order in self._orders_raw
-        ):
-            return ORDERS_ACTIVE_INTERVAL
-        return ORDERS_INTERVAL
+            if self._main_ui_built:
+                self._order_refresh.poll(
+                    connected=True,
+                    order_query_enabled=self._broker_capability_enabled("order_query"),
+                    positions_enabled=self._broker_capability_enabled("positions"),
+                )
 
     def _heartbeat_check(self) -> None:
         if not self.http.is_connected:
@@ -1166,6 +1252,7 @@ class TradingTerminalQt(QMainWindow):
         state = (state or "offline").strip().lower()
         self._se_connected = state == "online"
         if state != "online":
+            self._order_refresh.reset()
             self._invalidate_quote_freshness()
             self._cancel_all_pending_orders()
         if state == "online":
@@ -1239,15 +1326,9 @@ class TradingTerminalQt(QMainWindow):
                     self.session.bind_se_client(None)
                 except Exception:
                     pass
-            if self._se_client:
-                try:
-                    self._se_client.stop()
-                except Exception:
-                    pass
-                self._se_client = None
             with self._quote_sub_lock:
                 self._quote_subscribed_symbols.clear()
-            self._release_se_occupation(sync=True)
+            self._ts_connection.shutdown(release=True, wait=True)
             if self.session:
                 try:
                     self.session.logout()
@@ -1267,23 +1348,16 @@ class TradingTerminalQt(QMainWindow):
         self._login_username = ""
         self._login_password = ""
         self._last_heartbeat = 0.0
-        self._last_pos_time = 0.0
-        self._last_orders_time = 0.0
         self._last_ui_error_message = ""
         self._last_ui_error_at = 0.0
         self._last_reconnect_notice_attempt = 0
         self._reconnect_failed = False
-        self._order_mode = "live"
+        self._order_refresh.set_order_mode("live", refresh=False)
         self._orders_raw = []
         self._positions_raw = []
         self.current_quote = {}
         self.slots = {}
-        self._se_client = None
-        self._se_generation += 1
-        self._se_connected = False
-        self._se_target_address = ""
-        self._se_server_id = ""
-        self._se_connection_id = ""
+        self._ts_connection.reset()
         self._quote_requested_symbols.clear()
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
@@ -1475,6 +1549,7 @@ class TradingTerminalQt(QMainWindow):
         if hasattr(self, "account_state"):
             style_status_pill(self.account_state, "Connect" if active else "Offline", active=True, danger=not active)
         self._update_header_broker_status(broker_type, read_only)
+        self._set_live_orders_online(self._connection_status_label == "ONLINE")
         orders_enabled = self._broker_capability_enabled("orders")
         for slot in self.slots.values():
             slot.set_trade_enabled(orders_enabled)
@@ -1614,132 +1689,20 @@ class TradingTerminalQt(QMainWindow):
         if not self.session or not self.session.connected:
             self._log_user_error_once("\u8bf7\u5148\u767b\u5f55SM")
             return
-        if self._se_client and self._se_client.is_active:
+        if self._ts_connection.client_is_active():
             return
         target_addr = self._se_target_address or default_ts_target()
         self._append_log("\u6b63\u5728\u8fde\u63a5\u4ea4\u6613\u670d\u52a1\u5668", "inf")
         self._run_bg(lambda: self._validate_and_connect_ts(target_addr))
 
     def _validate_and_connect_ts(self, target_addr: str) -> None:
-        try:
-            self._ui(lambda: self._update_init_step("se", "\u6821\u9a8c\u4e2d...", theme.ACCENT_YELLOW))
-            status_code, resp_data = self.http.get(f"/api/accounts/se-status?address={encode_query_value(target_addr)}")
-            if status_code == 200 and resp_data.get("ok"):
-                if not resp_data.get("online"):
-                    self._ui(lambda: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u5f53\u524d\u79bb\u7ebf", "\u6240\u5206\u914d\u7684\u4ea4\u6613\u670d\u52a1\u5668\u76ee\u524d\u79bb\u7ebf\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u3002"))
-                    return
-                occupied_by = (resp_data.get("occupied_by") or "").strip()
-                if occupied_by and occupied_by != self._login_username:
-                    self._ui(lambda ob=occupied_by: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u88ab\u5360\u7528", f"\u5f53\u524d\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u88ab\u8d26\u6237\u201c{ob}\u201d\u5360\u7528\uff0c\u65e0\u6cd5\u8fde\u63a5\u3002"))
-                    return
-                self._se_server_id = resp_data.get("server_id", "")
-                self._se_target_address = target_addr
-            else:
-                self._ui(lambda: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25", ""))
-                return
-            self._connect_ts_with_retry(target_addr)
-        except Exception as exc:
-            self._ui(lambda e=exc: self._on_init_failed("se", "\u4ea4\u6613\u670d\u52a1\u5668\u6821\u9a8c\u5931\u8d25", str(e)))
+        self._ts_connection.validate_and_connect(target_addr)
 
     def _connect_ts_with_retry(self, target_addr: str) -> None:
-        target = target_addr or default_ts_target()
-        endpoint = TSWebSocketClient.normalize_endpoint(target, default_port=DEFAULT_TS_PORT)
-        self._last_connected_se = endpoint
-        self._se_generation += 1
-        generation = self._se_generation
-        client = TSWebSocketClient(
-            ws_url=endpoint,
-            port=DEFAULT_TS_PORT,
-            token=self.http.token,
-            server_id=self._se_server_id,
-            on_message_callback=self._wrap_se_message_handler(generation),
-            on_status_callback=self._wrap_se_status_handler(generation),
-            on_latency_callback=self._wrap_ts_latency_handler(generation),
-            on_reconnect_prepare_callback=lambda attempt, connection_id, gen=generation: self._prepare_ts_reconnect(gen, attempt, connection_id),
-            on_state_callback=self._wrap_se_state_handler(generation),
-            reconnect_enabled=TS_RECONNECT_ENABLED,
-        )
-        self._se_client = client
-        self._se_connection_id = client.connection_id
-        if not self._occupy_se_node(connection_id=client.connection_id, sync=True):
-            self._se_client = None
-            self._ui(lambda: self._on_init_failed(
-                "se",
-                "\u4ea4\u6613\u670d\u52a1\u5668\u9501\u5b9a\u5931\u8d25",
-                "\u8282\u70b9\u5360\u7528\u6ce8\u518c\u672a\u6210\u529f\uff0c\u65e0\u6cd5\u786e\u4fdd\u72ec\u5360\u6743\u3002",
-                release_occupation=False,
-            ))
-            return
-        client.start()
-
-    def _wrap_se_status_handler(self, generation: int):
-        def handler(msg: str) -> None:
-            def apply() -> None:
-                if generation != self._se_generation:
-                    return
-                if self._init_ready:
-                    self._handle_se_status_ui(msg)
-                else:
-                    self._handle_init_se_status_ui(msg)
-            self._ui(apply)
-        return handler
-
-    def _wrap_se_state_handler(self, generation: int):
-        def handler(state: str, detail: dict) -> None:
-            def apply() -> None:
-                if generation != self._se_generation:
-                    return
-                self._handle_se_connection_state_ui(state, detail or {})
-            self._ui(apply)
-        return handler
-
-    def _wrap_se_message_handler(self, generation: int):
-        def handler(msg: dict) -> None:
-            def apply() -> None:
-                if generation != self._se_generation:
-                    return
-                if self._init_ready:
-                    self._handle_se_message_ui(msg)
-                else:
-                    self._handle_init_se_message_ui(msg)
-            self._ui(apply)
-        return handler
-
-    def _wrap_ts_latency_handler(self, generation: int):
-        def handler(latency_ms: int) -> None:
-            def apply() -> None:
-                if generation != self._se_generation or not self._main_ui_built or not self._se_connected:
-                    return
-                color = theme.ACCENT_GREEN if latency_ms < 120 else theme.ACCENT_YELLOW if latency_ms < 300 else theme.ACCENT_RED
-                self.latency_label.setText(f"{latency_ms}ms")
-                self.latency_label.setStyleSheet(f"color: {color};")
-            self._ui(apply)
-        return handler
+        self._ts_connection.connect_validated(target_addr)
 
     def _prepare_ts_reconnect(self, generation: int, attempt: int, connection_id: str) -> bool:
-        if generation != self._se_generation or self._reconnect_failed:
-            return False
-        if not self.session or not self.session.connected:
-            return False
-        target = self._se_target_address or getattr(self, "_last_connected_se", "") or default_ts_target()
-        try:
-            status_code, resp_data = self.http.get(f"/api/accounts/se-status?address={encode_query_value(target)}")
-        except Exception:
-            return False
-        if status_code != 200 or not (resp_data or {}).get("ok") or not (resp_data or {}).get("online"):
-            return False
-        occupied_by = ((resp_data or {}).get("occupied_by") or "").strip()
-        if occupied_by and occupied_by != self._login_username:
-            return False
-        server_id = ((resp_data or {}).get("server_id") or "").strip()
-        if self._se_server_id and server_id and server_id != self._se_server_id:
-            return False
-        if server_id:
-            self._se_server_id = server_id
-            self._se_target_address = target
-        if not self._se_server_id:
-            return False
-        return self._occupy_se_node(connection_id=connection_id, sync=True)
+        return self._ts_connection.prepare_reconnect(generation, attempt, connection_id)
 
     def _handle_se_connection_state_ui(self, state: str, detail: dict) -> None:
         if state == "authenticated":
@@ -1782,6 +1745,50 @@ class TradingTerminalQt(QMainWindow):
 
         if state == "force_disconnected":
             self._set_ts_connection_state("offline")
+
+    def _on_ts_validation_started(self, generation: int) -> None:
+        if generation == self._se_generation:
+            self._update_init_step("se", "校验中...", theme.ACCENT_YELLOW)
+
+    def _on_ts_connection_failed(
+        self,
+        generation: int,
+        reason: str,
+        hint: str,
+        release_occupation: bool,
+    ) -> None:
+        if generation != self._se_generation:
+            return
+        self._on_init_failed(
+            "se",
+            reason,
+            hint,
+            release_occupation=release_occupation,
+        )
+
+    def _route_ts_status(self, generation: int, message: str) -> None:
+        if generation != self._se_generation:
+            return
+        if self._init_ready:
+            self._handle_se_status_ui(message)
+        else:
+            self._handle_init_se_status_ui(message)
+
+    def _route_ts_message(self, generation: int, message: dict) -> None:
+        if generation != self._se_generation:
+            return
+        if self._init_ready:
+            self._handle_se_message_ui(message)
+        else:
+            self._handle_init_se_message_ui(message)
+
+    def _route_ts_latency(self, generation: int, latency_ms: int) -> None:
+        if generation == self._se_generation:
+            self._on_ts_latency(latency_ms)
+
+    def _route_ts_state(self, generation: int, state: str, detail: dict) -> None:
+        if generation == self._se_generation:
+            self._handle_se_connection_state_ui(state, detail)
 
     def _handle_init_se_status_ui(self, msg: str) -> None:
         if "Connecting" in msg or "连接" in msg:
@@ -1832,21 +1839,15 @@ class TradingTerminalQt(QMainWindow):
                 self._refresh_positions()
                 self._refresh_orders()
         elif msg_type == "ORDER_STATUS_UPDATE":
-            if self._accept_broker_event(payload):
-                if self.session:
-                    self.session.invalidate_order_cache()
-                status = str(payload.get("status") or "")
-                position_changed = status in {"Partial", "Filled"}
-                self._queue_event_refresh(
-                    orders=True,
-                    positions=position_changed,
-                    force_positions=position_changed,
+            status_message = str(payload.get("status_message") or "").strip()
+            if str(payload.get("status") or "") == "Rejected" and status_message:
+                self._log_user_error_once(
+                    f"订单被拒绝：{localize_user_message(status_message)}",
+                    "warn",
                 )
-                if status == "Filled":
-                    QTimer.singleShot(1000, lambda: self._refresh_positions(force_orders=True))
+            self._order_refresh.handle_order_status_event(payload)
         elif msg_type == "POSITION_INVALIDATED":
-            if self._accept_broker_event(payload):
-                self._queue_event_refresh(positions=True)
+            self._order_refresh.handle_position_event(payload)
         elif msg_type == "FORCE_DISCONNECT":
             reason = payload.get("reason", "admin_force_release")
             self._log_user_error_once(f"交易服务器连接被强制断开，原因：{reason}", "warn")
@@ -1855,41 +1856,6 @@ class TradingTerminalQt(QMainWindow):
             code = payload.get("code", "")
             message = localize_user_message(payload.get("message", ""))
             self._log_user_error_once(f"交易服务器错误[{code}]：{message}")
-    def _accept_broker_event(self, payload: dict) -> bool:
-        event_id = str(payload.get("event_id") or "").strip()
-        if not event_id:
-            return True
-        now = time.monotonic()
-        cutoff = now - 120.0
-        self._seen_broker_events = {
-            key: seen_at for key, seen_at in self._seen_broker_events.items()
-            if seen_at >= cutoff
-        }
-        if event_id in self._seen_broker_events:
-            return False
-        self._seen_broker_events[event_id] = now
-        return True
-
-    def _queue_event_refresh(
-        self,
-        *,
-        orders: bool = False,
-        positions: bool = False,
-        force_positions: bool = False,
-    ) -> None:
-        self._event_refresh_flags["orders"] |= orders
-        self._event_refresh_flags["positions"] |= positions
-        self._event_refresh_flags["force_positions"] |= force_positions
-        self._event_refresh_timer.start(300)
-
-    def _flush_event_refresh(self) -> None:
-        flags = dict(self._event_refresh_flags)
-        self._event_refresh_flags = {"orders": False, "positions": False, "force_positions": False}
-        if flags["orders"]:
-            self._refresh_orders(force=True)
-        if flags["positions"]:
-            self._refresh_positions(force_orders=flags["force_positions"])
-
     def _on_init_se_status(self, msg: str) -> None:
         self._ui(lambda: self._handle_init_se_status_ui(msg))
 
@@ -1897,9 +1863,7 @@ class TradingTerminalQt(QMainWindow):
         self._ui(lambda: self._handle_init_se_message_ui(msg))
 
     def _on_init_failed(self, step_key: str, reason: str, hint: str = "", release_occupation: bool = True) -> None:
-        self._se_generation += 1
-        if release_occupation:
-            self._release_se_occupation()
+        self._ts_connection.abort(release=release_occupation, wait=False)
         self._update_init_step(step_key, "\u5931\u8d25", theme.ACCENT_RED)
         msg = localize_user_message(reason)
         if hint:
@@ -1909,15 +1873,8 @@ class TradingTerminalQt(QMainWindow):
         else:
             self._set_init_hint(msg)
             self._set_init_actions_visible(True)
-        if self._se_client:
-            try:
-                self._se_client.stop(wait=False)
-            except Exception:
-                pass
-            self._se_client = None
         if self.session:
             self.session.bind_se_client(None)
-        self._se_connected = False
 
     def _on_init_retry(self) -> None:
         self._set_init_actions_visible(False)
@@ -1936,64 +1893,17 @@ class TradingTerminalQt(QMainWindow):
         QTimer.singleShot(80, self._show_startup_login)
 
     def _occupy_se_node(self, connection_id: str = "", max_retries: int = 3, sync: bool = True) -> bool:
-        sid = self._se_server_id
-        if not sid:
-            return False
-        username = self._login_username
-        requested_connection_id = (connection_id or self._se_connection_id or "").strip()
-        if not requested_connection_id:
-            return False
-
-        def do_with_retry() -> bool:
-            for attempt in range(1, max_retries + 1):
-                try:
-                    code, resp = self.http.post(f"/api/nodes/{sid}/occupy", {
-                        "username": username,
-                        "connection_id": requested_connection_id,
-                    })
-                    if code == 200 and (resp or {}).get("ok"):
-                        self._se_connection_id = requested_connection_id
-                        return True
-                    err_msg = (resp or {}).get("error", "") or (resp or {}).get("message", "") or f"HTTP {code}"
-                    lower_msg = err_msg.lower()
-                    if "occupied" in lower_msg or "not found" in lower_msg or "unauthorized" in lower_msg or code in (401, 403):
-                        return False
-                except Exception:
-                    pass
-                if attempt < max_retries:
-                    time.sleep(min(1.0 * (2 ** (attempt - 1)), 5))
-            return False
-
-        if sync:
-            return do_with_retry()
-        self._run_bg(do_with_retry)
-        return False
+        return self._ts_connection.occupy(
+            connection_id=connection_id,
+            max_retries=max_retries,
+            sync=sync,
+        )
 
     def _release_se_occupation(self, sync: bool = False, clear_server_id: bool = True) -> bool:
-        sid = self._se_server_id
-        if not sid:
-            return True
-        connection_id = self._se_connection_id
-        generation = self._se_generation
-
-        def do_release() -> bool:
-            try:
-                code, _resp = self.http.post(f"/api/nodes/{sid}/release", {
-                    "connection_id": connection_id,
-                })
-                if code == 200:
-                    if clear_server_id and generation == self._se_generation and connection_id == self._se_connection_id:
-                        self._se_server_id = ""
-                        self._se_connection_id = ""
-                    return True
-            except Exception:
-                pass
-            return False
-
-        if sync:
-            return do_release()
-        self._run_bg(do_release)
-        return False
+        return self._ts_connection.release(
+            sync=sync,
+            clear_server_id=clear_server_id,
+        )
 
     def _enter_main_interface(self, generation: int | None = None) -> None:
         if generation is not None and generation != self._se_generation:
@@ -2002,8 +1912,6 @@ class TradingTerminalQt(QMainWindow):
             return
         self._init_ready = True
         if self._se_client:
-            self._se_client.on_message = self._wrap_se_message_handler(self._se_generation)
-            self._se_client.on_status = self._wrap_se_status_handler(self._se_generation)
             if self.session:
                 self.session.bind_se_client(self._se_client)
         self._build_root()
@@ -2021,11 +1929,7 @@ class TradingTerminalQt(QMainWindow):
         if self.session:
             self.session.bind_se_client(None)
             self.session.set_broker_detail(None)
-        if self._se_client:
-            self._se_generation += 1
-            self._se_client.stop(wait=False)
-            self._se_client = None
-        self._se_connection_id = ""
+        self._ts_connection.disconnect(wait=False)
         with self._quote_sub_lock:
             self._quote_subscribed_symbols.clear()
         self._last_reconnect_notice_attempt = 0
@@ -2276,13 +2180,7 @@ class TradingTerminalQt(QMainWindow):
     def _reset_runtime_action_state(self) -> None:
         self._cancel_all_pending_orders()
         self._action_limiter.reset()
-        with self._refresh_state_lock:
-            self._refresh_in_flight = {"orders": False, "positions": False}
-            self._refresh_pending = {"orders": False, "positions": False}
-            self._refresh_force_pending = {"orders": False, "positions": False}
-        self._event_refresh_flags = {"orders": False, "positions": False, "force_positions": False}
-        self._seen_broker_events.clear()
-        self._event_refresh_timer.stop()
+        self._order_refresh.reset()
         self._canceling_order_ids.clear()
         self._batch_canceling_symbols.clear()
 
@@ -2383,61 +2281,36 @@ class TradingTerminalQt(QMainWindow):
             return
         if ok:
             self._append_log(msg, "ok")
-            self._refresh_orders(force=True)
-            QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
         else:
             self._log_user_error_once(msg)
+        self._refresh_orders(force=True)
+        QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
 
     def _switch_order_mode(self, mode: str) -> None:
-        self._order_mode = mode
-        self._refresh_orders(force=True)
+        self._order_refresh.set_order_mode(mode)
+
+    def _manual_refresh_allowed(self, scope: str) -> bool:
+        decision = self._action_limiter.acquire("refresh.manual", scope, REFRESH_POLICY)
+        self._action_limiter.release(decision.token)
+        return decision.allowed
+
+    def _manual_refresh_orders(self, _checked: bool = False) -> None:
+        if self._manual_refresh_allowed("orders"):
+            self._refresh_orders(force=True)
+
+    def _manual_refresh_positions(self, _checked: bool = False) -> None:
+        if self._manual_refresh_allowed("positions"):
+            self._refresh_positions(force_orders=True)
 
     def _refresh_orders(self, *, force: bool = False) -> None:
-        if not self.session:
-            return
-        self._last_orders_time = time.time()
-        with self._refresh_state_lock:
-            if self._refresh_in_flight["orders"]:
-                self._refresh_pending["orders"] = True
-                self._refresh_force_pending["orders"] |= force
-                return
-            self._refresh_in_flight["orders"] = True
-        session = self.session
-        mode = self._order_mode
-        generation = self._se_generation
-        self._run_bg(lambda: self._refresh_orders_bg(session, mode, generation, force))
-
-    def _refresh_orders_bg(
-        self,
-        session: TradingSession | None = None,
-        mode: str | None = None,
-        generation: int | None = None,
-        force: bool = False,
-    ) -> None:
-        active_session = session or self.session
-        try:
-            orders = active_session.get_orders(mode or self._order_mode, force=force) if active_session else []
-        except Exception:
-            orders = []
-        self._ui(lambda: self._finish_orders_refresh(orders, generation))
-
-    def _finish_orders_refresh(self, orders: list[dict], generation: int | None = None) -> None:
-        if generation is not None and generation != self._se_generation:
-            return
-        self._update_orders(orders)
-        with self._refresh_state_lock:
-            self._refresh_in_flight["orders"] = False
-            rerun = self._refresh_pending["orders"]
-            self._refresh_pending["orders"] = False
-            force = self._refresh_force_pending["orders"]
-            self._refresh_force_pending["orders"] = False
-        if rerun:
-            QTimer.singleShot(0, lambda: self._refresh_orders(force=force))
+        self._order_refresh.refresh_orders(force=force)
 
     def _update_orders(self, orders: list[dict]) -> None:
         self._orders_raw = orders
         rows = []
+        cell_colors: list[list[str | None]] = []
         for order in orders:
+            status = str(order.get("raw_status") or order.get("status") or "")
             rows.append([
                 order.get("symbol", ""),
                 order.get("action", ""),
@@ -2447,8 +2320,16 @@ class TradingTerminalQt(QMainWindow):
                 order.get("tif", "Day"),
                 order.get("status", ""),
             ])
-        self.orders_model.set_rows(rows)
+            row_colors: list[str | None] = [None] * 7
+            row_colors[6] = ORDER_STATUS_COLORS.get(status)
+            cell_colors.append(row_colors)
+        self.orders_model.set_rows(rows, cell_colors)
         self.order_count_label.setText(f"{len(rows)} \u7b14\u8ba2\u5355" if rows else "\u6682\u65e0\u8ba2\u5355")
+
+    def _handle_orders_refresh_failed(self, message: str) -> None:
+        self._log_user_error_once(f"订单刷新失败：{localize_user_message(message)}", "warn")
+        count = len(self._orders_raw)
+        self.order_count_label.setText(f"刷新失败 · 上次 {count} 笔" if count else "刷新失败 · 暂无可用数据")
 
     def _selected_order(self) -> dict:
         indexes = self.orders_table.selectionModel().selectedRows() if self.orders_table.selectionModel() else []
@@ -2469,7 +2350,21 @@ class TradingTerminalQt(QMainWindow):
             return
         selected_order = self._selected_order()
         if selected_order and not bool(selected_order.get("can_cancel", True)):
-            self._log_user_error_once("该订单不可由当前 Client 撤销", "warn")
+            status = str(
+                selected_order.get("raw_status")
+                or selected_order.get("status")
+                or ""
+            ).strip()
+            status_message = str(selected_order.get("status_message") or "").strip()
+            status_text = {
+                "Rejected": "订单已被券商拒绝，无需撤销",
+                "Filled": "订单已成交，无法撤销",
+                "Cancelled": "订单已经撤销",
+                "Expired": "订单已过期，无法撤销",
+            }.get(status, "该订单当前不可撤销")
+            if status == "Rejected" and status_message:
+                status_text = f"{status_text}：{status_message}"
+            self._log_user_error_once(status_text, "warn")
             return
         order_id = str(selected_order.get("id", ""))
         if not order_id:
@@ -2520,10 +2415,10 @@ class TradingTerminalQt(QMainWindow):
             return
         if ok:
             self._append_log(msg, "ok")
-            self._refresh_orders(force=True)
-            QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
         else:
             self._log_user_error_once(msg)
+        self._refresh_orders(force=True)
+        QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
 
     def _cancel_symbol_live_orders(self, pid: int) -> None:
         if not self.session or not self._broker_capability_enabled("cancel_order"):
@@ -2566,10 +2461,21 @@ class TradingTerminalQt(QMainWindow):
         skip_order_ids: set[str] | None = None,
     ) -> None:
         skipped = skip_order_ids or set()
+        query_error = ""
         try:
-            orders = session.get_orders("live") if session else []
-        except Exception:
+            query = getattr(session, "query_orders", None) if session else None
+            if callable(query):
+                query_result = query("live")
+                if query_result.success:
+                    orders = list(query_result.data or [])
+                else:
+                    orders = []
+                    query_error = str(query_result.message or "订单查询失败")
+            else:
+                orders = session.get_orders("live") if session else []
+        except Exception as exc:
             orders = []
+            query_error = str(exc) or "订单查询失败"
         order_ids = list(dict.fromkeys(
             str(order.get("id") or "")
             for order in orders
@@ -2598,6 +2504,7 @@ class TradingTerminalQt(QMainWindow):
                 failures,
                 limiter_token,
                 generation,
+                query_error,
             )
         )
 
@@ -2609,12 +2516,18 @@ class TradingTerminalQt(QMainWindow):
         failures: list[str],
         limiter_token: str,
         generation: int,
+        query_error: str = "",
     ) -> None:
         self._action_limiter.release(limiter_token)
         self._batch_canceling_symbols.discard(symbol)
         if generation != self._se_generation:
             return
-        if total == 0:
+        if query_error:
+            self._log_user_error_once(
+                f"批量撤单失败：无法获取最新订单（{localize_user_message(query_error)}）",
+                "warn",
+            )
+        elif total == 0:
             self._append_log(f"{symbol} 暂无活动订单", "inf")
         elif failures:
             self._append_log(f"{symbol} 批量撤单：成功 {success}，失败 {len(failures)}", "warn")
@@ -2623,49 +2536,7 @@ class TradingTerminalQt(QMainWindow):
         self._refresh_orders(force=True)
 
     def _refresh_positions(self, *, force_orders: bool = False) -> None:
-        if not self.session:
-            return
-        with self._refresh_state_lock:
-            if self._refresh_in_flight["positions"]:
-                self._refresh_pending["positions"] = True
-                self._refresh_force_pending["positions"] |= force_orders
-                return
-            self._refresh_in_flight["positions"] = True
-        session = self.session
-        generation = self._se_generation
-        self._run_bg(lambda: self._refresh_positions_bg(session, generation, force_orders))
-
-    def _refresh_positions_bg(
-        self,
-        session: TradingSession | None = None,
-        generation: int | None = None,
-        force_orders: bool = False,
-    ) -> None:
-        active_session = session or self.session
-        try:
-            positions = active_session.get_today_activity(force_orders=force_orders) if active_session else []
-        except Exception:
-            positions = []
-        err = getattr(active_session, "_pos_error", "") if active_session else ""
-        self._ui(lambda: self._finish_positions_refresh(positions, err, generation))
-
-    def _finish_positions_refresh(
-        self,
-        positions: list[dict],
-        err: str = "",
-        generation: int | None = None,
-    ) -> None:
-        if generation is not None and generation != self._se_generation:
-            return
-        self._update_positions(positions, err)
-        with self._refresh_state_lock:
-            self._refresh_in_flight["positions"] = False
-            rerun = self._refresh_pending["positions"]
-            self._refresh_pending["positions"] = False
-            force_orders = self._refresh_force_pending["positions"]
-            self._refresh_force_pending["positions"] = False
-        if rerun:
-            QTimer.singleShot(0, lambda: self._refresh_positions(force_orders=force_orders))
+        self._order_refresh.refresh_positions(force_orders=force_orders)
 
     def _update_positions(self, positions: list[dict], err: str = "") -> None:
         self._positions_raw = positions
@@ -2705,6 +2576,12 @@ class TradingTerminalQt(QMainWindow):
         self.metric_realized[1].setText(f"${total_realized:+.2f}")
         self.metric_unrealized[1].setText(f"${total_unrealized:+.2f}")
 
+    def _handle_positions_refresh_failed(self, message: str) -> None:
+        self._log_user_error_once(
+            f"持仓刷新失败，显示上次数据：{localize_user_message(message)}",
+            "warn",
+        )
+
     def _on_position_clicked(self, index: QModelIndex) -> None:
         row = index.row()
         if 0 <= row < len(self._positions_raw):
@@ -2727,14 +2604,12 @@ class TradingTerminalQt(QMainWindow):
         try:
             self._teardown_shortcuts()
             self._reset_runtime_action_state()
-            self._release_se_occupation(sync=True)
+            self._ts_connection.shutdown(release=True, wait=True)
             if self.session:
                 try:
                     self.session.logout()
                 except Exception:
                     pass
-            if self._se_client:
-                self._se_client.stop()
         finally:
             event.accept()
 
