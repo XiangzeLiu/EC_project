@@ -141,7 +141,7 @@ class OrderCacheTests(unittest.TestCase):
         self.assertTrue(empty.success)
         self.assertEqual(empty.data, [])
 
-    def test_live_query_displays_rejected_order_returned_by_ts(self):
+    def test_live_query_filters_rejected_order_returned_by_ts(self):
         session = TradingSession(SimpleNamespace())
         session.connected = True
         session.has_broker_capability = Mock(return_value=True)
@@ -161,10 +161,7 @@ class OrderCacheTests(unittest.TestCase):
         result = session.query_orders("live")
 
         self.assertTrue(result.success)
-        self.assertEqual(len(result.data), 1)
-        self.assertEqual(result.data[0]["raw_status"], "Rejected")
-        self.assertEqual(result.data[0]["status_message"], "price outside allowed range")
-        self.assertFalse(result.data[0]["can_cancel"])
+        self.assertEqual(result.data, [])
 
     def test_position_query_failure_is_structured_and_clears_stale_error_on_success(self):
         session = TradingSession(SimpleNamespace())
@@ -360,12 +357,14 @@ class ClientOrderEventTests(unittest.TestCase):
     def test_failed_order_response_still_refreshes_order_table(self):
         refreshed = []
         logged = []
+        tips = []
         timers = []
         window = SimpleNamespace(
             _action_limiter=SimpleNamespace(release=lambda token: None),
             _se_generation=1,
             _log_user_error_once=lambda message: logged.append(message),
             _append_log=lambda *args, **kwargs: None,
+            _show_weak_tip=lambda message, level: tips.append((message, level)),
             _refresh_orders=lambda **kwargs: refreshed.append(kwargs),
         )
 
@@ -381,6 +380,37 @@ class ClientOrderEventTests(unittest.TestCase):
             )
 
         self.assertEqual(logged, ["订单被券商拒绝"])
+        self.assertEqual(tips, [("订单被券商拒绝", "err")])
+        self.assertEqual(refreshed, [{"force": True}])
+        self.assertEqual(timers[0][0], 800)
+
+    def test_successful_order_response_shows_success_tip_and_refreshes_order_table(self):
+        refreshed = []
+        logged = []
+        tips = []
+        timers = []
+        window = SimpleNamespace(
+            _action_limiter=SimpleNamespace(release=lambda token: None),
+            _se_generation=1,
+            _log_user_error_once=lambda message: None,
+            _append_log=lambda message, tag: logged.append((message, tag)),
+            _show_weak_tip=lambda message, level: tips.append((message, level)),
+            _refresh_orders=lambda **kwargs: refreshed.append(kwargs),
+        )
+
+        with patch(
+            "Client.ui_qt.main_window.QTimer.singleShot",
+            side_effect=lambda delay, callback: timers.append((delay, callback)),
+        ):
+            TradingTerminalQt._handle_order_result(
+                window,
+                True,
+                "订单提交成功",
+                generation=1,
+            )
+
+        self.assertEqual(logged, [("订单提交成功", "ok")])
+        self.assertEqual(tips, [("订单提交成功", "ok")])
         self.assertEqual(refreshed, [{"force": True}])
         self.assertEqual(timers[0][0], 800)
 

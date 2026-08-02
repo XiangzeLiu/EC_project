@@ -13,7 +13,7 @@ FONT_DIR = PROJECT_ROOT / "Client" / "assets" / "fonts"
 
 FONT_UI = "Inter"
 FONT_MONO = "JetBrains Mono"
-FONT_CJK_FALLBACKS = ("Microsoft YaHei UI", "Microsoft YaHei", "SimHei")
+FONT_CJK_FALLBACKS = ("SimHei", "Microsoft YaHei UI", "Microsoft YaHei")
 
 TERM_BG = "#0B0E11"
 HEADER_BG = "#12161A"
@@ -49,7 +49,7 @@ def load_fonts() -> None:
         if path.exists():
             QFontDatabase.addApplicationFont(str(path))
     windows_fonts = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
-    for name in ("msyh.ttc", "msyhbd.ttc", "simhei.ttf"):
+    for name in ("simhei.ttf", "msyh.ttc", "msyhbd.ttc"):
         path = windows_fonts / name
         if path.exists():
             QFontDatabase.addApplicationFont(str(path))
@@ -70,6 +70,67 @@ def mono_font(size: int = 10, *, bold: bool = False) -> QFont:
     if bold:
         font.setBold(True)
     return font
+
+
+SCROLLBAR_QSS = f"""
+QScrollBar:vertical {{
+    background: transparent;
+    border: none;
+    width: 10px;
+    margin: 3px 2px 3px 0;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    border: none;
+    height: 10px;
+    margin: 0 3px 2px 3px;
+}}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {{
+    background: #353C46;
+    border: 1px solid #424B57;
+    border-radius: 4px;
+}}
+
+QScrollBar::handle:vertical {{
+    min-height: 32px;
+}}
+
+QScrollBar::handle:horizontal {{
+    min-width: 32px;
+}}
+
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover {{
+    background: #4A5461;
+    border-color: #596575;
+}}
+
+QScrollBar::handle:vertical:pressed,
+QScrollBar::handle:horizontal:pressed {{
+    background: #5A6675;
+    border-color: #6B7889;
+}}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {{
+    width: 0;
+}}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {{
+    background: transparent;
+}}
+"""
 
 
 COMBO_POPUP_QSS = f"""
@@ -95,15 +156,17 @@ QListView#comboPopup::item:selected {{
     background: {PANEL_ALT_BG};
     color: #FFFFFF;
 }}
-"""
+""" + SCROLLBAR_QSS
 
 
 APP_QSS = f"""
 QWidget {{
     color: {TEXT_PRIMARY};
-    font-family: "{FONT_UI}", "Microsoft YaHei UI", "Microsoft YaHei", "SimHei";
+    font-family: "{FONT_UI}", "SimHei", "Microsoft YaHei UI", "Microsoft YaHei";
     font-size: 10pt;
 }}
+
+{SCROLLBAR_QSS}
 
 QMainWindow, QWidget#root {{
     background: {TERM_BG};
@@ -116,7 +179,7 @@ QFrame#topHeader {{
 
 QFrame#slotCard {{
     background: {PANEL_BG};
-    border: 1px solid {BORDER_WARN};
+    border: 1px solid {BORDER};
     border-radius: 10px;
 }}
 
@@ -190,10 +253,39 @@ QPushButton#buyButton {{
     font-weight: 700;
 }}
 
+QPushButton#buyButton:hover {{
+    background: #10D689;
+    border-color: #10D689;
+}}
+
+QPushButton#buyButton:pressed {{
+    background: #08A96B;
+    border-color: #08A96B;
+    padding-top: 8px;
+    padding-bottom: 6px;
+}}
+
 QPushButton#sellButton {{
     background: {ACCENT_RED};
     color: white;
     font-weight: 700;
+}}
+
+QPushButton#sellButton:hover {{
+    background: #FF455F;
+    border-color: #FF455F;
+}}
+
+QPushButton#sellButton:pressed {{
+    background: #D92740;
+    border-color: #D92740;
+    padding-top: 8px;
+    padding-bottom: 6px;
+}}
+
+QPushButton#buyButton[pending="true"],
+QPushButton#sellButton[pending="true"] {{
+    border: 2px solid {ACCENT_YELLOW};
 }}
 
 QPushButton#buyButton:disabled,
@@ -207,6 +299,30 @@ QPushButton#loginButton {{
     background: {ACCENT_BLUE};
     color: #07121B;
     font-weight: 700;
+}}
+
+QPushButton#settingsGearButton {{
+    background: {PANEL_ALT_BG};
+    border: 1px solid {BORDER};
+    border-radius: 14px;
+    color: {TEXT_LOW};
+    font-family: "Segoe UI Symbol", "{FONT_UI}", "SimHei", "Microsoft YaHei UI", "Microsoft YaHei";
+    font-size: 12pt;
+    padding: 0;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}}
+
+QPushButton#settingsGearButton:hover {{
+    background: {BORDER_SOFT};
+    color: {TEXT_DIM};
+}}
+
+QPushButton#settingsGearButton:pressed {{
+    background: {INPUT_BG};
+    color: {TEXT_PRIMARY};
 }}
 
 QPushButton#refreshIconButton {{
@@ -244,6 +360,71 @@ QPushButton#liveOrdersButton[online="true"] {{
     color: {ACCENT_GREEN};
 }}
 
+QPushButton#orderTabButton {{
+    background: transparent;
+    border-color: transparent;
+    color: {TEXT_LOW};
+    font-weight: 700;
+}}
+
+QPushButton#orderTabButton[selected="true"],
+QPushButton#liveOrdersButton[selected="true"] {{
+    color: {TEXT_PRIMARY};
+    border-color: {BORDER_WARN};
+}}
+
+QPushButton#liveOrdersButton[selected="true"] {{
+    color: {ACCENT_GREEN};
+}}
+
+QLineEdit#qtyInput {{
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+    color: {TEXT_PRIMARY};
+}}
+
+QCheckBox#hiddenOrderCheck {{
+    color: {TEXT_MUTED};
+    spacing: 6px;
+}}
+
+QCheckBox#hiddenOrderCheck::indicator,
+QWidget#settingsOverlay QCheckBox::indicator {{
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid {BORDER};
+    background: {INPUT_BG};
+}}
+
+QCheckBox#hiddenOrderCheck::indicator:hover,
+QWidget#settingsOverlay QCheckBox::indicator:hover {{
+    border-color: {TEXT_LOW};
+}}
+
+QCheckBox#hiddenOrderCheck::indicator:checked,
+QWidget#settingsOverlay QCheckBox::indicator:checked {{
+    background: {ACCENT_YELLOW};
+    border-color: {ACCENT_YELLOW};
+}}
+
+QCheckBox#hiddenOrderCheck::indicator:disabled,
+QWidget#settingsOverlay QCheckBox::indicator:disabled {{
+    background: #AEB4BC;
+    border-color: #6C737C;
+}}
+
+QWidget#settingsOverlay QCheckBox::indicator:checked:disabled {{
+    background: #8C7A4E;
+    border-color: #A08D5A;
+}}
+
+QCheckBox#hiddenOrderCheck:disabled,
+QWidget#settingsOverlay QCheckBox:disabled {{
+    color: {TEXT_LOW};
+}}
+
 QPushButton#cancelOrderButton {{
     background: {ACCENT_RED};
     color: white;
@@ -252,6 +433,17 @@ QPushButton#cancelOrderButton {{
     padding: 0 10px;
     min-height: 21px;
     max-height: 21px;
+}}
+
+QPushButton#cancelOrderButton:hover {{
+    background: #FF455F;
+    border-color: #FF455F;
+}}
+
+QPushButton#cancelOrderButton:pressed {{
+    background: #D92740;
+    border-color: #D92740;
+    padding-top: 1px;
 }}
 
 QPushButton#qtyStepButton {{
@@ -276,7 +468,199 @@ QLabel#lowText {{
 }}
 
 QLabel#monoText {{
-    font-family: "{FONT_MONO}", "Microsoft YaHei UI", "Microsoft YaHei", "SimHei";
+    font-family: "{FONT_MONO}", "SimHei", "Microsoft YaHei UI", "Microsoft YaHei";
+}}
+
+QWidget#settingsOverlay {{
+    background: rgba(0, 0, 0, 145);
+}}
+
+QFrame#settingsPanel {{
+    background: {PANEL_BG};
+    border: 1px solid {BORDER};
+    border-radius: 12px;
+}}
+
+QFrame#settingsHeader {{
+    background: {PANEL_ALT_BG};
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom: 1px solid {BORDER_SOFT};
+}}
+
+QLabel#settingsTitle,
+QLabel#settingsPageTitle,
+QLabel#settingsAboutName {{
+    color: {TEXT_PRIMARY};
+}}
+
+QPushButton#settingsCloseButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    color: {TEXT_MUTED};
+    font-size: 14pt;
+    padding: 0;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}}
+
+QPushButton#settingsCloseButton:hover {{
+    background: {BORDER_SOFT};
+    color: {TEXT_PRIMARY};
+}}
+
+QFrame#settingsSidebar {{
+    background: #12161A;
+    border-right: 1px solid {BORDER_SOFT};
+    min-width: 150px;
+    max-width: 150px;
+}}
+
+QPushButton#settingsTabButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    color: {TEXT_MUTED};
+    text-align: left;
+    padding: 8px 10px;
+    min-height: 34px;
+}}
+
+QPushButton#settingsTabButton:hover {{
+    background: {PANEL_ALT_BG};
+    color: {TEXT_DIM};
+}}
+
+QPushButton#settingsTabButton:checked {{
+    background: {PANEL_ALT_BG};
+    border-color: {BORDER_WARN};
+    color: {TEXT_PRIMARY};
+}}
+
+QWidget#settingsPage {{
+    background: {PANEL_BG};
+}}
+
+QLabel#settingsMutedText {{
+    color: {TEXT_MUTED};
+}}
+
+QLabel#settingsErrorText {{
+    color: {ACCENT_YELLOW};
+}}
+
+QLabel#settingsCapabilityNotice {{
+    background: rgba(164, 123, 49, 32);
+    border: 1px solid {BORDER_WARN};
+    border-radius: 6px;
+    color: {TEXT_DIM};
+    padding: 6px 9px;
+}}
+
+QLabel#settingsTableHeader {{
+    color: {TEXT_LOW};
+}}
+
+QLabel#settingsKeyCell {{
+    color: {TEXT_PRIMARY};
+    background: {INPUT_BG};
+    border: 1px solid {BORDER_SOFT};
+    border-radius: 6px;
+    padding: 5px 8px;
+}}
+
+QWidget#settingsOverlay QSpinBox,
+QWidget#settingsOverlay QDoubleSpinBox {{
+    background: {INPUT_BG};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_SOFT};
+    border-radius: 6px;
+    padding: 5px 8px;
+    selection-background-color: {ACCENT_BLUE};
+    selection-color: #07121B;
+}}
+
+QWidget#settingsOverlay QSpinBox::up-button,
+QWidget#settingsOverlay QSpinBox::down-button,
+QWidget#settingsOverlay QDoubleSpinBox::up-button,
+QWidget#settingsOverlay QDoubleSpinBox::down-button {{
+    background: {PANEL_ALT_BG};
+    color: {TEXT_MUTED};
+    border: none;
+    width: 16px;
+}}
+
+QScrollArea#settingsScrollArea {{
+    background: {PANEL_BG};
+    border: none;
+}}
+
+QScrollArea#settingsScrollArea QWidget#settingsOrderRows,
+QScrollArea#settingsScrollArea QWidget#qt_scrollarea_viewport {{
+    background: {PANEL_BG};
+}}
+
+QTabWidget#hotkeyInnerTabs::pane {{
+    border: 1px solid {BORDER_SOFT};
+    border-radius: 8px;
+    top: -1px;
+}}
+
+QTabWidget#hotkeyInnerTabs QTabBar::tab {{
+    background: transparent;
+    color: {TEXT_MUTED};
+    padding: 8px 14px;
+    border: 1px solid transparent;
+}}
+
+QTabWidget#hotkeyInnerTabs QTabBar::tab:selected {{
+    color: {TEXT_PRIMARY};
+    background: {PANEL_ALT_BG};
+    border-color: {BORDER_WARN};
+}}
+
+QPushButton#settingsPrimaryButton {{
+    background: {ACCENT_BLUE};
+    color: #07121B;
+    font-weight: 700;
+}}
+
+QPushButton#settingsPrimaryButton:hover {{
+    background: #A5DFFF;
+    border-color: #A5DFFF;
+}}
+
+QPushButton#settingsPrimaryButton:pressed {{
+    background: #5CB8E8;
+    border-color: #5CB8E8;
+    padding-top: 8px;
+    padding-bottom: 6px;
+}}
+
+QPushButton#settingsSecondaryButton {{
+    background: {PANEL_ALT_BG};
+    color: {TEXT_DIM};
+}}
+
+QPushButton#settingsSecondaryButton:hover {{
+    background: #252C34;
+    border-color: {TEXT_LOW};
+    color: {TEXT_PRIMARY};
+}}
+
+QPushButton#settingsSecondaryButton:pressed {{
+    background: {INPUT_BG};
+    border-color: {BORDER_WARN};
+    color: {TEXT_PRIMARY};
+    padding-top: 8px;
+    padding-bottom: 6px;
+}}
+
+QPushButton#settingsDangerButton {{
+    background: transparent;
+    color: {ACCENT_RED};
 }}
 
 QTableView {{
@@ -287,13 +671,18 @@ QTableView {{
     selection-background-color: #20262E;
 }}
 
+QTableView#tradeDataTable QTableCornerButton::section {{
+    background: {PANEL_BG};
+    border: none;
+}}
+
 QHeaderView::section {{
     background: #0E1217;
     color: {TEXT_LOW};
     border: none;
     border-right: 1px solid {BORDER_SOFT};
     padding: 10px 6px;
-    font-family: "{FONT_MONO}", "Microsoft YaHei UI", "Microsoft YaHei", "SimHei";
+    font-family: "{FONT_MONO}", "SimHei", "Microsoft YaHei UI", "Microsoft YaHei";
     font-size: 9pt;
 }}
 """

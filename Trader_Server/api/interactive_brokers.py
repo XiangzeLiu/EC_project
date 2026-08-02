@@ -839,6 +839,8 @@ class IBBroker(BaseBrokerAPI):
             "cancel_order": True,
             "positions": True,
             "order_query": True,
+            "route_selection": True,
+            "hidden_order": True,
         }
 
     def __init__(self):
@@ -858,6 +860,7 @@ class IBBroker(BaseBrokerAPI):
         self._managed_accounts: list[str] = []
         self._account_verified = False
         self._contract_cache: dict[str, Any] = {}
+        self._contract_routes: dict[str, list[str]] = {}
         self._positions_lock = asyncio.Lock()
         self._orders_lock = asyncio.Lock()
         self._order_id_lock = asyncio.Lock()
@@ -906,6 +909,7 @@ class IBBroker(BaseBrokerAPI):
         self._managed_accounts = []
         self._account_verified = False
         self._contract_cache.clear()
+        self._contract_routes.clear()
 
         loop = asyncio.get_running_loop()
         self._quote_queue = asyncio.Queue()
@@ -991,6 +995,7 @@ class IBBroker(BaseBrokerAPI):
         self._account_verified = False
         self._managed_accounts = []
         self._contract_cache.clear()
+        self._contract_routes.clear()
         self._order_event_queue = None
         self._position_event_queue = None
 
@@ -1123,6 +1128,32 @@ class IBBroker(BaseBrokerAPI):
                 "managed": bool(self._account_verified),
             },
             "managed_account_count": len(self._managed_accounts),
+            "order_options": {
+                "default_route": "SMART",
+                "routes": self._default_routes(),
+                "route_editable": True,
+                "hidden_order": True,
+            },
+        }
+
+    def _default_routes(self) -> list[str]:
+        routes = ["SMART"]
+        for values in self._contract_routes.values():
+            for route in values:
+                if route and route not in routes:
+                    routes.append(route)
+        return routes
+
+    async def get_symbol_order_options(self, symbol: str) -> dict[str, Any]:
+        normalized = str(symbol or "").strip().upper()
+        await self._resolve_stock_contract(normalized)
+        return {
+            "symbol": normalized,
+            "default_route": "SMART",
+            "routes": list(self._contract_routes.get(normalized) or ["SMART"]),
+            "route_editable": True,
+            "hidden_order": True,
+            "routes_validated": True,
         }
 
     def _require_app(self, require_account: bool = False) -> Any:
@@ -1176,15 +1207,38 @@ class IBBroker(BaseBrokerAPI):
         if not stock_details:
             raise IBRequestError("IB_CONTRACT_NOT_FOUND", f"US stock contract not found: {normalized}")
         unique = {}
+        routes: list[str] = ["SMART"]
         for item in stock_details:
             contract = item.contract
             key = int(getattr(contract, "conId", 0) or 0) or repr(contract)
             unique[key] = contract
+            valid_exchanges = str(getattr(item, "validExchanges", "") or "")
+            for route in valid_exchanges.split(","):
+                normalized_route = route.strip().upper()
+                if normalized_route and normalized_route not in routes:
+                    routes.append(normalized_route)
+            primary = str(getattr(contract, "primaryExchange", "") or "").strip().upper()
+            if primary and primary not in routes:
+                routes.append(primary)
         if len(unique) != 1:
             raise IBRequestError("IB_CONTRACT_AMBIGUOUS", f"US stock symbol is ambiguous: {normalized}")
         contract = next(iter(unique.values()))
         self._contract_cache[normalized] = contract
+        self._contract_routes[normalized] = routes
         return contract
+
+    def _contract_for_route(self, contract: Any, route: str) -> Any:
+        selected = str(route or "SMART").strip().upper() or "SMART"
+        if selected in {"DEFAULT", "SMART"}:
+            return contract
+        routed = Contract()
+        routed.symbol = getattr(contract, "symbol", "")
+        routed.secType = getattr(contract, "secType", "STK")
+        routed.currency = getattr(contract, "currency", "USD")
+        routed.exchange = selected
+        routed.primaryExchange = str(getattr(contract, "primaryExchange", "") or "")
+        routed.conId = int(getattr(contract, "conId", 0) or 0)
+        return routed
 
     async def subscribe_quotes(self, symbols: list[str]) -> None:
         app = self._require_app(require_account=False)
@@ -1255,6 +1309,8 @@ class IBBroker(BaseBrokerAPI):
         action_label = str(order_params.get("action") or "").strip()
         order_type = str(order_params.get("order_type") or "limit").strip().lower()
         tif_label = str(order_params.get("tif") or "Day").strip()
+        route = str(order_params.get("route") or "SMART").strip().upper() or "SMART"
+        hidden = bool(order_params.get("hidden", False))
         quantity = int(order_params.get("qty") or 0)
         price = _to_float(order_params.get("price"))
         if action_label not in _ACTION_TO_IB:
@@ -1265,6 +1321,12 @@ class IBBroker(BaseBrokerAPI):
             raise ValueError("Order quantity must be greater than zero")
 
         contract = await self._resolve_stock_contract(symbol)
+        allowed_routes = self._contract_routes.get(symbol, ["SMART"])
+        if route == "DEFAULT":
+            route = "SMART"
+        if route != "SMART" and allowed_routes and route not in allowed_routes:
+            raise ValueError(f"IB route {route} is not available for {symbol}")
+        contract = self._contract_for_route(contract, route)
         ib_tif, outside_rth = _tif_to_ib(tif_label)
         async with self._order_id_lock:
             order_id = app.allocate_order_id()
@@ -1279,6 +1341,7 @@ class IBBroker(BaseBrokerAPI):
         order.outsideRth = outside_rth
         order.account = self._account_id
         order.orderRef = f"EC:{_ACTION_TO_REF[action_label]}"
+        order.hidden = hidden
         order.transmit = True
         result = await app.place_order_and_wait(order_id, contract, order)
         return {"success": True, "order_id": str(order_id), "status": result.get("status", "Live")}

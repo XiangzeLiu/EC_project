@@ -271,7 +271,13 @@ class TastytradeBroker(BaseBrokerAPI):
                 "account_type": str(getattr(account, "account_type_name", "") or ""),
                 "authority_level": self._account_authority,
                 "is_closed": bool(getattr(account, "is_closed", False)) if account else False,
-            }
+            },
+            "order_options": {
+                "default_route": "SMART",
+                "routes": ["SMART"],
+                "route_editable": False,
+                "hidden_order": False,
+            },
         }
 
     async def disconnect(self) -> None:
@@ -514,6 +520,12 @@ class TastytradeBroker(BaseBrokerAPI):
         action_str = order_params.get("action", "Buy to Open")
         order_type_str = order_params.get("order_type", "limit")
         tif_str = order_params.get("tif", "Day")
+        route = str(order_params.get("route") or "SMART").strip().upper()
+        hidden = bool(order_params.get("hidden", False))
+        if route and route not in {"SMART", "DEFAULT"}:
+            raise ValueError("tastytrade only supports SMART route in this Client")
+        if hidden:
+            raise ValueError("tastytrade does not support hidden orders in this Client")
 
         act = ACTION_MAP.get(action_str, OrderAction.BUY_TO_OPEN)
         tif_enum = TIF_MAP.get(tif_str, OrderTimeInForce.DAY)

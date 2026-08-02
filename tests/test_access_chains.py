@@ -1606,6 +1606,56 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             ts_quote_provider.ensure_broker_connected = original_connected
             ts_quote_provider.get_current_broker = original_current
 
+    async def test_quote_ack_includes_symbol_specific_order_options(self):
+        original_connected = ts_quote_provider.ensure_broker_connected
+        original_current = ts_quote_provider.get_current_broker
+
+        class FakeBroker:
+            @staticmethod
+            def capabilities():
+                return {"quotes": True}
+
+            @staticmethod
+            async def is_connected():
+                return True
+
+            @staticmethod
+            async def subscribe_quotes(_symbols):
+                return None
+
+            @staticmethod
+            async def get_symbol_order_options(symbol):
+                return {
+                    "symbol": symbol,
+                    "default_route": "smart",
+                    "routes": ["smart", "arca", "ARCA"],
+                    "route_editable": True,
+                    "hidden_order": True,
+                    "routes_validated": True,
+                }
+
+        broker = FakeBroker()
+        try:
+            async def fake_connected():
+                return True
+
+            ts_quote_provider.ensure_broker_connected = fake_connected
+            ts_quote_provider.get_current_broker = lambda: broker
+            response = await ts_ws_server._handle_quote_subscribe(
+                {"id": "q2", "payload": {"action": "subscribe", "symbols": ["aapl"]}},
+                "session-2",
+                "trace-2",
+                {"username": "user", "server_id": "node-1"},
+            )
+        finally:
+            ts_quote_provider.ensure_broker_connected = original_connected
+            ts_quote_provider.get_current_broker = original_current
+
+        options = response["payload"]["symbol_order_options"]["AAPL"]
+        self.assertEqual(options["routes"], ["SMART", "ARCA"])
+        self.assertTrue(options["routes_validated"])
+        self.assertTrue(options["hidden_order"])
+
     async def test_quote_subscriptions_are_restored_on_reconnected_broker(self):
         restored = []
 

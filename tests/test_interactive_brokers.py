@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from Client.services import trading_session as trading_session_module
 from Client.services.trading_session import TradingSession
 from Trader_Server.api.factory import BrokerFactory
 from Trader_Server.api.interactive_brokers import (
@@ -123,6 +124,109 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
 
 
 class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_routes_come_from_contract_details_and_hidden_reaches_ib_order(self):
+        confirmed_contract = SimpleNamespace(
+            conId=265598,
+            symbol="AAPL",
+            secType="STK",
+            exchange="SMART",
+            primaryExchange="NASDAQ",
+            currency="USD",
+        )
+
+        class FakeApp:
+            def __init__(self):
+                self.managed_accounts = ["U123"]
+                self.submissions = []
+
+            @staticmethod
+            def isConnected():
+                return True
+
+            async def request_contract_details(self, _contract):
+                return [
+                    SimpleNamespace(
+                        contract=confirmed_contract,
+                        validExchanges="SMART,ARCA,NYSE",
+                    )
+                ]
+
+            async def subscribe_market_data(self, _symbol, _contract):
+                return None
+
+            @staticmethod
+            def allocate_order_id():
+                return 901
+
+            async def place_order_and_wait(self, order_id, contract, order):
+                self.submissions.append((order_id, contract, order))
+                return {"status": "Live"}
+
+        app = FakeApp()
+        broker = InteractiveBrokersAdapterTests._ready_broker(app)
+        self.assertEqual(broker.status_detail()["order_options"]["routes"], ["SMART"])
+
+        await broker.subscribe_quotes(["AAPL"])
+        routes = broker.status_detail()["order_options"]["routes"]
+        result = await broker.place_order(
+            {
+                "symbol": "AAPL",
+                "qty": 1,
+                "price": 190,
+                "action": "Buy to Open",
+                "order_type": "limit",
+                "tif": "Day",
+                "route": "ARCA",
+                "hidden": True,
+            }
+        )
+
+        self.assertEqual(routes, ["SMART", "ARCA", "NYSE", "NASDAQ"])
+        self.assertEqual(result["order_id"], "901")
+        submitted_contract = app.submissions[0][1]
+        submitted_order = app.submissions[0][2]
+        self.assertEqual(submitted_contract.exchange, "ARCA")
+        self.assertTrue(submitted_order.hidden)
+
+    async def test_symbol_order_options_keep_routes_isolated_by_symbol(self):
+        contracts = {
+            "AAPL": SimpleNamespace(
+                conId=265598,
+                symbol="AAPL",
+                secType="STK",
+                exchange="SMART",
+                primaryExchange="NASDAQ",
+                currency="USD",
+            ),
+            "MU": SimpleNamespace(
+                conId=116438,
+                symbol="MU",
+                secType="STK",
+                exchange="SMART",
+                primaryExchange="NYSE",
+                currency="USD",
+            ),
+        }
+
+        class FakeApp:
+            @staticmethod
+            def isConnected():
+                return True
+
+            async def request_contract_details(self, contract):
+                symbol = str(contract.symbol).upper()
+                routes = "SMART,ARCA" if symbol == "AAPL" else "SMART,NYSE"
+                return [SimpleNamespace(contract=contracts[symbol], validExchanges=routes)]
+
+        broker = InteractiveBrokersAdapterTests._ready_broker(FakeApp())
+        aapl = await broker.get_symbol_order_options("AAPL")
+        mu = await broker.get_symbol_order_options("MU")
+
+        self.assertEqual(aapl["routes"], ["SMART", "ARCA", "NASDAQ"])
+        self.assertEqual(mu["routes"], ["SMART", "NYSE"])
+        self.assertNotIn("ARCA", mu["routes"])
+        self.assertTrue(aapl["routes_validated"])
+
     async def test_accounts_summary_and_quotes_use_confirmed_us_stock_contract(self):
         confirmed_contract = SimpleNamespace(
             conId=265598,
@@ -501,6 +605,141 @@ class InteractiveBrokersClientCompatibilityTests(unittest.TestCase):
         self.assertEqual(orders[0]["action"], "SELL")
         self.assertEqual(orders[0]["raw_status"], "Live")
         self.assertEqual(orders[0]["tif"], "GTC_EXT")
+
+    def test_quote_ack_caches_symbol_order_options_and_reconnect_clears_them(self):
+        session = self._ib_session()
+        session._request_se = lambda *_args, **_kwargs: {
+            "payload": {
+                "success": True,
+                "message": "ok",
+                "symbol_order_options": {
+                    "aapl": {
+                        "default_route": "smart",
+                        "routes": ["smart", "arca", "ARCA"],
+                        "route_editable": True,
+                        "hidden_order": True,
+                        "routes_validated": True,
+                    }
+                },
+            }
+        }
+
+        ok, _message = session.subscribe_quotes(["AAPL"])
+
+        self.assertTrue(ok)
+        self.assertEqual(session.symbol_order_options("AAPL")["routes"], ["SMART", "ARCA"])
+        self.assertTrue(session.symbol_order_options("AAPL")["routes_validated"])
+        session.bind_se_client(SimpleNamespace(is_connected=True))
+        self.assertEqual(session.symbol_order_options("AAPL"), {})
+
+    def test_legacy_quote_ack_without_order_options_remains_compatible(self):
+        session = self._ib_session()
+        session._request_se = lambda *_args, **_kwargs: {
+            "payload": {"success": True, "message": "ok"}
+        }
+
+        ok, message = session.subscribe_quotes(["AAPL"])
+
+        self.assertTrue(ok)
+        self.assertEqual(message, "ok")
+        self.assertEqual(session.symbol_order_options("AAPL"), {})
+
+    def test_client_four_order_modes_share_protocol_and_filter_current_day(self):
+        session = self._ib_session()
+        today = datetime.datetime.combine(
+            datetime.datetime.now(session._ET).date(),
+            datetime.time(12, 0),
+            tzinfo=session._ET,
+        ).isoformat()
+        yesterday = (
+            datetime.datetime.fromisoformat(today) - datetime.timedelta(days=1)
+        ).isoformat()
+        requested_modes = []
+
+        def order(status, order_id, updated_at=today):
+            return {
+                "id": order_id,
+                "symbol": "AAPL",
+                "action": "Buy to Open",
+                "qty": "1",
+                "price": "190.00",
+                "status": status,
+                "type": "LIMIT",
+                "tif": "Day",
+                "updated_at": updated_at,
+            }
+
+        current_orders = [
+            order("Live", "live"),
+            order("Filled", "filled"),
+            order("Cancelled", "cancelled"),
+            order("Rejected", "rejected"),
+            order("Expired", "expired"),
+        ]
+
+        def fake_request(_msg_type, payload, timeout=10.0):
+            requested_modes.append(payload["mode"])
+            orders = [current_orders[0]] if payload["mode"] == "live" else current_orders + [order("Filled", "old", yesterday)]
+            return {"payload": {"success": True, "orders": orders}}
+
+        session._request_se = fake_request
+        live = session.query_orders("live", force=True).data
+        filled = session.query_orders("filled", force=True).data
+        inactive = session.query_orders("inactive", force=True).data
+        all_orders = session.query_orders("all", force=True).data
+
+        self.assertEqual([item["id"] for item in live], ["live"])
+        self.assertEqual([item["id"] for item in filled], ["filled"])
+        self.assertEqual(
+            [item["id"] for item in inactive],
+            ["cancelled", "rejected", "expired"],
+        )
+        self.assertEqual([item["id"] for item in all_orders], ["live", "filled", "cancelled", "rejected", "expired"])
+        self.assertEqual(requested_modes, ["live", "all", "all", "all"])
+
+    def test_client_order_day_filter_survives_china_midnight(self):
+        session = self._ib_session()
+        china_tz = datetime.timezone(datetime.timedelta(hours=8))
+        fixed_china_time = datetime.datetime(2026, 7, 7, 2, 0, tzinfo=china_tz)
+
+        class FixedDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_china_time.astimezone(tz) if tz else fixed_china_time.replace(tzinfo=None)
+
+        orders = [
+            {
+                "id": "same-us-session",
+                "symbol": "AAPL",
+                "action": "Buy to Open",
+                "qty": "1",
+                "price": "190.00",
+                "status": "Filled",
+                "type": "LIMIT",
+                "tif": "Day",
+                "updated_at": "2026-07-06T15:00:00-04:00",
+            },
+            {
+                "id": "previous-us-day",
+                "symbol": "AAPL",
+                "action": "Buy to Open",
+                "qty": "1",
+                "price": "189.00",
+                "status": "Filled",
+                "type": "LIMIT",
+                "tif": "Day",
+                "updated_at": "2026-07-05T15:00:00-04:00",
+            },
+        ]
+        session._request_se = lambda *_args, **_kwargs: {
+            "payload": {"success": True, "orders": orders}
+        }
+
+        with patch.object(trading_session_module.datetime, "datetime", FixedDateTime):
+            result = session.query_orders("all", force=True)
+
+        self.assertTrue(result.success)
+        self.assertEqual([item["id"] for item in result.data], ["same-us-session"])
 
     def test_client_today_activity_consumes_ib_positions_and_fills_without_broker_branch(self):
         session = self._ib_session()

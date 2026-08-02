@@ -74,6 +74,8 @@ class TradingSession:
         self._order_cache_fetch_serial = 0
         self._all_orders_cache: list[dict] = []
         self._all_orders_cache_at = 0.0
+        self._symbol_order_options_lock = threading.Lock()
+        self._symbol_order_options: dict[str, dict] = {}
         self.last_login_error: dict = {}
         self.broker_detail = self._default_broker_detail()
         # 登录后从 SM 获取的 TS 地址
@@ -84,6 +86,8 @@ class TradingSession:
 
     def bind_se_client(self, se_client: TSWebSocketClient | None):
         """绑定/解绑 SE 直连客户端"""
+        if se_client is None or se_client is not self._se_client:
+            self.clear_symbol_order_options()
         self._se_client = se_client
 
     def _can_use_se(self) -> bool:
@@ -125,8 +129,51 @@ class TradingSession:
         return base
 
     def set_broker_detail(self, detail: dict | None = None) -> dict:
+        previous_type = str(getattr(self, "broker_detail", {}).get("broker_type") or "none")
         self.broker_detail = self._normalize_broker_detail(detail)
+        if previous_type != self.broker_detail["broker_type"] or not self.broker_detail["connected"]:
+            self.clear_symbol_order_options()
         return self.broker_detail
+
+    def clear_symbol_order_options(self) -> None:
+        with self._symbol_order_options_lock:
+            self._symbol_order_options.clear()
+
+    def symbol_order_options(self, symbol: str) -> dict:
+        normalized = str(symbol or "").strip().upper()
+        with self._symbol_order_options_lock:
+            return dict(self._symbol_order_options.get(normalized) or {})
+
+    def _store_symbol_order_options(self, payload: dict) -> None:
+        options_by_symbol = payload.get("symbol_order_options")
+        if not isinstance(options_by_symbol, dict):
+            return
+        normalized_options: dict[str, dict] = {}
+        for symbol, raw in options_by_symbol.items():
+            if not isinstance(raw, dict):
+                continue
+            normalized_symbol = str(symbol or raw.get("symbol") or "").strip().upper()
+            if not normalized_symbol:
+                continue
+            default_route = str(raw.get("default_route") or "SMART").strip().upper() or "SMART"
+            routes: list[str] = []
+            for route in raw.get("routes") or []:
+                value = str(route or "").strip().upper()
+                if value and value not in routes:
+                    routes.append(value)
+            if default_route not in routes:
+                routes.insert(0, default_route)
+            normalized_options[normalized_symbol] = {
+                "symbol": normalized_symbol,
+                "default_route": default_route,
+                "routes": routes,
+                "route_editable": bool(raw.get("route_editable", False)),
+                "hidden_order": bool(raw.get("hidden_order", False)),
+                "routes_validated": bool(raw.get("routes_validated", False)),
+            }
+        if normalized_options:
+            with self._symbol_order_options_lock:
+                self._symbol_order_options.update(normalized_options)
 
     def has_broker_capability(self, capability: str) -> bool:
         if self.mock_mode:
@@ -176,6 +223,7 @@ class TradingSession:
         }, timeout=timeout)
         payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
         if payload.get("success"):
+            self._store_symbol_order_options(payload)
             return True, sanitize(payload.get("message", "行情订阅成功"))
         return False, sanitize(payload.get("message", "行情订阅失败"))
 
@@ -235,6 +283,7 @@ class TradingSession:
         self.http.token = ""
         self.set_broker_detail(None)
         self.invalidate_order_cache()
+        self.clear_symbol_order_options()
         self.connected = False
         self.mock_mode = False
 
@@ -568,7 +617,8 @@ class TradingSession:
                     message=self.broker_unavailable_message("order_query"),
                 )
 
-            se_mode = "live" if mode == "live" else "all"
+            normalized_mode = str(mode or "live").lower()
+            se_mode = "live" if normalized_mode == "live" else "all"
             raw = self._request_raw_orders(se_mode, force=force)
             if raw is None:
                 error = dict(self._order_query_error)
@@ -582,7 +632,7 @@ class TradingSession:
             ET = self._ET
             for o in raw:
                 try:
-                    if mode == "all":
+                    if normalized_mode != "live":
                         o_ts_str = o.get("updated_at", "")
                         if o_ts_str:
                             try:
@@ -622,6 +672,18 @@ class TradingSession:
                     ))
                 except Exception:
                     continue
+            if normalized_mode == "filled":
+                result = [item for item in result if item.get("raw_status") == "Filled"]
+            elif normalized_mode == "inactive":
+                result = [
+                    item for item in result
+                    if item.get("raw_status") in {"Cancelled", "Rejected", "Expired"}
+                ]
+            elif normalized_mode == "live":
+                result = [
+                    item for item in result
+                    if item.get("raw_status") in LIVE_STATUSES
+                ]
             return QueryResult(True, result)
         except Exception as exc:
             return QueryResult(
@@ -648,7 +710,8 @@ class TradingSession:
             return False, sanitize(f"鎾ゅ崟澶辫触: {exc}")
 
     def place_order(self, symbol: str, qty: int, price: float,
-                    action: str, order_type: str = "limit", tif: str = "Day") -> tuple[bool, str]:
+                    action: str, order_type: str = "limit", tif: str = "Day",
+                    route: str = "", hidden: bool = False) -> tuple[bool, str]:
         """
         涓嬪崟
 
@@ -680,6 +743,8 @@ class TradingSession:
                 "action": action,
                 "order_type": order_type,
                 "tif": tif,
+                "route": route,
+                "hidden": bool(hidden),
             }, timeout=12.0)
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):

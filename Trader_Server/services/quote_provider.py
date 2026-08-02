@@ -34,6 +34,45 @@ _session_subscriptions: dict[str, Set[str]] = defaultdict(set)
 _aggregated_symbols: Set[str] = set()
 
 
+def _normalize_symbol_order_options(symbol: str, raw: dict) -> dict:
+    normalized_symbol = str(symbol or "").strip().upper()
+    default_route = str(raw.get("default_route") or "SMART").strip().upper() or "SMART"
+    routes: list[str] = []
+    for route in raw.get("routes") or []:
+        value = str(route or "").strip().upper()
+        if value and value not in routes:
+            routes.append(value)
+    if default_route not in routes:
+        routes.insert(0, default_route)
+    return {
+        "symbol": normalized_symbol,
+        "default_route": default_route,
+        "routes": routes,
+        "route_editable": bool(raw.get("route_editable", False)),
+        "hidden_order": bool(raw.get("hidden_order", False)),
+        "routes_validated": bool(raw.get("routes_validated", False)),
+    }
+
+
+async def _collect_symbol_order_options(broker, symbols: list[str]) -> dict[str, dict]:
+    getter = getattr(broker, "get_symbol_order_options", None) if broker else None
+    if not callable(getter):
+        return {}
+    result: dict[str, dict] = {}
+    for symbol in symbols:
+        normalized = str(symbol or "").strip().upper()
+        if not normalized or normalized in result:
+            continue
+        try:
+            raw = await getter(normalized)
+        except Exception as exc:
+            log.warning("Symbol order options unavailable for %s: %s", normalized, exc)
+            continue
+        if isinstance(raw, dict):
+            result[normalized] = _normalize_symbol_order_options(normalized, raw)
+    return result
+
+
 async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
     """
     处理订阅请求
@@ -47,9 +86,17 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
         if not result.get("success"):
             result.setdefault("subscribed", [])
             return result
-        return {"success": True, "subscribed": [], "message": "Already subscribed"}
+        return {
+            "success": True,
+            "subscribed": [],
+            "message": "Already subscribed",
+            "symbol_order_options": await _collect_symbol_order_options(
+                get_current_broker(), valid_symbols
+            ),
+        }
 
     added_global = [s for s in new_syms if s not in _aggregated_symbols]
+    broker = get_current_broker()
     if added_global:
         ok = await ensure_broker_connected()
         broker = get_current_broker()
@@ -73,6 +120,7 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
         "subscribed": new_syms,
         "total_subscribed": len(existing),
         "message": f"Subscribed {len(new_syms)} symbols",
+        "symbol_order_options": await _collect_symbol_order_options(broker, valid_symbols),
     }
 
 

@@ -10,16 +10,18 @@ import time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QAbstractTableModel, QEasingCurve, QModelIndex, QObject, QPropertyAnimation, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QFrame,
     QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -55,8 +57,11 @@ from Client.services.trading_session import TradingSession, sanitize
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
 from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
+from Client.ui_qt.hotkey_config_store import HotkeyConfigLoadResult, load_hotkey_config, save_hotkey_config
+from Client.ui_qt.settings_overlay import SettingsOverlay
 from Client.ui_qt.hotkey_config import (
     BATCH_CANCEL_POLICY,
+    DEFAULT_HOTKEY_CONFIG,
     ENTER_INPUT_GUARD_MS,
     HOTKEY_BINDINGS,
     IDENTICAL_ORDER_COOLDOWN_MS,
@@ -67,8 +72,12 @@ from Client.ui_qt.hotkey_config import (
     HotkeyAction,
     HotkeyBinding,
     HotkeyContext,
+    HotkeyRuntimeConfig,
+    OrderHotkeyRule,
+    bindings_from_config,
+    validate_hotkey_config,
 )
-from Client.ui_qt.shortcut_controller import ShortcutController
+from Client.ui_qt.shortcut_controller import ShortcutController, validate_shortcut_sequences
 
 
 ACTION_LABELS = {
@@ -221,6 +230,42 @@ def make_button(text: str, *, object_name: str | None = None, min_width: int | N
     return button
 
 
+class SettingsGearButton(QPushButton):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__("", parent)
+        self.setObjectName("settingsGearButton")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(28, 28)
+        self.setToolTip("设置")
+        self.setAccessibleName("设置")
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        color = QColor(theme.TEXT_PRIMARY if self.isDown() else theme.TEXT_LOW)
+        if not self.isEnabled():
+            color = QColor(theme.TEXT_LOW)
+            color.setAlpha(120)
+        painter.setPen(QPen(color, 1.4))
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        radius = 5.0
+        for dx, dy in (
+            (0, -8), (5.7, -5.7), (8, 0), (5.7, 5.7),
+            (0, 8), (-5.7, 5.7), (-8, 0), (-5.7, -5.7),
+        ):
+            painter.drawLine(
+                int(center_x + dx * 0.62),
+                int(center_y + dy * 0.62),
+                int(center_x + dx),
+                int(center_y + dy),
+            )
+        painter.drawEllipse(int(center_x - radius), int(center_y - radius), int(radius * 2), int(radius * 2))
+        painter.drawEllipse(int(center_x - 1.7), int(center_y - 1.7), 3, 3)
+        painter.end()
+
+
 class TradePriceInput(QLineEdit):
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.isAutoRepeat():
@@ -329,8 +374,11 @@ class TradingSlot:
         self.qty_box: QFrame | None = None
         self.symbol: QComboBox | None = None
         self.order_type: QComboBox | None = None
+        self.route: QComboBox | None = None
         self.tif: QComboBox | None = None
-        self.qty_label: QLabel | None = None
+        self.qty_label: QLineEdit | None = None
+        self.hidden_order: QCheckBox | None = None
+        self.hidden_order_caption: QLabel | None = None
         self.price: QLineEdit | None = None
         self.last: QLabel | None = None
         self.bid: QLabel | None = None
@@ -341,8 +389,13 @@ class TradingSlot:
         self.plus: QPushButton | None = None
         self.pending_action = ""
         self.pending_symbol = ""
+        self.pending_order_type = ""
+        self.pending_route = ""
+        self.pending_hidden = False
         self.pending_created_at = 0.0
         self.confirm_guard_until = 0.0
+        self.trade_enabled = False
+        self.symbol_pending = False
 
     def symbol_text(self) -> str:
         return self.symbol.currentText().strip().upper() if self.symbol else ""
@@ -356,7 +409,7 @@ class TradingSlot:
 
     def set_qty(self, qty: int) -> None:
         if self.qty_label:
-            self.qty_label.setText(str(max(0, int(qty))))
+            self.qty_label.setText(str(max(1, int(qty))))
 
     def price_value(self) -> float:
         if self.order_type and self.order_type.currentText() == "Market":
@@ -368,9 +421,34 @@ class TradingSlot:
             return 0.0
 
     def set_trade_enabled(self, enabled: bool) -> None:
+        self.trade_enabled = bool(enabled)
+        self._apply_trade_enabled()
+
+    def _apply_trade_enabled(self) -> None:
+        symbol_text_fn = getattr(self.symbol, "currentText", None)
+        symbol_confirmed = True
+        if callable(symbol_text_fn):
+            symbol_confirmed = bool(
+                self.current_symbol
+                and self.current_symbol == self.symbol_text()
+            )
+        enabled = bool(
+            self.trade_enabled
+            and not self.symbol_pending
+            and symbol_confirmed
+        )
         for widget in (self.buy, self.sell):
             if widget:
                 widget.setEnabled(enabled)
+
+    def set_symbol_pending(self, pending: bool) -> None:
+        self.symbol_pending = bool(pending)
+        self._apply_trade_enabled()
+
+    def clear_quote(self) -> None:
+        for label in (self.last, self.bid, self.ask):
+            if label:
+                label.setText("--")
 
     def update_quote(self, quote: dict) -> None:
         if self.last:
@@ -399,6 +477,10 @@ class TradingTerminalQt(QMainWindow):
         self.slots: dict[int, TradingSlot] = {}
         self._active_panel_id = 1
         self._shortcut_controller: ShortcutController | None = None
+        self._hotkey_bindings: tuple[HotkeyBinding, ...] = HOTKEY_BINDINGS
+        self._hotkey_config_result: HotkeyConfigLoadResult | None = None
+        self._hotkey_config: HotkeyRuntimeConfig = DEFAULT_HOTKEY_CONFIG
+        self._settings_overlay: SettingsOverlay | None = None
         self._action_limiter = ActionRateLimiter()
         self._quote_sync_timers: dict[int, QTimer] = {}
         self._ts_connection = TSConnectionCoordinator(
@@ -448,6 +530,11 @@ class TradingTerminalQt(QMainWindow):
         self._quote_requested_symbols: set[str] = set()
         self._quote_subscribed_symbols: set[str] = set()
         self._quote_sub_lock = threading.Lock()
+        self._toast_widgets: list[QFrame] = []
+        self._toast_animations: list[QPropertyAnimation] = []
+        self._resize_effect_timer = QTimer(self)
+        self._resize_effect_timer.setSingleShot(True)
+        self._resize_effect_timer.timeout.connect(self._restore_resize_effects)
 
         app = QApplication.instance()
         if app is not None:
@@ -755,9 +842,9 @@ class TradingTerminalQt(QMainWindow):
                 slot.container.setProperty("activePanel", active)
                 effect = slot.container.graphicsEffect()
                 if isinstance(effect, QGraphicsDropShadowEffect):
-                    effect.setEnabled(True)
-                    effect.setBlurRadius(16 if active else 12)
-                    effect.setColor(QColor(245, 189, 67, 104 if active else 68))
+                    effect.setEnabled(active)
+                    effect.setBlurRadius(16)
+                    effect.setColor(QColor(245, 189, 67, 104))
                 self._repolish(slot.container)
 
     def _set_live_orders_online(self, online: bool) -> None:
@@ -768,6 +855,20 @@ class TradingTerminalQt(QMainWindow):
 
     def _active_slot(self) -> TradingSlot | None:
         return self.slots.get(self._active_panel_id)
+
+    def _cycle_active_panel(self) -> None:
+        if not self.slots:
+            return
+        ids = sorted(self.slots)
+        try:
+            current_index = ids.index(self._active_panel_id)
+        except ValueError:
+            current_index = -1
+        next_id = ids[(current_index + 1) % len(ids)]
+        self._activate_panel(next_id)
+        slot = self._active_slot()
+        if slot and slot.symbol:
+            slot.symbol.setFocus()
 
     @staticmethod
     def _widget_is_within(widget: QWidget | None, container: QWidget | None) -> bool:
@@ -785,9 +886,15 @@ class TradingTerminalQt(QMainWindow):
 
     def _setup_shortcuts(self) -> None:
         self._teardown_shortcuts()
+        load_result = load_hotkey_config(HOTKEY_BINDINGS)
+        self._hotkey_config_result = load_result
+        self._hotkey_config = load_result.config
+        self._hotkey_bindings = load_result.bindings
+        if load_result.errors:
+            self._append_log("快捷键配置无效，已恢复默认配置", "warn", dedupe=True)
         controller = ShortcutController(
             self,
-            HOTKEY_BINDINGS,
+            self._hotkey_bindings,
             self._dispatch_hotkey,
             self._shortcut_context_matches,
         )
@@ -802,6 +909,71 @@ class TradingTerminalQt(QMainWindow):
             self._shortcut_controller.shutdown()
             self._shortcut_controller.deleteLater()
             self._shortcut_controller = None
+
+    def _open_settings_overlay(self) -> None:
+        if not self._main_ui_built:
+            return
+        if self._settings_overlay is not None:
+            self._settings_overlay.raise_()
+            self._settings_overlay.setFocus()
+            return
+        self._teardown_shortcuts()
+        parent = self.centralWidget()
+        if parent is None:
+            return
+        overlay = SettingsOverlay(
+            parent,
+            config=self._hotkey_config,
+            route_options=self._current_route_options(),
+            route_effective=self._route_editable(),
+            hidden_effective=self._hidden_order_supported(),
+        )
+        overlay.close_requested.connect(self._close_settings_overlay)
+        overlay.save_requested.connect(self._save_settings_config)
+        self._settings_overlay = overlay
+        self._sync_settings_overlay_geometry()
+        overlay.show()
+        overlay.raise_()
+        overlay.setFocus()
+
+    def _close_settings_overlay(self) -> None:
+        overlay = self._settings_overlay
+        self._settings_overlay = None
+        if overlay is not None:
+            overlay.hide()
+            overlay.deleteLater()
+        if self._main_ui_built:
+            self._setup_shortcuts()
+
+    def _save_settings_config(self, config: HotkeyRuntimeConfig) -> None:
+        errors = validate_hotkey_config(config)
+        errors.extend(validate_shortcut_sequences(bindings_from_config(config)))
+        if errors:
+            message = "；".join(errors[:3])
+            if self._settings_overlay:
+                self._settings_overlay.set_error(message)
+            self._show_weak_tip(f"快捷键配置未保存：{message}", "warn")
+            return
+        try:
+            save_hotkey_config(config)
+        except Exception as exc:
+            message = f"快捷键配置保存失败：{localize_user_message(str(exc))}"
+            if self._settings_overlay:
+                self._settings_overlay.set_error(message)
+            self._show_weak_tip(message, "warn")
+            return
+        self._hotkey_config = config
+        self._hotkey_bindings = bindings_from_config(config)
+        self._append_log("快捷键配置已保存", "ok")
+        self._show_weak_tip("快捷键配置已保存", "ok")
+        self._close_settings_overlay()
+
+    def _sync_settings_overlay_geometry(self) -> None:
+        if self._settings_overlay is None:
+            return
+        parent = self._settings_overlay.parentWidget()
+        if parent is not None:
+            self._settings_overlay.setGeometry(parent.rect())
 
     def _shortcut_context_matches(self, binding: HotkeyBinding) -> bool:
         if not self._main_ui_built or QApplication.activeWindow() is not self:
@@ -833,7 +1005,9 @@ class TradingTerminalQt(QMainWindow):
         action = binding.action
         params = binding.params
         panel_id = int(params.get("panel_id") or self._active_panel_id)
-        if action == HotkeyAction.PANEL_ACTIVATE:
+        if action == HotkeyAction.PANEL_CYCLE:
+            self._cycle_active_panel()
+        elif action == HotkeyAction.PANEL_ACTIVATE:
             self._activate_panel(panel_id)
             slot = self._active_slot()
             if slot and slot.symbol:
@@ -846,6 +1020,8 @@ class TradingTerminalQt(QMainWindow):
                 panel_id,
                 str(params.get("price_source") or ""),
             )
+        elif action == HotkeyAction.ORDER_PREPARE_RULE:
+            self._prepare_configured_order(params, panel_id)
         elif action == HotkeyAction.ORDER_CONFIRM_PENDING:
             self._confirm_pending_order(panel_id)
         elif action == HotkeyAction.ORDER_CANCEL_PENDING:
@@ -881,15 +1057,15 @@ class TradingTerminalQt(QMainWindow):
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(16)
 
-        logo = QLabel("S C")
+        logo = QLabel("SC")
+        logo.setObjectName("mainLogo")
         logo.setAlignment(Qt.AlignCenter)
-        logo.setMinimumWidth(46)
-        logo.setMaximumHeight(32)
+        logo.setFixedSize(46, 32)
         logo.setStyleSheet(
-            f"background: {theme.ACCENT_BLUE}; color: #07121B; "
-            f"border: 1px solid {theme.ACCENT_BLUE}; border-radius: 8px; padding: 2px 10px;"
+            f"background: transparent; color: {theme.ACCENT_BLUE}; "
+            "border: none; padding: 0; font-size: 30px; font-weight: 900;"
         )
-        logo.setFont(theme.ui_font(10, bold=True))
+        logo.setFont(theme.ui_font(24, bold=True))
         layout.addWidget(logo)
 
         switch = QFrame()
@@ -915,6 +1091,9 @@ class TradingTerminalQt(QMainWindow):
         layout.addWidget(status)
 
         layout.addStretch(1)
+        self.settings_btn = SettingsGearButton()
+        self.settings_btn.clicked.connect(self._open_settings_overlay)
+        layout.addWidget(self.settings_btn)
         self.latency_label = make_label("--ms", color=theme.TEXT_LOW, font=theme.mono_font(9))
         layout.addWidget(self.latency_label)
 
@@ -923,16 +1102,17 @@ class TradingTerminalQt(QMainWindow):
         clock_layout.setContentsMargins(0, 0, 0, 0)
         clock_layout.setSpacing(8)
         clock_layout.addWidget(make_label("CN Time", color=theme.TEXT_MUTED, font=theme.ui_font(9)))
-        clock_box = QFrame()
-        clock_box.setStyleSheet(f"background: #080A0D; border: 1px solid {theme.BORDER_SOFT}; border-radius: 7px; padding: 3px 8px;")
-        clock_box_layout = QHBoxLayout(clock_box)
-        clock_box_layout.setContentsMargins(8, 3, 8, 3)
         self._clock = QLabel()
         self._clock.setFont(theme.mono_font(9))
-        self._clock.setStyleSheet("color: #F1F3F5;")
+        self._clock.setAlignment(Qt.AlignCenter)
+        self._clock.setMinimumWidth(158)
+        self._clock.setMinimumHeight(34)
+        self._clock.setStyleSheet(
+            f"background: #080A0D; border: 1px solid {theme.BORDER_SOFT}; "
+            "border-radius: 7px; padding: 3px 10px; color: #F1F3F5;"
+        )
         self._tick()
-        clock_box_layout.addWidget(self._clock)
-        clock_layout.addWidget(clock_box)
+        clock_layout.addWidget(self._clock)
         layout.addWidget(clock)
         return header
 
@@ -998,7 +1178,9 @@ class TradingTerminalQt(QMainWindow):
         right_config = QWidget()
         right_config_layout = QHBoxLayout(right_config)
         right_config_layout.setContentsMargins(0, 0, 0, 0)
-        right_config_layout.setSpacing(14)
+        right_config_layout.setSpacing(10)
+        slot.route = make_select("SMART", ["SMART"])
+        right_config_layout.addWidget(self._control_block("ROUTE", slot.route), 1)
         slot.tif = make_select("Day", ["Day", "GTC", "IOC", "EXT", "GTC_EXT"])
         right_config_layout.addWidget(self._control_block("TIF", slot.tif), 1)
 
@@ -1007,6 +1189,21 @@ class TradingTerminalQt(QMainWindow):
         slot.minus.clicked.connect(lambda _checked=False, pid=idx, delta=minus_step: self._adj_qty(delta, pid))
         slot.plus.clicked.connect(lambda _checked=False, pid=idx, delta=plus_step: self._adj_qty(delta, pid))
         right_config_layout.addWidget(self._control_block("QTY", qty_box), 1)
+
+        hide_block = QWidget()
+        hide_block.setFixedWidth(52)
+        hide_layout = QVBoxLayout(hide_block)
+        hide_layout.setContentsMargins(0, 0, 0, 0)
+        hide_layout.setSpacing(7)
+        slot.hidden_order_caption = make_label("HIDE", color=theme.TEXT_LOW, object_name="hiddenOrderCaption")
+        slot.hidden_order_caption.setAlignment(Qt.AlignCenter)
+        slot.hidden_order = QCheckBox()
+        slot.hidden_order.setObjectName("hiddenOrderCheck")
+        slot.hidden_order.setEnabled(False)
+        slot.hidden_order.setToolTip("当前券商不支持 HIDE 订单")
+        hide_layout.addWidget(slot.hidden_order_caption)
+        hide_layout.addWidget(slot.hidden_order, 0, Qt.AlignCenter)
+        right_config_layout.addWidget(hide_block, 0)
         slot_grid.addWidget(right_config, 1, 1)
 
         slot.price = make_input(price, field_type=TradePriceInput)
@@ -1054,7 +1251,7 @@ class TradingTerminalQt(QMainWindow):
             labels.append(value)
         return box, labels[0], labels[1], labels[2]
 
-    def _build_qty(self, value: str, minus_step: int, plus_step: int) -> tuple[QFrame, QLabel, QPushButton, QPushButton]:
+    def _build_qty(self, value: str, minus_step: int, plus_step: int) -> tuple[QFrame, QLineEdit, QPushButton, QPushButton]:
         box = QFrame()
         box.setObjectName("inputBox")
         box.setMinimumHeight(44)
@@ -1065,13 +1262,24 @@ class TradingTerminalQt(QMainWindow):
         minus.setFixedWidth(34)
         plus = make_button(f"+{plus_step}" if plus_step > 0 else str(plus_step), object_name="qtyStepButton", min_width=28)
         plus.setFixedWidth(34)
-        qty = make_label(value, color=theme.TEXT_PRIMARY, font=theme.mono_font(11))
+        qty = QLineEdit(value)
+        qty.setObjectName("qtyInput")
         qty.setAlignment(Qt.AlignCenter)
-        qty.setMinimumWidth(30)
+        qty.setFont(theme.mono_font(11))
+        qty.setMinimumWidth(34)
+        qty.setMaxLength(7)
+        qty.editingFinished.connect(lambda field=qty: self._normalize_qty_field(field))
         layout.addWidget(minus)
         layout.addWidget(qty, 1)
         layout.addWidget(plus)
         return box, qty, minus, plus
+
+    def _normalize_qty_field(self, field: QLineEdit) -> None:
+        try:
+            qty = int(float(field.text().strip() or "0"))
+        except ValueError:
+            qty = 1
+        field.setText(str(max(1, qty)))
 
     def _control_block(self, caption: str, widget: QWidget) -> QWidget:
         block = QWidget()
@@ -1087,9 +1295,18 @@ class TradingTerminalQt(QMainWindow):
         tabs = QHBoxLayout(head)
         tabs.setContentsMargins(12, 7, 12, 7)
         tabs.setSpacing(6)
-        self.live_orders_btn = make_button("\u25cf \u5b9e\u65f6", object_name="liveOrdersButton")
+        self.live_orders_btn = make_button("\u25cf \u8fdb\u884c\u4e2d", object_name="liveOrdersButton")
         self.live_orders_btn.setProperty("online", False)
+        self.filled_orders_btn = make_button("成交", object_name="orderTabButton")
+        self.inactive_orders_btn = make_button("失效", object_name="orderTabButton")
         self.all_orders_btn = make_button("All")
+        self.all_orders_btn.setObjectName("orderTabButton")
+        self._order_mode_buttons = {
+            "live": self.live_orders_btn,
+            "filled": self.filled_orders_btn,
+            "inactive": self.inactive_orders_btn,
+            "all": self.all_orders_btn,
+        }
         self.order_count_label = make_label("\u6682\u65e0\u8ba2\u5355", color=theme.TEXT_DIM, font=theme.ui_font(9))
         self.cancel_order_btn = make_button("\u64a4\u5355", object_name="cancelOrderButton", min_width=60)
         self.cancel_order_btn.setFixedHeight(21)
@@ -1099,19 +1316,26 @@ class TradingTerminalQt(QMainWindow):
         self.orders_refresh_btn.setToolTip("刷新订单")
         self.orders_refresh_btn.setAccessibleName("刷新订单")
         self.live_orders_btn.clicked.connect(lambda: self._switch_order_mode("live"))
+        self.filled_orders_btn.clicked.connect(lambda: self._switch_order_mode("filled"))
+        self.inactive_orders_btn.clicked.connect(lambda: self._switch_order_mode("inactive"))
         self.all_orders_btn.clicked.connect(lambda: self._switch_order_mode("all"))
         self.cancel_order_btn.clicked.connect(self._cancel_selected_order)
         self.orders_refresh_btn.clicked.connect(self._manual_refresh_orders)
         tabs.addWidget(self.live_orders_btn)
+        tabs.addWidget(self.filled_orders_btn)
+        tabs.addWidget(self.inactive_orders_btn)
         tabs.addWidget(self.all_orders_btn)
         tabs.addWidget(self.order_count_label)
         tabs.addStretch(1)
         tabs.addWidget(self.cancel_order_btn)
+        tabs.addSpacing(36)
         tabs.addWidget(self.orders_refresh_btn)
         body.addWidget(head)
         self.orders_model = DataTableModel(["\u4ee3\u7801", "\u65b9\u5411", "\u4ef7\u683c", "\u6570\u91cf", "\u7c7b\u578b", "\u6709\u6548\u671f", "\u72b6\u6001"])
         self.orders_table = self._make_table(self.orders_model)
+        self.orders_table.doubleClicked.connect(lambda _index: self._cancel_selected_order())
         body.addWidget(self.orders_table, 1)
+        self._update_order_mode_buttons("live")
         return panel
 
     def _build_positions_panel(self) -> QFrame:
@@ -1179,6 +1403,7 @@ class TradingTerminalQt(QMainWindow):
 
     def _make_table(self, model: DataTableModel) -> QTableView:
         table = QTableView()
+        table.setObjectName("tradeDataTable")
         table.setModel(model)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         table.verticalHeader().hide()
@@ -1190,6 +1415,7 @@ class TradingTerminalQt(QMainWindow):
     def _build_console(self) -> QFrame:
         panel = QFrame()
         panel.setObjectName("dataPanel")
+        self.console_panel = panel
         panel.setFixedHeight(166)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(1, 1, 1, 1)
@@ -1537,6 +1763,67 @@ class TradingTerminalQt(QMainWindow):
     def _trade_controls_enabled(self) -> bool:
         return self._broker_capability_enabled("orders")
 
+    def _broker_order_options(self, symbol: str = "") -> dict:
+        normalized_symbol = str(symbol or "").strip().upper()
+        if normalized_symbol and self.session:
+            getter = getattr(self.session, "symbol_order_options", None)
+            if callable(getter):
+                try:
+                    symbol_options = getter(normalized_symbol)
+                except Exception:
+                    symbol_options = {}
+                if isinstance(symbol_options, dict) and symbol_options:
+                    return symbol_options
+        detail = self._broker_detail_state()
+        options = detail.get("order_options")
+        return options if isinstance(options, dict) else {}
+
+    def _current_route_options(self, symbol: str = "") -> list[str]:
+        options = self._broker_order_options(symbol)
+        routes = options.get("routes") or options.get("available_routes") or []
+        normalized: list[str] = []
+        for route in routes:
+            value = str(route or "").strip().upper()
+            if value and value not in normalized:
+                normalized.append(value)
+        default_route = str(options.get("default_route") or self._hotkey_config.default_route or "SMART").upper()
+        if default_route and default_route not in normalized:
+            normalized.insert(0, default_route)
+        if "SMART" not in normalized:
+            normalized.insert(0, "SMART")
+        return normalized
+
+    def _route_editable(self, symbol: str = "") -> bool:
+        options = self._broker_order_options(symbol)
+        return bool(options.get("route_editable", False))
+
+    def _hidden_order_supported(self, symbol: str = "") -> bool:
+        options = self._broker_order_options(symbol)
+        return bool(options.get("hidden_order", False))
+
+    def _resolve_route_value(self, route: str, symbol: str = "") -> str:
+        options = self._broker_order_options(symbol)
+        if not bool(options.get("route_editable", False)):
+            return str(options.get("default_route") or "SMART").strip().upper()
+        value = str(route or "").strip().upper()
+        if not value or value == "DEFAULT":
+            return str(self._hotkey_config.default_route or "SMART").strip().upper()
+        return value
+
+    def _route_available_for_symbol(self, symbol: str, route: str) -> bool:
+        normalized_route = str(route or "SMART").strip().upper() or "SMART"
+        if normalized_route == "SMART":
+            return True
+        options = self._broker_order_options(symbol)
+        if not bool(options.get("routes_validated", False)):
+            return True
+        routes = {
+            str(value or "").strip().upper()
+            for value in options.get("routes") or []
+            if str(value or "").strip()
+        }
+        return normalized_route in routes
+
     def _apply_broker_status_ui(self) -> None:
         if not self._main_ui_built:
             return
@@ -1553,11 +1840,50 @@ class TradingTerminalQt(QMainWindow):
         orders_enabled = self._broker_capability_enabled("orders")
         for slot in self.slots.values():
             slot.set_trade_enabled(orders_enabled)
+            self._apply_order_options_to_slot(slot)
         if not orders_enabled:
             self._cancel_all_pending_orders()
         self.orders_refresh_btn.setEnabled(self._broker_capability_enabled("order_query"))
         self.positions_refresh_btn.setEnabled(self._broker_capability_enabled("positions"))
         self.cancel_order_btn.setEnabled(self._broker_capability_enabled("cancel_order"))
+
+    def _apply_order_options_to_slot(self, slot: TradingSlot) -> None:
+        symbol = slot.current_symbol
+        routes = self._current_route_options(symbol)
+        route_editable = self._route_editable(symbol)
+        hidden_supported = self._hidden_order_supported(symbol)
+        if slot.route:
+            current = slot.route.currentText().strip().upper() or self._resolve_route_value("DEFAULT", symbol)
+            slot.route.blockSignals(True)
+            slot.route.clear()
+            slot.route.addItems(routes)
+            if current in routes:
+                slot.route.setCurrentText(current)
+            else:
+                fallback = self._resolve_route_value("DEFAULT", symbol)
+                if fallback not in routes:
+                    fallback = str(
+                        self._broker_order_options(symbol).get("default_route") or "SMART"
+                    ).strip().upper()
+                if fallback not in routes and routes:
+                    fallback = routes[0]
+                slot.route.setCurrentText(fallback)
+            slot.route.blockSignals(False)
+            slot.route.setFocusPolicy(Qt.StrongFocus if route_editable else Qt.NoFocus)
+            slot.route.setAttribute(Qt.WA_TransparentForMouseEvents, not route_editable)
+            slot.route.setProperty("locked", not route_editable)
+            self._repolish(slot.route)
+        if slot.hidden_order:
+            slot.hidden_order.setEnabled(hidden_supported)
+            slot.hidden_order.setToolTip(
+                "以 HIDE 订单方式提交" if hidden_supported else "当前券商不支持 HIDE 订单"
+            )
+            if not hidden_supported:
+                slot.hidden_order.setChecked(False)
+        if slot.hidden_order_caption:
+            slot.hidden_order_caption.setStyleSheet(
+                f"color: {theme.TEXT_MUTED if hidden_supported else theme.TEXT_LOW};"
+            )
 
     def _append_log(self, message: str, tag: str = "inf", *, dedupe: bool = False) -> None:
         msg = localize_user_message(message)
@@ -1576,6 +1902,8 @@ class TradingTerminalQt(QMainWindow):
         self._log_rows = self._log_rows[-5:]
         if self._main_ui_built and hasattr(self, "log_layout"):
             self._render_logs()
+        if tag == "warn":
+            self._show_weak_tip(msg, "warn")
 
     def _log_user_error_once(self, msg: str, tag: str = "err", window_seconds: float = 3.0) -> None:
         text = localize_user_message(msg)
@@ -1585,6 +1913,108 @@ class TradingTerminalQt(QMainWindow):
         self._last_ui_error_message = text
         self._last_ui_error_at = now
         self._append_log(text, tag)
+
+    def _show_weak_tip(self, message: str, level: str = "inf", duration_ms: int = 3000) -> None:
+        text = localize_user_message(message)
+        if not text or not self._main_ui_built:
+            return
+        parent = self.centralWidget()
+        if parent is None:
+            return
+        for active_toast in self._toast_widgets:
+            if (
+                active_toast.property("weakMessage") == text
+                and active_toast.property("weakLevel") == level
+            ):
+                return
+        color = {
+            "ok": theme.ACCENT_GREEN,
+            "warn": theme.ACCENT_YELLOW,
+            "err": theme.ACCENT_RED,
+            "inf": theme.TEXT_DIM,
+        }.get(level, theme.TEXT_DIM)
+        toast = QFrame(parent)
+        toast.setObjectName("weakToast")
+        toast.setProperty("weakMessage", text)
+        toast.setProperty("weakLevel", level)
+        toast.setStyleSheet(
+            "QFrame#weakToast {"
+            "background: rgba(44, 48, 56, 185);"
+            f"border: 1px solid {theme.BORDER_SOFT};"
+            "border-radius: 14px;"
+            "}"
+        )
+        opacity = QGraphicsOpacityEffect(toast)
+        opacity.setOpacity(1.0)
+        toast.setGraphicsEffect(opacity)
+        layout = QHBoxLayout(toast)
+        layout.setContentsMargins(26, 18, 26, 18)
+        label = make_label(text, color=color, font=theme.ui_font(12, bold=True))
+        label.setWordWrap(True)
+        label.setMinimumWidth(640)
+        label.setMaximumWidth(720)
+        layout.addWidget(label)
+        toast.adjustSize()
+        toast.setMinimumHeight(max(72, toast.height()))
+        self._toast_widgets.append(toast)
+        self._position_toasts()
+        toast.show()
+        toast.raise_()
+
+        def remove_toast(animation: QPropertyAnimation | None = None) -> None:
+            if animation is not None and animation in self._toast_animations:
+                self._toast_animations.remove(animation)
+            if toast in self._toast_widgets:
+                self._toast_widgets.remove(toast)
+            toast.deleteLater()
+            self._position_toasts()
+
+        def fade_toast() -> None:
+            if toast not in self._toast_widgets:
+                return
+            animation = QPropertyAnimation(opacity, b"opacity", toast)
+            animation.setDuration(350)
+            animation.setStartValue(1.0)
+            animation.setEndValue(0.0)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            animation.finished.connect(lambda anim=animation: remove_toast(anim))
+            self._toast_animations.append(animation)
+            animation.start()
+
+        QTimer.singleShot(max(0, int(duration_ms) - 350), fade_toast)
+
+    def _position_toasts(self) -> None:
+        parent = self.centralWidget()
+        if parent is None:
+            return
+        margin = 22
+        console = getattr(self, "console_panel", None)
+        console_top = console.mapTo(parent, console.rect().topLeft()).y() if console is not None else parent.height() - 188
+        visible_toasts = list(self._toast_widgets)
+        total_height = 0
+        for toast in visible_toasts:
+            toast.adjustSize()
+            total_height += max(toast.height(), toast.minimumHeight())
+        total_height += max(0, len(visible_toasts) - 1) * 10
+        y = max(80, console_top - total_height - 10)
+        for toast in visible_toasts:
+            if toast is None:
+                continue
+            toast.adjustSize()
+            width = min(max(toast.width(), 700), max(320, parent.width() - margin * 2))
+            height = max(toast.height(), toast.minimumHeight())
+            x = max(margin, parent.width() - width - margin)
+            toast.setGeometry(x, y, width, height)
+            y += height + 10
+
+    def _set_trade_card_effects_enabled(self, enabled: bool) -> None:
+        for slot in self.slots.values():
+            effect = slot.container.graphicsEffect() if slot.container else None
+            if isinstance(effect, QGraphicsDropShadowEffect):
+                effect.setEnabled(bool(enabled and slot.container.property("activePanel")))
+
+    def _restore_resize_effects(self) -> None:
+        self._set_trade_card_effects_enabled(True)
 
     def _render_logs(self) -> None:
         while self.log_layout.count():
@@ -1729,6 +2159,8 @@ class TradingTerminalQt(QMainWindow):
 
         if state == "reconnecting":
             attempt = int(detail.get("attempt") or 0)
+            if self.session:
+                self.session.clear_symbol_order_options()
             if self._init_ready:
                 self._handle_ts_reconnecting(f"Reconnecting ({attempt})")
             else:
@@ -1831,6 +2263,8 @@ class TradingTerminalQt(QMainWindow):
             detail = payload.get("broker_detail")
             if self.session and isinstance(detail, dict):
                 self.session.set_broker_detail(detail)
+            if self.session and status in {"connected", "reconnected", "reloaded"}:
+                self.session.clear_symbol_order_options()
             self._apply_broker_status_ui()
             if status in {"connected", "reconnected", "reloaded"}:
                 self._sync_quote_subscriptions_async(force_resubscribe=True)
@@ -1964,7 +2398,7 @@ class TradingTerminalQt(QMainWindow):
             return
         self.current_quote[sym] = quote
         for slot in self.slots.values():
-            if slot.symbol_text() == sym:
+            if slot.current_symbol == sym:
                 slot.update_quote(quote)
 
     def _invalidate_quote_freshness(self) -> None:
@@ -1986,19 +2420,27 @@ class TradingTerminalQt(QMainWindow):
         timer = self._quote_sync_timers.get(pid)
         if timer and timer.isActive():
             timer.stop()
-        slot = self.slots[pid]
+        slot = self.slots.get(pid)
+        if not slot:
+            return
         self._activate_panel(pid)
         sym = slot.symbol_text()
         if not sym:
+            self._mark_symbol_pending(pid, "")
             return
-        if slot.current_symbol and slot.current_symbol != sym:
-            self._cancel_pending_order(pid)
-        slot.current_symbol = sym
-        if sym in self.current_quote:
-            slot.update_quote(self.current_quote[sym])
-        self._sync_quote_subscriptions_async()
+        if slot.current_symbol == sym and not slot.symbol_pending:
+            if sym in self.current_quote:
+                slot.update_quote(self.current_quote[sym])
+            return
+        self._mark_symbol_pending(pid, sym)
+        generation = self._se_generation
+        session = self.session
+        self._run_bg(lambda: self._confirm_symbol_bg(pid, sym, generation, session))
 
     def _schedule_quote_sync(self, pid: int) -> None:
+        slot = self.slots.get(pid)
+        if slot and slot.symbol_text() != slot.current_symbol:
+            self._mark_symbol_pending(pid, slot.symbol_text())
         timer = self._quote_sync_timers.get(pid)
         if timer is None:
             timer = QTimer(self)
@@ -2007,13 +2449,68 @@ class TradingTerminalQt(QMainWindow):
             self._quote_sync_timers[pid] = timer
         timer.start(350)
 
+    def _mark_symbol_pending(self, pid: int, symbol: str) -> None:
+        slot = self.slots.get(pid)
+        if not slot:
+            return
+        self._cancel_pending_order(pid)
+        if symbol != slot.current_symbol:
+            slot.current_symbol = ""
+            slot.clear_quote()
+        slot.set_symbol_pending(bool(symbol))
+
+    def _confirm_symbol_bg(
+        self,
+        pid: int,
+        symbol: str,
+        generation: int,
+        session: TradingSession | None,
+    ) -> None:
+        ok = True
+        message = "ok"
+        try:
+            subscribe = getattr(session, "subscribe_quotes", None) if session else None
+            if callable(subscribe):
+                ok, message = subscribe([symbol], timeout=6.0)
+        except Exception as exc:
+            ok, message = False, sanitize(str(exc) or "股票查询失败")
+        self._ui(lambda: self._handle_symbol_confirm_result(pid, symbol, ok, message, generation))
+
+    def _handle_symbol_confirm_result(
+        self,
+        pid: int,
+        symbol: str,
+        ok: bool,
+        message: str,
+        generation: int,
+    ) -> None:
+        if generation != self._se_generation:
+            return
+        slot = self.slots.get(pid)
+        if not slot or slot.symbol_text() != symbol:
+            return
+        if not ok:
+            slot.current_symbol = ""
+            slot.clear_quote()
+            slot.set_symbol_pending(False)
+            self._log_user_error_once(f"股票查询失败：{localize_user_message(message)}", "warn")
+            return
+        slot.current_symbol = symbol
+        slot.set_symbol_pending(False)
+        with self._quote_sub_lock:
+            self._quote_subscribed_symbols.add(symbol)
+        if symbol in self.current_quote:
+            slot.update_quote(self.current_quote[symbol])
+        self._apply_order_options_to_slot(slot)
+        self._refresh_broker_status_async(log_errors=False)
+
     def _sync_quote_subscriptions_async(self, force_resubscribe: bool = False) -> None:
         if not self.session or not self._se_connected:
             return
         self._run_bg(lambda: self._sync_quote_subscriptions_bg(force_resubscribe))
 
     def _sync_quote_subscriptions_bg(self, force_resubscribe: bool = False) -> None:
-        symbols = {slot.symbol_text() for slot in self.slots.values() if slot.symbol_text()}
+        symbols = {slot.current_symbol for slot in self.slots.values() if slot.current_symbol}
         with self._quote_sub_lock:
             current = set(self._quote_subscribed_symbols)
             to_unsub = sorted(current - symbols)
@@ -2110,6 +2607,40 @@ class TradingTerminalQt(QMainWindow):
         self._place_order(action, pid, order_type_override="market", price_override=0.0, source="hotkey")
 
     def _prepare_limit_order(self, side: str, pid: int, price_source: str = "") -> None:
+        self._prepare_order_entry(
+            side=side,
+            pid=pid,
+            order_type="limit",
+            tif="Day",
+            route="DEFAULT",
+            hidden=False,
+            price_offset=0.0,
+            price_source=price_source,
+        )
+
+    def _prepare_configured_order(self, params: dict, pid: int) -> None:
+        self._prepare_order_entry(
+            side=str(params.get("side") or ""),
+            pid=pid,
+            order_type=str(params.get("order_type") or "limit"),
+            tif=str(params.get("tif") or "Day"),
+            route=str(params.get("route") or "DEFAULT"),
+            hidden=bool(params.get("hidden", False)),
+            price_offset=float(params.get("price_offset") or 0.0),
+        )
+
+    def _prepare_order_entry(
+        self,
+        *,
+        side: str,
+        pid: int,
+        order_type: str,
+        tif: str,
+        route: str,
+        hidden: bool,
+        price_offset: float = 0.0,
+        price_source: str = "",
+    ) -> None:
         if side not in {"buy", "sell"} or pid not in self.slots:
             return
         if not self.session or not self._trade_controls_enabled():
@@ -2122,24 +2653,47 @@ class TradingTerminalQt(QMainWindow):
 
         self._activate_panel(pid)
         slot = self.slots[pid]
+        normalized_type = "market" if str(order_type).lower() == "market" else "limit"
         if slot.order_type:
-            slot.order_type.setCurrentText("Limit")
-        quote = self.current_quote.get(symbol, {})
-        received_at = float(quote.get("received_monotonic", 0) or 0)
-        fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= QUOTE_FRESHNESS_MS
-        source = price_source if price_source in {"bid", "ask"} else ("ask" if side == "buy" else "bid")
-        quote_price = float(quote.get(source, 0) or 0) if fresh else 0.0
+            slot.order_type.setCurrentText("Market" if normalized_type == "market" else "Limit")
+        if slot.tif:
+            slot.tif.setCurrentText(tif)
+        resolved_route = self._resolve_route_value(route, symbol)
+        effective_hidden = bool(hidden and self._hidden_order_supported(symbol))
+        if slot.route:
+            if slot.route.findText(resolved_route) < 0:
+                slot.route.addItem(resolved_route)
+            slot.route.setCurrentText(resolved_route)
+        if slot.hidden_order:
+            slot.hidden_order.setChecked(effective_hidden)
+
+        quote_price = 0.0
+        if normalized_type == "limit":
+            quote = self.current_quote.get(symbol, {})
+            received_at = float(quote.get("received_monotonic", 0) or 0)
+            fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= QUOTE_FRESHNESS_MS
+            source = price_source if price_source in {"bid", "ask"} else ("bid" if side == "buy" else "ask")
+            quote_price = float(quote.get(source, 0) or 0) if fresh else 0.0
+            if quote_price > 0:
+                quote_price = max(0.0, quote_price + float(price_offset or 0.0))
         if slot.price:
-            slot.price.setText(f"{quote_price:.2f}" if quote_price > 0 else "")
+            slot.price.setEnabled(True)
+            slot.price.setText("Market" if normalized_type == "market" else (f"{quote_price:.2f}" if quote_price > 0 else ""))
             slot.price.setProperty("pendingSide", side)
             self._repolish(slot.price)
             slot.price.setFocus()
             slot.price.selectAll()
         slot.pending_action = "Buy to Open" if side == "buy" else "Sell to Close"
         slot.pending_symbol = symbol
+        slot.pending_order_type = normalized_type
+        slot.pending_route = resolved_route
+        slot.pending_hidden = effective_hidden
         slot.pending_created_at = time.monotonic()
         direction = "买入" if side == "buy" else "卖出"
-        if quote_price > 0:
+        self._set_pending_button_state(slot, side)
+        if normalized_type == "market":
+            self._append_log(f"市价{direction}待确认：{symbol}", "inf")
+        elif quote_price > 0:
             self._append_log(f"限价{direction}待确认：{symbol} @ ${quote_price:.2f}", "inf")
         else:
             self._append_log(f"限价{direction}待确认：{symbol}，请填写价格", "warn")
@@ -2157,8 +2711,19 @@ class TradingTerminalQt(QMainWindow):
             slot.confirm_guard_until,
             time.monotonic() + ENTER_INPUT_GUARD_MS / 1000,
         )
+        order_type = slot.pending_order_type or "limit"
+        route = slot.pending_route or self._resolve_route_value("DEFAULT", slot.pending_symbol)
+        hidden = bool(slot.pending_hidden)
         self._cancel_pending_order(pid)
-        self._place_order(action, pid, order_type_override="limit", source="hotkey")
+        self._place_order(
+            action,
+            pid,
+            order_type_override=order_type,
+            price_override=0.0 if order_type == "market" else None,
+            route_override=route,
+            hidden_override=hidden,
+            source="hotkey",
+        )
 
     def _cancel_pending_order(self, pid: int, log: bool = False) -> None:
         slot = self.slots.get(pid)
@@ -2166,12 +2731,26 @@ class TradingTerminalQt(QMainWindow):
             return
         slot.pending_action = ""
         slot.pending_symbol = ""
+        slot.pending_order_type = ""
+        slot.pending_route = ""
+        slot.pending_hidden = False
         slot.pending_created_at = 0.0
         if slot.price:
             slot.price.setProperty("pendingSide", "")
+            is_market = bool(slot.order_type and slot.order_type.currentText() == "Market")
+            slot.price.setEnabled(not is_market)
+            if is_market:
+                slot.price.setText("Market")
             self._repolish(slot.price)
+        self._set_pending_button_state(slot, "")
         if log:
-            self._append_log("已取消限价待提交状态", "inf")
+            self._append_log("已取消待提交状态", "inf")
+
+    def _set_pending_button_state(self, slot: TradingSlot, side: str) -> None:
+        for button, value in ((slot.buy, "buy"), (slot.sell, "sell")):
+            if button:
+                button.setProperty("pending", side == value)
+                self._repolish(button)
 
     def _cancel_all_pending_orders(self) -> None:
         for pid in list(self.slots):
@@ -2185,8 +2764,17 @@ class TradingTerminalQt(QMainWindow):
         self._batch_canceling_symbols.clear()
 
     @staticmethod
-    def _order_signature(symbol: str, qty: int, price: float, action: str, order_type: str, tif: str) -> str:
-        return "|".join((symbol, action, str(qty), f"{price:.6f}", order_type, tif))
+    def _order_signature(
+        symbol: str,
+        qty: int,
+        price: float,
+        action: str,
+        order_type: str,
+        tif: str,
+        route: str = "",
+        hidden: bool = False,
+    ) -> str:
+        return "|".join((symbol, action, str(qty), f"{price:.6f}", order_type, tif, route, str(bool(hidden))))
 
     def _rate_limit_message(self, reason: str) -> str:
         return {
@@ -2203,6 +2791,8 @@ class TradingTerminalQt(QMainWindow):
         *,
         order_type_override: str | None = None,
         price_override: float | None = None,
+        route_override: str | None = None,
+        hidden_override: bool | None = None,
         source: str = "button",
     ) -> None:
         if not self.session or not self._trade_controls_enabled():
@@ -2215,8 +2805,18 @@ class TradingTerminalQt(QMainWindow):
         order_type = order_type_override or ("market" if slot.order_type and slot.order_type.currentText() == "Market" else "limit")
         price = float(price_override) if price_override is not None else slot.price_value()
         tif = slot.tif.currentText() if slot.tif else "Day"
+        requested_route = route_override or (slot.route.currentText() if slot.route else "DEFAULT")
+        requested_hidden = bool(hidden_override) if hidden_override is not None else bool(slot.hidden_order and slot.hidden_order.isChecked())
         if not sym:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u8bf7\u8f93\u5165\u4ee3\u7801")
+            return
+        if slot.current_symbol != sym:
+            self._log_user_error_once("下单失败：请先确认股票代码", "warn")
+            return
+        route = self._resolve_route_value(requested_route, sym)
+        hidden = bool(requested_hidden and self._hidden_order_supported(sym))
+        if not self._route_available_for_symbol(sym, route):
+            self._log_user_error_once(f"{sym} 不支持 ROUTE {route}，订单未提交", "warn")
             return
         if qty <= 0:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0")
@@ -2224,7 +2824,7 @@ class TradingTerminalQt(QMainWindow):
         if order_type != "market" and price <= 0:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u9650\u4ef7\u5fc5\u987b\u5927\u4e8e 0")
             return
-        signature = self._order_signature(sym, qty, price, action, order_type, tif)
+        signature = self._order_signature(sym, qty, price, action, order_type, tif, route, hidden)
         decision = self._action_limiter.acquire(
             "order.submit",
             f"panel:{pid}",
@@ -2239,7 +2839,9 @@ class TradingTerminalQt(QMainWindow):
         action_label = ACTION_LABELS.get(action, action)
         tif_label = TIF_LABELS.get(tif, tif)
         prefix = "[快捷] " if source == "hotkey" else ""
-        self._append_log(f"{prefix}{action_label} {qty} \u80a1 {sym} @ {price_str} | {tif_label}", "inf")
+        route_label = f" | {route}" if route else ""
+        hidden_label = " | HIDE" if hidden else ""
+        self._append_log(f"{prefix}{action_label} {qty} \u80a1 {sym} @ {price_str} | {tif_label}{route_label}{hidden_label}", "inf")
         generation = self._se_generation
         session = self.session
         self._run_bg(
@@ -2250,6 +2852,8 @@ class TradingTerminalQt(QMainWindow):
                 action,
                 order_type,
                 tif,
+                route,
+                hidden,
                 decision.token,
                 generation,
                 session,
@@ -2264,13 +2868,24 @@ class TradingTerminalQt(QMainWindow):
         action: str,
         order_type: str,
         tif: str,
+        route: str = "",
+        hidden: bool = False,
         limiter_token: str = "",
         generation: int | None = None,
         session: TradingSession | None = None,
     ) -> None:
         active_session = session or self.session
         try:
-            ok, msg = active_session.place_order(symbol, qty, price, action, order_type, tif=tif) if active_session else (False, "\u672a\u8fde\u63a5")
+            ok, msg = active_session.place_order(
+                symbol,
+                qty,
+                price,
+                action,
+                order_type,
+                tif=tif,
+                route=route,
+                hidden=hidden,
+            ) if active_session else (False, "\u672a\u8fde\u63a5")
         except Exception as exc:
             ok, msg = False, sanitize(f"下单失败：{exc}")
         self._ui(lambda: self._handle_order_result(ok, msg, limiter_token, generation))
@@ -2281,13 +2896,21 @@ class TradingTerminalQt(QMainWindow):
             return
         if ok:
             self._append_log(msg, "ok")
+            self._show_weak_tip(msg, "ok")
         else:
             self._log_user_error_once(msg)
+            self._show_weak_tip(msg, "err")
         self._refresh_orders(force=True)
         QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
 
     def _switch_order_mode(self, mode: str) -> None:
         self._order_refresh.set_order_mode(mode)
+        self._update_order_mode_buttons(self._order_refresh.order_mode)
+
+    def _update_order_mode_buttons(self, active_mode: str) -> None:
+        for mode, button in getattr(self, "_order_mode_buttons", {}).items():
+            button.setProperty("selected", mode == active_mode)
+            self._repolish(button)
 
     def _manual_refresh_allowed(self, scope: str) -> bool:
         decision = self._action_limiter.acquire("refresh.manual", scope, REFRESH_POLICY)
@@ -2421,6 +3044,7 @@ class TradingTerminalQt(QMainWindow):
         QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
 
     def _cancel_symbol_live_orders(self, pid: int) -> None:
+        self._cancel_pending_order(pid)
         if not self.session or not self._broker_capability_enabled("cancel_order"):
             message = self.session.broker_unavailable_message("cancel_order") if self.session else "券商服务不可用"
             self._log_user_error_once(message, "warn")
@@ -2522,17 +3146,28 @@ class TradingTerminalQt(QMainWindow):
         self._batch_canceling_symbols.discard(symbol)
         if generation != self._se_generation:
             return
+        tip_message = ""
+        tip_level = "inf"
         if query_error:
+            tip_message = f"批量撤单失败：无法获取最新订单（{localize_user_message(query_error)}）"
+            tip_level = "warn"
             self._log_user_error_once(
-                f"批量撤单失败：无法获取最新订单（{localize_user_message(query_error)}）",
+                tip_message,
                 "warn",
             )
         elif total == 0:
-            self._append_log(f"{symbol} 暂无活动订单", "inf")
+            tip_message = f"{symbol} 暂无活动订单"
+            self._append_log(tip_message, "inf")
         elif failures:
-            self._append_log(f"{symbol} 批量撤单：成功 {success}，失败 {len(failures)}", "warn")
+            tip_message = f"{symbol} 批量撤单：成功 {success}，失败 {len(failures)}"
+            tip_level = "warn"
+            self._append_log(tip_message, "warn")
         else:
-            self._append_log(f"{symbol} 已撤销 {success} 笔活动订单", "ok")
+            tip_message = f"{symbol} 已撤销 {success} 笔活动订单"
+            tip_level = "ok"
+            self._append_log(tip_message, "ok")
+        if tip_message and tip_level != "warn":
+            self._show_weak_tip(tip_message, tip_level)
         self._refresh_orders(force=True)
 
     def _refresh_positions(self, *, force_orders: bool = False) -> None:
@@ -2602,6 +3237,10 @@ class TradingTerminalQt(QMainWindow):
 
     def closeEvent(self, event) -> None:
         try:
+            if self._settings_overlay is not None:
+                self._settings_overlay.hide()
+                self._settings_overlay.deleteLater()
+                self._settings_overlay = None
             self._teardown_shortcuts()
             self._reset_runtime_action_state()
             self._ts_connection.shutdown(release=True, wait=True)
@@ -2612,6 +3251,14 @@ class TradingTerminalQt(QMainWindow):
                     pass
         finally:
             event.accept()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._main_ui_built:
+            self._set_trade_card_effects_enabled(False)
+            self._resize_effect_timer.start(120)
+        self._sync_settings_overlay_geometry()
+        self._position_toasts()
 
 
 class DuplicateLoginDialog(QDialog):

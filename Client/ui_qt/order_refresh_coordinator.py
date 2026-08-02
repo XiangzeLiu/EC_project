@@ -56,7 +56,8 @@ class OrderRefreshCoordinator(QObject):
         return self._order_mode
 
     def set_order_mode(self, mode: str, *, refresh: bool = True) -> None:
-        self._order_mode = "all" if str(mode or "").lower() == "all" else "live"
+        normalized = str(mode or "").lower()
+        self._order_mode = normalized if normalized in {"live", "filled", "inactive", "all"} else "live"
         if refresh:
             self.refresh_orders(force=True)
 
@@ -222,7 +223,7 @@ class OrderRefreshCoordinator(QObject):
         if session is not None:
             session.invalidate_order_cache()
         status = str(payload.get("status") or "")
-        position_changed = status in {"Partial", "Filled"}
+        position_changed = status in {"Partial", "Filled", "Cancelled", "Rejected", "Expired"}
         self._queue_event_refresh(
             orders=True,
             positions=position_changed,

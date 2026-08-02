@@ -41,6 +41,8 @@ class BaseBrokerAPI(ABC):
             "cancel_order": True,
             "positions": True,
             "order_query": True,
+            "route_selection": False,
+            "hidden_order": False,
         }
 
     @classmethod
@@ -129,7 +131,9 @@ class BaseBrokerAPI(ABC):
                 symbol (str), qty (int), price (float),
                 action (str): "Buy to Open" / "Sell to Close" / ...,
                 order_type (str): "limit" | "market",
-                tif (str): "Day" | "GTC" | ...
+                tif (str): "Day" | "GTC" | ...,
+                route (str, optional): broker route/exchange,
+                hidden (bool, optional): hidden order flag
             }
             
         Returns:
@@ -171,6 +175,35 @@ class BaseBrokerAPI(ABC):
     async def get_account_summary(self, account_id: str = "") -> dict:
         """Return a non-normalized account summary for validation/diagnostics."""
         raise NotImplementedError("Account summary not supported by this broker adapter")
+
+    async def get_symbol_order_options(self, symbol: str) -> dict[str, Any]:
+        """Return safe order-entry options for one confirmed symbol.
+
+        Adapters with symbol-specific routing should override this method. The
+        default keeps fixed-route brokers compatible without exposing broker
+        SDK objects to upper layers.
+        """
+        normalized = str(symbol or "").strip().upper()
+        detail = self.status_detail()
+        options = detail.get("order_options") if isinstance(detail, dict) else {}
+        options = options if isinstance(options, dict) else {}
+        default_route = str(options.get("default_route") or "SMART").strip().upper() or "SMART"
+        routes: list[str] = []
+        for route in options.get("routes") or []:
+            value = str(route or "").strip().upper()
+            if value and value not in routes:
+                routes.append(value)
+        if default_route not in routes:
+            routes.insert(0, default_route)
+        route_editable = bool(options.get("route_editable", False))
+        return {
+            "symbol": normalized,
+            "default_route": default_route,
+            "routes": routes,
+            "route_editable": route_editable,
+            "hidden_order": bool(options.get("hidden_order", False)),
+            "routes_validated": not route_editable,
+        }
 
     # ── 行情 ──────────────────────────────────────────────────
 

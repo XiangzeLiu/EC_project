@@ -23,6 +23,35 @@ _CONTEXT_PRIORITY = {
 }
 
 
+def normalize_shortcut_sequence(value: str) -> str:
+    sequence = QKeySequence.fromString(str(value or ""), QKeySequence.PortableText)
+    if sequence.count() != 1:
+        return ""
+    return sequence.toString(QKeySequence.PortableText).casefold()
+
+
+def validate_shortcut_sequences(bindings: Iterable[HotkeyBinding]) -> list[str]:
+    """Validate keys exactly as Qt will register them at runtime."""
+    errors: list[str] = []
+    keys: dict[str, HotkeyBinding] = {}
+    for binding in bindings:
+        key_value = str(binding.key or "").strip()
+        if not key_value:
+            continue
+        normalized = normalize_shortcut_sequence(key_value)
+        if not normalized:
+            errors.append(f"快捷键无效：{binding.id} = {binding.key!r}")
+            continue
+        previous = keys.get(normalized)
+        if previous is not None:
+            errors.append(
+                f"快捷键冲突：{binding.key}（{previous.id} 与 {binding.id}）"
+            )
+            continue
+        keys[normalized] = binding
+    return errors
+
+
 class ShortcutController(QObject):
     def __init__(
         self,
@@ -42,15 +71,13 @@ class ShortcutController(QObject):
         self._active_repeat_bindings: dict[str, HotkeyBinding] = {}
         self._installed = False
         self.errors = validate_bindings(bindings)
+        self.errors.extend(validate_shortcut_sequences(bindings))
         if not self.errors:
             self.errors.extend(self._index_bindings())
 
     @staticmethod
     def _normalize_sequence(value: str) -> str:
-        sequence = QKeySequence.fromString(value, QKeySequence.PortableText)
-        if sequence.count() != 1:
-            return ""
-        return sequence.toString(QKeySequence.PortableText).casefold()
+        return normalize_shortcut_sequence(value)
 
     @staticmethod
     def _event_sequence(event) -> str:

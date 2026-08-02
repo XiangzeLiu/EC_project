@@ -312,7 +312,9 @@ class TSWebSocketClient:
     def send_order_submit(self, symbol: str, qty: int, price: float,
                           action: str = "Buy to Open",
                           order_type: str = "limit",
-                          tif: str = "Day") -> str:
+                          tif: str = "Day",
+                          route: str = "",
+                          hidden: bool = False) -> str:
         """发送下单请求"""
         return self.send_raw_message("ORDER_SUBMIT", {
             "symbol": symbol,
@@ -321,6 +323,8 @@ class TSWebSocketClient:
             "action": action,
             "order_type": order_type,
             "tif": tif,
+            "route": route,
+            "hidden": bool(hidden),
         })
 
     def send_order_cancel(self, order_id: str) -> str:

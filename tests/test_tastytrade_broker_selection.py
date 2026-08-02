@@ -44,6 +44,31 @@ def _record(account_number: str, *, authority: str = "owner", closed: bool = Fal
 
 
 class TastytradeBrokerSelectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_tt_order_options_are_smart_only_and_reject_ib_only_fields(self):
+        broker = TastytradeBroker()
+        broker._get_fresh = AsyncMock(return_value=(object(), object()))
+        options = broker.status_detail()["order_options"]
+        self.assertEqual(options["routes"], ["SMART"])
+        self.assertFalse(options["route_editable"])
+        self.assertFalse(options["hidden_order"])
+        symbol_options = await broker.get_symbol_order_options("aapl")
+        self.assertEqual(symbol_options["symbol"], "AAPL")
+        self.assertEqual(symbol_options["routes"], ["SMART"])
+        self.assertTrue(symbol_options["routes_validated"])
+
+        base_order = {
+            "symbol": "AAPL",
+            "qty": 1,
+            "price": 190,
+            "action": "Buy to Open",
+            "order_type": "limit",
+            "tif": "Day",
+        }
+        with self.assertRaisesRegex(ValueError, "SMART"):
+            await broker.place_order(dict(base_order, route="ARCA"))
+        with self.assertRaisesRegex(ValueError, "hidden"):
+            await broker.place_order(dict(base_order, route="SMART", hidden=True))
+
     async def test_explicit_missing_account_fails_without_fallback(self):
         broker = TastytradeBroker()
         broker._get_account_records = AsyncMock(return_value=[_record("A-1")])

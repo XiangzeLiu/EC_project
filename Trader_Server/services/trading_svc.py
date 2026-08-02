@@ -76,7 +76,6 @@ def _validate_order_params(params: dict[str, Any], trace_id: str = "") -> tuple[
     action = str(params.get("action") or "").strip()
     order_type = str(params.get("order_type") or "limit").strip().lower() or "limit"
     tif = str(params.get("tif") or "Day").strip() or "Day"
-
     try:
         qty = int(params.get("qty") or 0)
     except (TypeError, ValueError):
@@ -102,7 +101,7 @@ def _validate_order_params(params: dict[str, Any], trace_id: str = "") -> tuple[
     if order_type == "market":
         price = 0.0
 
-    normalized = {
+    normalized: dict[str, Any] = {
         "symbol": symbol,
         "action": action,
         "qty": qty,
@@ -110,6 +109,10 @@ def _validate_order_params(params: dict[str, Any], trace_id: str = "") -> tuple[
         "order_type": order_type,
         "tif": tif,
     }
+    if "route" in params:
+        normalized["route"] = str(params.get("route") or "").strip().upper()
+    if "hidden" in params:
+        normalized["hidden"] = bool(params.get("hidden", False))
     return normalized, None
 
 
