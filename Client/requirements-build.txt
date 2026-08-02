@@ -1,0 +1,5 @@
+# Pinned versions used by the verified Client packaging environment.
+PyInstaller==6.21.0
+PySide6==6.11.1
+websockets==16.1
+tzdata==2026.3
