@@ -76,7 +76,8 @@ class TSWebSocketClient:
         self._session_id: str = ""
         self._node_info: dict = {}
         # 待发送的请求队列 (由外部线程安全地添加请求)
-        self._pending_requests: list[dict] = []
+        self._pending_requests: list[tuple[str, dict]] = []
+        self._cancelled_request_ids: set[str] = set()
         self._req_lock = threading.Lock()
         # 同步请求等待队列：{req_id: Queue(maxsize=1)}
         self._response_waiters: dict[str, queue.Queue] = {}
@@ -201,6 +202,7 @@ class TSWebSocketClient:
         self._active = False
         self._connected = False
         self._stop_event.set()
+        self._invalidate_connection_requests()
         if self._loop and self._loop.is_running():
             try:
                 self._loop.call_soon_threadsafe(self._do_stop)
@@ -223,10 +225,59 @@ class TSWebSocketClient:
     def wait_until_stopped(self, timeout: float | None = None) -> bool:
         return self._stopped_event.wait(timeout)
 
-    def _enqueue_message(self, msg: dict):
+    def _enqueue_message(self, msg: dict, *, connection_id: str | None = None):
+        request_connection_id = str(connection_id or self._connection_id or "")
         with self._req_lock:
-            self._pending_requests.append(msg)
+            self._pending_requests.append((request_connection_id, msg))
         self._wake_sender()
+
+    def _remove_pending_request(self, req_id: str) -> bool:
+        if not req_id:
+            return False
+        with self._req_lock:
+            original_count = len(self._pending_requests)
+            self._pending_requests = [
+                item for item in self._pending_requests
+                if str(item[1].get("id") or "") != req_id
+            ]
+            return len(self._pending_requests) != original_count
+
+    def _fail_response_waiter(self, req_id: str) -> None:
+        if not req_id:
+            return
+        with self._resp_lock:
+            waiter = self._response_waiters.get(req_id)
+        if waiter is not None:
+            try:
+                waiter.put_nowait(None)
+            except queue.Full:
+                pass
+
+    def _cancel_request(self, req_id: str) -> None:
+        if not req_id:
+            return
+        with self._req_lock:
+            self._cancelled_request_ids.add(req_id)
+
+    def _take_request_cancelled(self, req_id: str) -> bool:
+        with self._req_lock:
+            if req_id not in self._cancelled_request_ids:
+                return False
+            self._cancelled_request_ids.discard(req_id)
+            return True
+
+    def _invalidate_connection_requests(self) -> None:
+        """Fail connection-owned requests instead of replaying them later."""
+        with self._req_lock:
+            self._pending_requests.clear()
+            self._cancelled_request_ids.clear()
+        with self._resp_lock:
+            waiters = list(self._response_waiters.values())
+        for waiter in waiters:
+            try:
+                waiter.put_nowait(None)
+            except queue.Full:
+                pass
 
     def _wake_sender(self):
         loop = self._loop
@@ -258,6 +309,7 @@ class TSWebSocketClient:
         Returns:
             请求 ID
         """
+        connection_id = self._connection_id
         req_id = f"req_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         p = dict(payload or {})
         p.setdefault("trace_id", f"trc_{uuid.uuid4().hex[:16]}")
@@ -268,7 +320,10 @@ class TSWebSocketClient:
             "payload": p,
         }
 
-        self._enqueue_message(msg)
+        self._enqueue_message(msg, connection_id=connection_id)
+        if not self._connected or connection_id != self._connection_id:
+            self._remove_pending_request(req_id)
+            self._fail_response_waiter(req_id)
         return req_id
 
     def request_sync(self, msg_type: str, payload: dict | None = None, timeout: float = 10.0) -> dict | None:
@@ -281,6 +336,7 @@ class TSWebSocketClient:
         if not self._connected:
             return None
 
+        connection_id = self._connection_id
         req_id = f"req_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         p = dict(payload or {})
         p.setdefault("trace_id", f"trc_{uuid.uuid4().hex[:16]}")
@@ -296,13 +352,20 @@ class TSWebSocketClient:
         with self._resp_lock:
             self._response_waiters[req_id] = q
 
-        self._enqueue_message(msg)
+        self._enqueue_message(msg, connection_id=connection_id)
+        if not self._connected or connection_id != self._connection_id:
+            if not self._remove_pending_request(req_id):
+                self._cancel_request(req_id)
+            self._fail_response_waiter(req_id)
 
         try:
             return q.get(timeout=timeout)
         except queue.Empty:
+            if not self._remove_pending_request(req_id):
+                self._cancel_request(req_id)
             return None
         finally:
+            self._remove_pending_request(req_id)
             with self._resp_lock:
                 self._response_waiters.pop(req_id, None)
 
@@ -466,6 +529,7 @@ class TSWebSocketClient:
                 was_connected = self._connected
                 self._connected = False
                 self._ws = None
+                self._invalidate_connection_requests()
 
             # 指数退避等待
             delay = min(
@@ -574,7 +638,7 @@ class TSWebSocketClient:
             results = await asyncio.gather(
                 self._receive_loop(ws),
                 self._heartbeat_loop(ws),
-                self._send_pending_loop(ws),
+                self._send_pending_loop(ws, connection_id),
                 return_exceptions=True,
             )
             # 记录异常日志（仅用于调试，不影响连接生命周期）
@@ -603,6 +667,8 @@ class TSWebSocketClient:
                     websockets.exceptions.WebSocketException) as e:
                 # ★ WS 断开 → 广播连接丢失事件，让 heartbeat/send 协程立即退出
                 log.debug(f"[TS] receive_loop: WS closed: {e}")
+                self._connected = False
+                self._invalidate_connection_requests()
                 self._conn_lost.set()
                 try:
                     await ws.close()
@@ -630,6 +696,7 @@ class TSWebSocketClient:
             # 优先唤醒同步等待者（按请求 id 关联）
             req_id = msg.get("id", "")
             if req_id:
+                self._take_request_cancelled(req_id)
                 with self._resp_lock:
                     waiter = self._response_waiters.get(req_id)
                 if waiter:
@@ -706,7 +773,7 @@ class TSWebSocketClient:
             if not await self._send_latency_ping(ws):
                 break
 
-    async def _send_pending_loop(self, ws):
+    async def _send_pending_loop(self, ws, connection_id: str):
         """Send queued requests as soon as they are enqueued."""
         while self._active:
             if self._conn_lost is None or self._send_wakeup is None:
@@ -743,12 +810,32 @@ class TSWebSocketClient:
                 requests = self._pending_requests[:]
                 self._pending_requests.clear()
 
-            for req in requests:
+            current_requests: list[dict] = []
+            for owner_connection_id, req in requests:
+                if owner_connection_id == connection_id:
+                    current_requests.append(req)
+                else:
+                    self._fail_response_waiter(str(req.get("id") or ""))
+
+            for index, req in enumerate(current_requests):
+                req_id = str(req.get("id") or "")
+                connection_lost = bool(self._conn_lost and self._conn_lost.is_set())
+                if not self._connected or connection_id != self._connection_id or connection_lost:
+                    self._fail_response_waiter(req_id)
+                    for remaining in current_requests[index + 1:]:
+                        self._fail_response_waiter(str(remaining.get("id") or ""))
+                    break
+                if self._take_request_cancelled(req_id):
+                    self._fail_response_waiter(req_id)
+                    continue
                 try:
                     await self._send_ws_json(ws, req)
                 except Exception:
-                    with self._req_lock:
-                        self._pending_requests.insert(0, req)
+                    self._connected = False
+                    self._fail_response_waiter(req_id)
+                    for remaining in current_requests[index + 1:]:
+                        self._fail_response_waiter(str(remaining.get("id") or ""))
+                    self._invalidate_connection_requests()
                     self._conn_lost.set()
                     break
 

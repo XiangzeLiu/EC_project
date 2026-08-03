@@ -56,6 +56,7 @@ from Client.network.http_client import HttpClient
 from Client.services.trading_session import TradingSession, sanitize
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
+from Client.ui_qt.quote_subscription_coordinator import QuoteSubscriptionCoordinator
 from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
 from Client.ui_qt.hotkey_config_store import HotkeyConfigLoadResult, load_hotkey_config, save_hotkey_config
 from Client.ui_qt.settings_overlay import SettingsOverlay
@@ -452,11 +453,17 @@ class TradingSlot:
 
     def update_quote(self, quote: dict) -> None:
         if self.last:
-            self.last.setText(f"{float(quote.get('last', 0) or 0):.2f}")
+            text = f"{float(quote.get('last', 0) or 0):.2f}"
+            if self.last.text() != text:
+                self.last.setText(text)
         if self.bid:
-            self.bid.setText(f"{float(quote.get('bid', 0) or 0):.2f}")
+            text = f"{float(quote.get('bid', 0) or 0):.2f}"
+            if self.bid.text() != text:
+                self.bid.setText(text)
         if self.ask:
-            self.ask.setText(f"{float(quote.get('ask', 0) or 0):.2f}")
+            text = f"{float(quote.get('ask', 0) or 0):.2f}"
+            if self.ask.text() != text:
+                self.ask.setText(text)
 
 
 
@@ -509,6 +516,16 @@ class TradingTerminalQt(QMainWindow):
         self._order_refresh.positions_ready.connect(self._update_positions)
         self._order_refresh.orders_failed.connect(self._handle_orders_refresh_failed)
         self._order_refresh.positions_failed.connect(self._handle_positions_refresh_failed)
+        self._quote_subscriptions = QuoteSubscriptionCoordinator(
+            session_provider=lambda: self.session,
+            generation_provider=lambda: self._se_generation,
+            connected_provider=lambda: self._se_connected,
+            background_runner=self._run_bg,
+            parent=self,
+        )
+        self._quote_subscriptions.symbol_result.connect(self._handle_quote_symbol_result)
+        self._quote_subscriptions.sync_failed.connect(self._handle_quote_sync_failed)
+        self._quote_subscriptions.subscriptions_changed.connect(self._handle_quote_subscriptions_changed)
         self._canceling_order_ids: set[str] = set()
         self._batch_canceling_symbols: set[str] = set()
         self._log_rows: list[tuple[str, str, str]] = []
@@ -527,9 +544,6 @@ class TradingTerminalQt(QMainWindow):
         self._orders_raw: list[dict] = []
         self._positions_raw: list[dict] = []
         self.current_quote: dict[str, dict] = {}
-        self._quote_requested_symbols: set[str] = set()
-        self._quote_subscribed_symbols: set[str] = set()
-        self._quote_sub_lock = threading.Lock()
         self._toast_widgets: list[QFrame] = []
         self._toast_animations: list[QPropertyAnimation] = []
         self._resize_effect_timer = QTimer(self)
@@ -710,6 +724,10 @@ class TradingTerminalQt(QMainWindow):
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll)
         self._poll_timer.start(150)
+
+        self._quote_ui_timer = QTimer(self)
+        self._quote_ui_timer.timeout.connect(self._flush_quote_updates)
+        self._quote_ui_timer.start(50)
 
         QTimer.singleShot(200, self._show_startup_login)
 
@@ -1479,6 +1497,7 @@ class TradingTerminalQt(QMainWindow):
         self._se_connected = state == "online"
         if state != "online":
             self._order_refresh.reset()
+            self._quote_subscriptions.reset(clear_desired=False)
             self._invalidate_quote_freshness()
             self._cancel_all_pending_orders()
         if state == "online":
@@ -1552,8 +1571,6 @@ class TradingTerminalQt(QMainWindow):
                     self.session.bind_se_client(None)
                 except Exception:
                     pass
-            with self._quote_sub_lock:
-                self._quote_subscribed_symbols.clear()
             self._ts_connection.shutdown(release=True, wait=True)
             if self.session:
                 try:
@@ -1584,9 +1601,7 @@ class TradingTerminalQt(QMainWindow):
         self.current_quote = {}
         self.slots = {}
         self._ts_connection.reset()
-        self._quote_requested_symbols.clear()
-        with self._quote_sub_lock:
-            self._quote_subscribed_symbols.clear()
+        self._quote_subscriptions.reset(clear_desired=True)
         self._log_rows = []
         self._build_login_root(hint)
 
@@ -2364,8 +2379,6 @@ class TradingTerminalQt(QMainWindow):
             self.session.bind_se_client(None)
             self.session.set_broker_detail(None)
         self._ts_connection.disconnect(wait=False)
-        with self._quote_sub_lock:
-            self._quote_subscribed_symbols.clear()
         self._last_reconnect_notice_attempt = 0
         self._set_se_connection_ui(False)
         self._append_log("\u4ea4\u6613\u670d\u52a1\u5668\u5df2\u65ad\u5f00", "warn")
@@ -2376,25 +2389,47 @@ class TradingTerminalQt(QMainWindow):
     def _on_se_message(self, msg: dict) -> None:
         self._ui(lambda: self._handle_se_message_ui(msg))
 
-    def _handle_quote_payload(self, payload: dict) -> None:
+    @staticmethod
+    def _normalize_quote_payload(payload: dict) -> dict:
         sym = str(payload.get("symbol", "")).strip().upper()
         if not sym:
-            return
+            return {}
         try:
             bid = float(payload.get("bid", 0) or 0)
             ask = float(payload.get("ask", 0) or 0)
             last = float(payload.get("last", 0) or 0)
             if last <= 0 and bid > 0 and ask > 0:
                 last = round((bid + ask) / 2, 2)
-            quote = {
+            return {
                 "symbol": sym,
                 "bid": bid,
                 "ask": ask,
                 "last": last,
                 "volume": int(float(payload.get("volume", 0) or 0)),
-                "received_monotonic": time.monotonic(),
+                "received_monotonic": float(
+                    payload.get("_client_received_monotonic")
+                    or payload.get("received_monotonic")
+                    or time.monotonic()
+                ),
             }
         except Exception:
+            return {}
+
+    def _flush_quote_updates(self) -> None:
+        for payload in self._ts_connection.drain_quote_updates():
+            self._handle_quote_payload(payload)
+
+    def _latest_quote_snapshot(self, symbol: str) -> dict:
+        normalized = str(symbol or "").strip().upper()
+        latest = self._normalize_quote_payload(self._ts_connection.latest_quote(normalized))
+        if latest:
+            return latest
+        return dict(self.current_quote.get(normalized) or {})
+
+    def _handle_quote_payload(self, payload: dict) -> None:
+        quote = self._normalize_quote_payload(payload)
+        sym = str(quote.get("symbol") or "")
+        if not sym:
             return
         self.current_quote[sym] = quote
         for slot in self.slots.values():
@@ -2402,6 +2437,7 @@ class TradingTerminalQt(QMainWindow):
                 slot.update_quote(quote)
 
     def _invalidate_quote_freshness(self) -> None:
+        self._ts_connection.clear_quote_cache()
         for quote_data in self.current_quote.values():
             if isinstance(quote_data, dict):
                 quote_data["received_monotonic"] = 0.0
@@ -2427,15 +2463,15 @@ class TradingTerminalQt(QMainWindow):
         sym = slot.symbol_text()
         if not sym:
             self._mark_symbol_pending(pid, "")
+            self._quote_subscriptions.clear_panel(pid)
             return
         if slot.current_symbol == sym and not slot.symbol_pending:
-            if sym in self.current_quote:
-                slot.update_quote(self.current_quote[sym])
+            quote = self._latest_quote_snapshot(sym)
+            if quote:
+                slot.update_quote(quote)
             return
         self._mark_symbol_pending(pid, sym)
-        generation = self._se_generation
-        session = self.session
-        self._run_bg(lambda: self._confirm_symbol_bg(pid, sym, generation, session))
+        self._quote_subscriptions.request_symbol(pid, sym)
 
     def _schedule_quote_sync(self, pid: int) -> None:
         slot = self.slots.get(pid)
@@ -2459,22 +2495,27 @@ class TradingTerminalQt(QMainWindow):
             slot.clear_quote()
         slot.set_symbol_pending(bool(symbol))
 
-    def _confirm_symbol_bg(
-        self,
-        pid: int,
-        symbol: str,
-        generation: int,
-        session: TradingSession | None,
-    ) -> None:
-        ok = True
-        message = "ok"
-        try:
-            subscribe = getattr(session, "subscribe_quotes", None) if session else None
-            if callable(subscribe):
-                ok, message = subscribe([symbol], timeout=6.0)
-        except Exception as exc:
-            ok, message = False, sanitize(str(exc) or "股票查询失败")
-        self._ui(lambda: self._handle_symbol_confirm_result(pid, symbol, ok, message, generation))
+    def _handle_quote_symbol_result(self, result: dict) -> None:
+        self._handle_symbol_confirm_result(
+            int(result.get("panel_id") or 0),
+            str(result.get("symbol") or ""),
+            bool(result.get("success")),
+            str(result.get("message") or ""),
+            int(result.get("generation") or 0),
+        )
+
+    def _handle_quote_sync_failed(self, message: str) -> None:
+        self._log_user_error_once(
+            f"\u884c\u60c5\u8ba2\u9605\u540c\u6b65\u5931\u8d25\uff1a{localize_user_message(message)}",
+            "warn",
+        )
+
+    def _handle_quote_subscriptions_changed(self, symbols: set[str]) -> None:
+        keep = {str(symbol or "").strip().upper() for symbol in symbols if str(symbol or "").strip()}
+        self.current_quote = {
+            symbol: quote for symbol, quote in self.current_quote.items() if symbol in keep
+        }
+        self._ts_connection.prune_quote_cache(keep)
 
     def _handle_symbol_confirm_result(
         self,
@@ -2497,36 +2538,19 @@ class TradingTerminalQt(QMainWindow):
             return
         slot.current_symbol = symbol
         slot.set_symbol_pending(False)
-        with self._quote_sub_lock:
-            self._quote_subscribed_symbols.add(symbol)
-        if symbol in self.current_quote:
-            slot.update_quote(self.current_quote[symbol])
+        quote = self._latest_quote_snapshot(symbol)
+        if quote:
+            self.current_quote[symbol] = quote
+            slot.update_quote(quote)
         self._apply_order_options_to_slot(slot)
-        self._refresh_broker_status_async(log_errors=False)
 
     def _sync_quote_subscriptions_async(self, force_resubscribe: bool = False) -> None:
         if not self.session or not self._se_connected:
             return
-        self._run_bg(lambda: self._sync_quote_subscriptions_bg(force_resubscribe))
-
-    def _sync_quote_subscriptions_bg(self, force_resubscribe: bool = False) -> None:
-        symbols = {slot.current_symbol for slot in self.slots.values() if slot.current_symbol}
-        with self._quote_sub_lock:
-            current = set(self._quote_subscribed_symbols)
-            to_unsub = sorted(current - symbols)
-            to_sub = sorted(symbols if force_resubscribe else symbols - current)
-            if to_unsub and self.session:
-                ok, msg = self.session.unsubscribe_quotes(to_unsub, timeout=6.0)
-                if ok:
-                    self._quote_subscribed_symbols.difference_update(to_unsub)
-                else:
-                    self._ui(lambda m=msg: self._log_user_error_once(f"\u884c\u60c5\u53d6\u6d88\u8ba2\u9605\u5931\u8d25\uff1a{localize_user_message(m)}", "warn"))
-            if to_sub and self.session:
-                ok, msg = self.session.subscribe_quotes(to_sub, timeout=6.0)
-                if ok:
-                    self._quote_subscribed_symbols.update(to_sub)
-                else:
-                    self._ui(lambda m=msg: self._log_user_error_once(f"\u884c\u60c5\u8ba2\u9605\u5931\u8d25\uff1a{localize_user_message(m)}", "warn"))
+        for panel_id, slot in self.slots.items():
+            if slot.symbol_pending and slot.symbol_text():
+                self._quote_subscriptions.request_symbol(panel_id, slot.symbol_text())
+        self._quote_subscriptions.reconcile(force_resubscribe=force_resubscribe)
 
     def _on_order_type_change(self, pid: int) -> None:
         slot = self.slots[pid]
@@ -2669,7 +2693,7 @@ class TradingTerminalQt(QMainWindow):
 
         quote_price = 0.0
         if normalized_type == "limit":
-            quote = self.current_quote.get(symbol, {})
+            quote = self._latest_quote_snapshot(symbol)
             received_at = float(quote.get("received_monotonic", 0) or 0)
             fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= QUOTE_FRESHNESS_MS
             source = price_source if price_source in {"bid", "ask"} else ("bid" if side == "buy" else "ask")
@@ -2900,8 +2924,7 @@ class TradingTerminalQt(QMainWindow):
         else:
             self._log_user_error_once(msg)
             self._show_weak_tip(msg, "err")
-        self._refresh_orders(force=True)
-        QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
+        self._order_refresh.handle_action_result()
 
     def _switch_order_mode(self, mode: str) -> None:
         self._order_refresh.set_order_mode(mode)
@@ -3040,8 +3063,7 @@ class TradingTerminalQt(QMainWindow):
             self._append_log(msg, "ok")
         else:
             self._log_user_error_once(msg)
-        self._refresh_orders(force=True)
-        QTimer.singleShot(800, lambda: self._refresh_orders(force=True))
+        self._order_refresh.handle_action_result()
 
     def _cancel_symbol_live_orders(self, pid: int) -> None:
         self._cancel_pending_order(pid)
@@ -3185,7 +3207,7 @@ class TradingTerminalQt(QMainWindow):
             sym = position.get("symbol", "")
             qty = int(float(position.get("qty", 0) or 0))
             avg = float(position.get("avg_open", 0) or 0)
-            close_px = float(self.current_quote.get(sym, {}).get("last", position.get("close_px", 0)) or 0)
+            close_px = float(self._latest_quote_snapshot(sym).get("last", position.get("close_px", 0)) or 0)
             realized = float(position.get("realized_today", 0) or 0)
             direction = position.get("direction", "")
             if qty and avg and close_px:
@@ -3243,6 +3265,7 @@ class TradingTerminalQt(QMainWindow):
                 self._settings_overlay = None
             self._teardown_shortcuts()
             self._reset_runtime_action_state()
+            self._quote_subscriptions.shutdown()
             self._ts_connection.shutdown(release=True, wait=True)
             if self.session:
                 try:

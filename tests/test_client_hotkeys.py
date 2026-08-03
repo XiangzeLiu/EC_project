@@ -911,6 +911,28 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders, [("AAPL", 100, 185.10, "Sell to Close", "limit", "Day")])
         self.assertEqual(self.window.slots[1].pending_action, "")
 
+    def test_limit_preparation_reads_latest_raw_quote_before_ui_flush(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 180.00,
+            "ask": 180.10,
+            "last": 180.05,
+            "received_monotonic": time.monotonic(),
+        }
+        self.window._ts_connection._cache_quote_message({
+            "type": "QUOTE_DATA",
+            "payload": {
+                "symbol": "AAPL",
+                "bid": 190.20,
+                "ask": 190.30,
+                "last": 190.25,
+            },
+        })
+
+        self.window._prepare_limit_order("buy", 1, "ask")
+
+        self.assertEqual(self.window.slots[1].price.text(), "190.30")
+
     def test_stale_quote_is_not_used_for_limit_preparation(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
@@ -1036,7 +1058,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(slot.price.text(), "Market")
         self.assertFalse(slot.price.isEnabled())
 
-    def test_symbol_validation_gates_trading_and_refreshes_broker_options(self):
+    def test_symbol_validation_gates_trading_without_redundant_status_query(self):
         slot = self.window.slots[1]
         slot.set_trade_enabled(True)
         slot.symbol.setCurrentText("MSFT")
@@ -1052,7 +1074,28 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(slot.current_symbol, "MSFT")
         self.assertTrue(slot.buy.isEnabled())
         self.assertTrue(slot.sell.isEnabled())
-        self.assertEqual(self.session.broker_status_queries, 1)
+        self.assertEqual(self.session.broker_status_queries, 0)
+
+    def test_quote_sync_retries_symbol_that_was_pending_during_reconnect(self):
+        slot = self.window.slots[1]
+        slot.symbol.setCurrentText("MSFT")
+        timer = self.window._quote_sync_timers.get(1)
+        if timer:
+            timer.stop()
+        self.window._mark_symbol_pending(1, "MSFT")
+        requested = []
+        reconciled = []
+        self.window._quote_subscriptions.request_symbol = (
+            lambda panel_id, symbol: requested.append((panel_id, symbol))
+        )
+        self.window._quote_subscriptions.reconcile = (
+            lambda force_resubscribe=False: reconciled.append(force_resubscribe)
+        )
+
+        self.window._sync_quote_subscriptions_async(force_resubscribe=True)
+
+        self.assertEqual(requested, [(1, "MSFT")])
+        self.assertEqual(reconciled, [True])
 
     def test_tt_main_route_stays_locked_while_settings_route_is_editable(self):
         self.session.broker_detail.update({

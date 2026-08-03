@@ -355,64 +355,52 @@ class ClientOrderEventTests(unittest.TestCase):
         self.assertEqual(received, [{"event_id": "evt-2", "reason": "execution"}])
 
     def test_failed_order_response_still_refreshes_order_table(self):
-        refreshed = []
+        action_refreshes = []
         logged = []
         tips = []
-        timers = []
         window = SimpleNamespace(
             _action_limiter=SimpleNamespace(release=lambda token: None),
+            _order_refresh=SimpleNamespace(handle_action_result=lambda: action_refreshes.append(True)),
             _se_generation=1,
             _log_user_error_once=lambda message: logged.append(message),
             _append_log=lambda *args, **kwargs: None,
             _show_weak_tip=lambda message, level: tips.append((message, level)),
-            _refresh_orders=lambda **kwargs: refreshed.append(kwargs),
         )
 
-        with patch(
-            "Client.ui_qt.main_window.QTimer.singleShot",
-            side_effect=lambda delay, callback: timers.append((delay, callback)),
-        ):
-            TradingTerminalQt._handle_order_result(
-                window,
-                False,
-                "订单被券商拒绝",
-                generation=1,
-            )
+        TradingTerminalQt._handle_order_result(
+            window,
+            False,
+            "订单被券商拒绝",
+            generation=1,
+        )
 
         self.assertEqual(logged, ["订单被券商拒绝"])
         self.assertEqual(tips, [("订单被券商拒绝", "err")])
-        self.assertEqual(refreshed, [{"force": True}])
-        self.assertEqual(timers[0][0], 800)
+        self.assertEqual(action_refreshes, [True])
 
     def test_successful_order_response_shows_success_tip_and_refreshes_order_table(self):
-        refreshed = []
+        action_refreshes = []
         logged = []
         tips = []
-        timers = []
         window = SimpleNamespace(
             _action_limiter=SimpleNamespace(release=lambda token: None),
+            _order_refresh=SimpleNamespace(handle_action_result=lambda: action_refreshes.append(True)),
             _se_generation=1,
             _log_user_error_once=lambda message: None,
             _append_log=lambda message, tag: logged.append((message, tag)),
             _show_weak_tip=lambda message, level: tips.append((message, level)),
-            _refresh_orders=lambda **kwargs: refreshed.append(kwargs),
         )
 
-        with patch(
-            "Client.ui_qt.main_window.QTimer.singleShot",
-            side_effect=lambda delay, callback: timers.append((delay, callback)),
-        ):
-            TradingTerminalQt._handle_order_result(
-                window,
-                True,
-                "订单提交成功",
-                generation=1,
-            )
+        TradingTerminalQt._handle_order_result(
+            window,
+            True,
+            "订单提交成功",
+            generation=1,
+        )
 
         self.assertEqual(logged, [("订单提交成功", "ok")])
         self.assertEqual(tips, [("订单提交成功", "ok")])
-        self.assertEqual(refreshed, [{"force": True}])
-        self.assertEqual(timers[0][0], 800)
+        self.assertEqual(action_refreshes, [True])
 
     def test_rejected_order_cancel_message_explains_no_cancel_is_needed(self):
         messages = []
@@ -503,6 +491,42 @@ class OrderRefreshCoordinatorTests(unittest.TestCase):
         )
         single_shot.assert_called_once()
         self.assertEqual(single_shot.call_args.args[0], 1000)
+
+    def test_inactive_order_event_does_not_refresh_positions(self):
+        session = SimpleNamespace(invalidate_order_cache=lambda: None)
+        coordinator = OrderRefreshCoordinator(
+            session_provider=lambda: session,
+            generation_provider=lambda: 1,
+            background_runner=lambda fn: None,
+        )
+        coordinator._event_timer = SimpleNamespace(start=lambda _delay: None, stop=lambda: None)
+
+        coordinator.handle_order_status_event({"event_id": "evt-cancelled", "status": "Cancelled"})
+
+        self.assertEqual(
+            coordinator._event_flags,
+            {"orders": True, "positions": False, "force_positions": False},
+        )
+
+    def test_action_results_share_one_restartable_follow_up_timer(self):
+        coordinator = OrderRefreshCoordinator(
+            session_provider=lambda: SimpleNamespace(),
+            generation_provider=lambda: 1,
+            background_runner=lambda fn: None,
+        )
+        immediate = []
+        timer_starts = []
+        coordinator.refresh_orders = lambda force=False: immediate.append(force)
+        coordinator._action_timer = SimpleNamespace(
+            start=lambda: timer_starts.append(True),
+            stop=lambda: None,
+        )
+
+        coordinator.handle_action_result()
+        coordinator.handle_action_result()
+
+        self.assertEqual(immediate, [True, True])
+        self.assertEqual(timer_starts, [True, True])
 
     def test_stale_generation_clears_in_flight_and_runs_pending_refresh(self):
         generation = [1]

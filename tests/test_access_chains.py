@@ -1140,8 +1140,6 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
     def test_client_retries_quotes_after_broker_reconnect(self):
         retried = []
         fake_window = SimpleNamespace(
-            _quote_sub_lock=threading.Lock(),
-            _quote_subscribed_symbols={"AAPL"},
             _sync_quote_subscriptions_async=lambda force_resubscribe=False: retried.append(force_resubscribe),
             _apply_broker_status_ui=lambda: None,
             _refresh_positions=lambda: None,
@@ -1154,7 +1152,6 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
             {"type": "BROKER_STATUS_CHANGE", "payload": {"status": "reconnected"}},
         )
 
-        self.assertEqual(fake_window._quote_subscribed_symbols, {"AAPL"})
         self.assertEqual(retried, [True])
 
     def test_broker_capability_only_disables_order_submission_buttons(self):

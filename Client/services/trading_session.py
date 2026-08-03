@@ -701,6 +701,8 @@ class TradingSession:
                 return False, self.broker_unavailable_message("cancel_order")
 
             resp = self._request_se("ORDER_CANCEL", {"order_id": order_id}, timeout=10.0)
+            if not isinstance(resp, dict):
+                return False, "\u64a4\u5355\u72b6\u6001\u672a\u77e5\uff0c\u8bf7\u5237\u65b0\u8ba2\u5355\u786e\u8ba4"
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):
                 self.invalidate_order_cache()
@@ -746,6 +748,8 @@ class TradingSession:
                 "route": route,
                 "hidden": bool(hidden),
             }, timeout=12.0)
+            if not isinstance(resp, dict):
+                return False, "\u8ba2\u5355\u72b6\u6001\u672a\u77e5\uff0c\u8bf7\u5237\u65b0\u8ba2\u5355\u786e\u8ba4"
             payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
             if payload.get("success"):
                 self.invalidate_order_cache()

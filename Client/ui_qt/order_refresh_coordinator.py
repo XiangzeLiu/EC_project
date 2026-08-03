@@ -48,6 +48,10 @@ class OrderRefreshCoordinator(QObject):
         self._event_timer = QTimer(self)
         self._event_timer.setSingleShot(True)
         self._event_timer.timeout.connect(self._flush_event_refresh)
+        self._action_timer = QTimer(self)
+        self._action_timer.setSingleShot(True)
+        self._action_timer.setInterval(800)
+        self._action_timer.timeout.connect(lambda: self.refresh_orders(force=True))
         self._orders_fetched.connect(self._finish_orders_fetch)
         self._positions_fetched.connect(self._finish_positions_fetch)
 
@@ -223,7 +227,7 @@ class OrderRefreshCoordinator(QObject):
         if session is not None:
             session.invalidate_order_cache()
         status = str(payload.get("status") or "")
-        position_changed = status in {"Partial", "Filled", "Cancelled", "Rejected", "Expired"}
+        position_changed = status in {"Partial", "Filled"}
         self._queue_event_refresh(
             orders=True,
             positions=position_changed,
@@ -233,6 +237,11 @@ class OrderRefreshCoordinator(QObject):
             epoch = self._epoch
             QTimer.singleShot(1000, lambda: self._filled_follow_up(epoch))
         return True
+
+    def handle_action_result(self) -> None:
+        """Refresh immediately, then keep one restartable consistency check."""
+        self.refresh_orders(force=True)
+        self._action_timer.start()
 
     def handle_position_event(self, payload: dict) -> bool:
         if not self._accept_event(payload):
@@ -286,6 +295,7 @@ class OrderRefreshCoordinator(QObject):
             self._force_pending = {"orders": False, "positions": False}
         self._event_flags = {"orders": False, "positions": False, "force_positions": False}
         self._event_timer.stop()
+        self._action_timer.stop()
         self._seen_events.clear()
         self._latest_orders = []
         self._last_orders_at = 0.0

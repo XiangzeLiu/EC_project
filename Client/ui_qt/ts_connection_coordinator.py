@@ -57,6 +57,9 @@ class TSConnectionCoordinator(QObject):
         self._server_id = ""
         self._connection_id = ""
         self._last_endpoint = ""
+        self._quote_lock = threading.Lock()
+        self._latest_quotes: dict[str, dict] = {}
+        self._dirty_quote_symbols: set[str] = set()
 
     @property
     def generation(self) -> int:
@@ -103,6 +106,42 @@ class TSConnectionCoordinator(QObject):
         with self._lock:
             return self._last_endpoint
 
+    def latest_quote(self, symbol: str) -> dict:
+        normalized = str(symbol or "").strip().upper()
+        with self._quote_lock:
+            return dict(self._latest_quotes.get(normalized) or {})
+
+    def drain_quote_updates(self) -> list[dict]:
+        with self._quote_lock:
+            symbols = tuple(self._dirty_quote_symbols)
+            self._dirty_quote_symbols.clear()
+            return [dict(self._latest_quotes[symbol]) for symbol in symbols if symbol in self._latest_quotes]
+
+    def clear_quote_cache(self) -> None:
+        with self._quote_lock:
+            self._latest_quotes.clear()
+            self._dirty_quote_symbols.clear()
+
+    def prune_quote_cache(self, symbols: set[str]) -> None:
+        keep = {str(symbol or "").strip().upper() for symbol in symbols if str(symbol or "").strip()}
+        with self._quote_lock:
+            self._latest_quotes = {
+                symbol: quote for symbol, quote in self._latest_quotes.items() if symbol in keep
+            }
+            self._dirty_quote_symbols.intersection_update(keep)
+
+    def _cache_quote_message(self, message: dict) -> None:
+        payload = message.get("payload", {}) if isinstance(message.get("payload", {}), dict) else {}
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        if not symbol:
+            return
+        quote = dict(payload)
+        quote["symbol"] = symbol
+        quote["_client_received_monotonic"] = time.monotonic()
+        with self._quote_lock:
+            self._latest_quotes[symbol] = quote
+            self._dirty_quote_symbols.add(symbol)
+
     def client_is_active(self) -> bool:
         client = self.client
         return bool(client and getattr(client, "is_active", False))
@@ -122,6 +161,7 @@ class TSConnectionCoordinator(QObject):
                 previous_client.stop()
             except Exception:
                 pass
+        self.clear_quote_cache()
         return generation
 
     def _is_current(self, generation: int) -> bool:
@@ -253,6 +293,9 @@ class TSConnectionCoordinator(QObject):
     def _message_handler(self, generation: int) -> Callable[[dict], None]:
         def handler(message: dict) -> None:
             if self._is_current(generation):
+                if str((message or {}).get("type") or "") == "QUOTE_DATA":
+                    self._cache_quote_message(message)
+                    return
                 self.message_received.emit(generation, dict(message or {}))
 
         return handler
@@ -278,6 +321,7 @@ class TSConnectionCoordinator(QObject):
                 "force_disconnected",
             }:
                 self.connected = False
+                self.clear_quote_cache()
             self.state_changed.emit(generation, normalized, dict(detail or {}))
 
         return handler
@@ -442,6 +486,7 @@ class TSConnectionCoordinator(QObject):
             self._connection_id = ""
         if client:
             self._stop_client(client, wait=wait)
+        self.clear_quote_cache()
 
     def abort(self, *, release: bool, wait: bool = False) -> None:
         with self._lock:
@@ -469,3 +514,4 @@ class TSConnectionCoordinator(QObject):
             self._server_id = ""
             self._connection_id = ""
             self._last_endpoint = ""
+        self.clear_quote_cache()
