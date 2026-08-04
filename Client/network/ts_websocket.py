@@ -27,6 +27,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import websockets
 
+from .temp_latency_diagnostics import ClientLatencyDiagnostics
+
 log = logging.getLogger("client.ts_websocket")
 
 
@@ -93,7 +95,9 @@ class TSWebSocketClient:
         self._conn_lost: asyncio.Event | None = None
         self._send_wakeup: asyncio.Event | None = None
         self._send_lock: asyncio.Lock | None = None
-        self._ping_sent_at: dict[str, float] = {}
+        self._ping_sent_at: dict[str, dict[str, float | int]] = {}
+        # TEMP_LATENCY_DIAGNOSTIC: remove after the latency incident is explained.
+        self._latency_diagnostic = ClientLatencyDiagnostics()
         self._connection_id = self._new_connection_id()
         self._stop_event = threading.Event()
         self._authenticated_event = threading.Event()
@@ -587,6 +591,7 @@ class TSWebSocketClient:
         except Exception:
             pass
         finally:
+            self._latency_diagnostic.close()
             self._loop = None
             self._thread = None
             self._stopped_event.set()
@@ -641,6 +646,8 @@ class TSWebSocketClient:
 
             self._connected = True
             self._authenticated_event.set()
+            self._latency_diagnostic.start()
+            self._latency_diagnostic.record("websocket_authenticated")
             payload = ack.get("payload", {})
             self._session_id = ""
             self._node_info = {}
@@ -676,13 +683,21 @@ class TSWebSocketClient:
                     log.debug(f"[TS] {names[i]} exited with: {r}")
             return True
 
-    async def _send_ws_json(self, ws, msg: dict):
+    async def _send_ws_json(self, ws, msg: dict) -> dict[str, float]:
         data = json.dumps(msg)
+        wait_started = time.perf_counter()
         if self._send_lock is None:
+            send_started = time.perf_counter()
             await ws.send(data)
-            return
-        async with self._send_lock:
-            await ws.send(data)
+        else:
+            async with self._send_lock:
+                send_started = time.perf_counter()
+                await ws.send(data)
+        send_finished = time.perf_counter()
+        return {
+            "lock_wait_ms": max(0.0, (send_started - wait_started) * 1000),
+            "send_duration_ms": max(0.0, (send_finished - send_started) * 1000),
+        }
 
     async def _receive_loop(self, ws):
         """接收服务端消息并回调（任何异常仅退出本协程，同时通知其他协程）"""
@@ -712,9 +727,23 @@ class TSWebSocketClient:
             msg_type = msg.get("type", "")
             if msg_type == "PONG":
                 ping_id = msg.get("id", "")
-                sent_at = self._ping_sent_at.pop(ping_id, None)
-                if sent_at is not None and self.on_latency:
-                    latency_ms = max(0, int((time.perf_counter() - sent_at) * 1000))
+                ping_meta = self._ping_sent_at.pop(ping_id, None)
+                if ping_meta is not None:
+                    sent_at = float(ping_meta.get("queued_perf") or time.perf_counter())
+                    latency_precise_ms = max(0.0, (time.perf_counter() - sent_at) * 1000)
+                    latency_ms = max(0, int(latency_precise_ms))
+                    server_diag = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
+                    self._latency_diagnostic.record(
+                        "client_pong_received",
+                        ping_id=ping_id,
+                        latency_ms=round(latency_precise_ms, 3),
+                        client_send_lock_wait_ms=round(float(ping_meta.get("lock_wait_ms") or 0.0), 3),
+                        client_send_duration_ms=round(float(ping_meta.get("send_duration_ms") or 0.0), 3),
+                        server_received_utc_ms=server_diag.get("server_received_utc_ms"),
+                        server_send_started_utc_ms=server_diag.get("server_send_started_utc_ms"),
+                        server_send_lock_wait_ms=server_diag.get("server_send_lock_wait_ms"),
+                    )
+                if ping_meta is not None and self.on_latency:
                     try:
                         self.on_latency(latency_ms)
                     except Exception:
@@ -772,8 +801,23 @@ class TSWebSocketClient:
             "payload": {},
         }
         try:
-            self._ping_sent_at[ping_id] = time.perf_counter()
-            await self._send_ws_json(ws, ping)
+            queued_perf = time.perf_counter()
+            queued_utc_ms = int(time.time() * 1000)
+            ping_meta: dict[str, float | int] = {
+                "queued_perf": queued_perf,
+                "queued_utc_ms": queued_utc_ms,
+            }
+            self._ping_sent_at[ping_id] = ping_meta
+            send_diag = await self._send_ws_json(ws, ping)
+            if isinstance(send_diag, dict):
+                ping_meta.update(send_diag)
+            self._latency_diagnostic.record(
+                "client_ping_sent",
+                ping_id=ping_id,
+                queued_utc_ms=queued_utc_ms,
+                client_send_lock_wait_ms=round(float(ping_meta.get("lock_wait_ms") or 0.0), 3),
+                client_send_duration_ms=round(float(ping_meta.get("send_duration_ms") or 0.0), 3),
+            )
             # 避免异常场景下累计过多旧 PING 记录。
             if len(self._ping_sent_at) > 8:
                 for old_id in list(self._ping_sent_at)[:-8]:

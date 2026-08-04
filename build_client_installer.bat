@@ -9,6 +9,7 @@ set "ROOT_DIR=%cd%"
 set "ENTRY_FILE=%ROOT_DIR%\Client\main.py"
 set "FONT_DIR=%ROOT_DIR%\Client\assets\fonts"
 set "ICON_DIR=%ROOT_DIR%\Client\assets\icons"
+set "DIAGNOSTIC_TOOLS_DIR=%ROOT_DIR%\Client\tools"
 set "BUILD_REQUIREMENTS=%ROOT_DIR%\Client\requirements-build.txt"
 set "DIST_ROOT=%ROOT_DIR%\dist\ClientInstaller"
 set "APP_DIST=%DIST_ROOT%\app"
@@ -41,6 +42,10 @@ if not exist "%FONT_DIR%\JetBrainsMono-Variable.ttf" (
 )
 if not exist "%ICON_DIR%\search.svg" (
   echo [Client Package] ERROR: missing Client search icon.
+  goto :fail
+)
+if not exist "%DIAGNOSTIC_TOOLS_DIR%\collect_latency_diagnostics.ps1" (
+  echo [Client Package] ERROR: missing temporary latency diagnostic collector.
   goto :fail
 )
 if not exist "%BUILD_REQUIREMENTS%" (
@@ -149,6 +154,12 @@ if not exist "%APP_OUT%\%APP_EXE_NAME%.exe" (
   echo [Client Package] ERROR: PyInstaller did not create %APP_EXE_NAME%.exe.
   goto :fail
 )
+
+echo [Client Package] Including temporary latency diagnostic tools...
+mkdir "%APP_OUT%\diagnostics-tools" >nul 2>nul
+copy /Y "%DIAGNOSTIC_TOOLS_DIR%\collect_latency_diagnostics.ps1" "%APP_OUT%\diagnostics-tools\" >nul
+copy /Y "%DIAGNOSTIC_TOOLS_DIR%\run_latency_diagnostics.bat" "%APP_OUT%\diagnostics-tools\" >nul
+if errorlevel 1 goto :fail
 
 echo [Client Package] Running packaged application self-test...
 set "QT_QPA_PLATFORM=offscreen"

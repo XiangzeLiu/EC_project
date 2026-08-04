@@ -57,6 +57,7 @@ from Client.constants import (
     TS_RECONNECT_MAX_ATTEMPTS,
 )
 from Client.network.http_client import HttpClient
+from Client.network.temp_latency_diagnostics import record_active_ui_latency
 from Client.services.trading_session import TradingSession, sanitize
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
@@ -1623,6 +1624,8 @@ class TradingTerminalQt(QMainWindow):
             color = theme.ACCENT_GREEN if latency_ms < 120 else theme.ACCENT_YELLOW if latency_ms < 300 else theme.ACCENT_RED
             self.latency_label.setText(f"{latency_ms}ms")
             self.latency_label.setStyleSheet(f"color: {color};")
+            # TEMP_LATENCY_DIAGNOSTIC: remove after the latency incident is explained.
+            record_active_ui_latency(latency_ms)
         self._ui(apply)
 
 

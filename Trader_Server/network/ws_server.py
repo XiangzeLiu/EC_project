@@ -14,6 +14,7 @@ from typing import Any, Callable
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import state
+from ..services.temp_latency_diagnostics import record as record_latency_diagnostic
 
 log = logging.getLogger("trader_server.ws_server")
 
@@ -279,15 +280,7 @@ async def handle_client_connection(ws: WebSocket):
             if msg_type == 'PING':
                 if ws in _connections:
                     _connections[ws]['last_pong'] = time.time()
-                await _send_json_locked(
-                    ws,
-                    {
-                        'type': 'PONG',
-                        'id': msg.get('id', ''),
-                        'timestamp': int(time.time() * 1000),
-                        'payload': {},
-                    },
-                )
+                await _send_pong_with_latency_diagnostics(ws, msg.get('id', ''), session_id)
                 continue
 
             payload = msg.get('payload', {}) if isinstance(msg.get('payload', {}), dict) else {}
@@ -316,6 +309,50 @@ async def _send_json_locked(ws: WebSocket, payload: dict[str, Any]) -> bool:
         return True
     except Exception:
         return False
+
+
+async def _send_pong_with_latency_diagnostics(ws: WebSocket, ping_id: str, session_id: str) -> bool:
+    """Send PONG and record only temporary, non-sensitive timing data."""
+
+    # TEMP_LATENCY_DIAGNOSTIC: remove this function after the incident.
+    received_utc_ms = int(time.time() * 1000)
+    lock = _send_locks.get(ws)
+    lock_wait_started = time.perf_counter()
+    acquired = False
+    try:
+        if lock:
+            await lock.acquire()
+            acquired = True
+        lock_acquired = time.perf_counter()
+        send_started_utc_ms = int(time.time() * 1000)
+        payload = {
+            'type': 'PONG',
+            'id': ping_id,
+            'timestamp': send_started_utc_ms,
+            'payload': {
+                'server_received_utc_ms': received_utc_ms,
+                'server_send_started_utc_ms': send_started_utc_ms,
+                'server_send_lock_wait_ms': round((lock_acquired - lock_wait_started) * 1000, 3),
+            },
+        }
+        await ws.send_json(payload)
+        send_finished = time.perf_counter()
+        record_latency_diagnostic(
+            'pong_sent',
+            ping_id=str(ping_id or ''),
+            server_received_utc_ms=received_utc_ms,
+            server_send_started_utc_ms=send_started_utc_ms,
+            server_send_lock_wait_ms=round((lock_acquired - lock_wait_started) * 1000, 3),
+            server_send_duration_ms=round((send_finished - lock_acquired) * 1000, 3),
+            session_id_hint=str(session_id or '')[-8:],
+        )
+        return True
+    except Exception:
+        record_latency_diagnostic('pong_send_failed', ping_id=str(ping_id or ''), session_id_hint=str(session_id or '')[-8:])
+        return False
+    finally:
+        if lock and acquired:
+            lock.release()
 
 
 async def _send_text_locked(ws: WebSocket, text: str) -> bool:
