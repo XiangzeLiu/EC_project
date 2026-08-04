@@ -20,6 +20,7 @@ if not defined SM_CADDY_EXE set "SM_CADDY_EXE=%~dp0caddy\caddy.exe"
 if not defined SM_CADDY_DIR set "SM_CADDY_DIR=%~dp0caddy"
 if not defined SM_CADDY_ADMIN set "SM_CADDY_ADMIN=127.0.0.1:2019"
 if not defined SM_CADDY_START_TIMEOUT set "SM_CADDY_START_TIMEOUT=10"
+if not defined CLIENT_TOKEN_TTL_SECONDS set "CLIENT_TOKEN_TTL_SECONDS=300"
 
 if not exist "%~dp0ServerManager.exe" goto :app_missing
 "%~dp0ServerManager.exe"

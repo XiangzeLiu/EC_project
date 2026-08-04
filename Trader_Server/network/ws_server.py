@@ -47,6 +47,9 @@ def _pop_connection(ws: WebSocket) -> dict[str, Any]:
     conn = _connections.pop(ws, {})
     _send_locks.pop(ws, None)
     state.ws_clients = [client for client in state.ws_clients if client != ws]
+    auth_task = conn.get('auth_recheck_task')
+    if auth_task and auth_task is not asyncio.current_task() and not auth_task.done():
+        auth_task.cancel()
     return conn
 
 
@@ -227,6 +230,7 @@ async def handle_client_connection(ws: WebSocket):
             'connection_id': connection_id or session_id,
             'last_auth_check': time.time(),
             'token_type': auth_ctx.get('token_type', 'client'),
+            'auth_recheck_task': None,
         }
         state.ws_clients.append(ws)
         _cancel_pending_releases(username, server_id)
@@ -251,6 +255,11 @@ async def handle_client_connection(ws: WebSocket):
             },
         }
         await _send_json_locked(ws, ack)
+        if ws in _connections and _connections[ws].get('token_type') == 'client':
+            _connections[ws]['auth_recheck_task'] = asyncio.create_task(
+                _auth_recheck_loop(ws),
+                name=f"client-auth-recheck-{session_id}",
+            )
         log.info("[%s] Auth OK, connection established", session_id)
 
         while True:
@@ -267,8 +276,6 @@ async def handle_client_connection(ws: WebSocket):
                 continue
 
             msg_type = msg.get('type', '')
-            if not await _revalidate_connection(ws):
-                return
             if msg_type == 'PING':
                 if ws in _connections:
                     _connections[ws]['last_pong'] = time.time()
@@ -374,7 +381,7 @@ async def _validate_client_token(
             return {
                 'valid': False,
                 'allowed': bool(data.get('allowed', False)),
-                'reason': data.get('reason', 'invalid_or_expired'),
+                'reason': data.get('reason', 'auth_invalid'),
                 'username': data.get('username', ''),
                 'server_id': data.get('server_id', state.server_id),
                 'token_type': data.get('token_type', 'client'),
@@ -438,17 +445,31 @@ async def _revalidate_connection(ws: WebSocket) -> bool:
     )
     if result.get('valid') and result.get('allowed', True):
         return True
-    reason = str(result.get('reason') or 'invalid_or_expired')
+    reason = str(result.get('reason') or 'auth_invalid')
     if reason in _TRANSIENT_AUTH_ERRORS or reason.startswith('http_5'):
         log.warning('Client token recheck deferred after transient error: %s', reason)
         return True
-    await _send_error(ws, 'ACCESS_REVOKED', 'Client access is no longer valid')
+    error_code = 'AUTH_EXPIRED' if reason == 'auth_expired' else 'AUTH_INVALID'
+    await _send_error(ws, error_code, 'Client authentication is no longer valid')
     try:
         await ws.close(code=4004, reason=reason[:120])
     except Exception:
         pass
     log.warning('Client access revoked during WS session: %s', reason)
     return False
+
+
+async def _auth_recheck_loop(ws: WebSocket) -> None:
+    """Revalidate Client access without delaying application PING/PONG traffic."""
+    try:
+        while ws in _connections:
+            await asyncio.sleep(_AUTH_RECHECK_INTERVAL)
+            if ws not in _connections:
+                return
+            if not await _revalidate_connection(ws):
+                return
+    except asyncio.CancelledError:
+        return
 
 
 async def _send_error(ws: WebSocket, code: str, message: str, trace_id: str = ''):

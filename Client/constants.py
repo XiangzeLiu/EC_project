@@ -61,6 +61,10 @@ ORDERS_INTERVAL    = 30000  # 订单轮询间隔 (30s)
 ORDERS_ACTIVE_INTERVAL = 5000  # 有活动订单时的兜底刷新间隔 (5s)
 HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
 MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)
+AUTH_EXPIRY_WARNING_SECONDS = max(
+    0,
+    int(os.getenv("CLIENT_AUTH_EXPIRY_WARNING_SECONDS", "60")),
+)
 
 # ── Server defaults ─────────────────────────────────────────────────────────────
 IS_PACKAGED_CLIENT = bool(getattr(sys, "frozen", False))

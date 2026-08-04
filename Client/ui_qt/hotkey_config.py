@@ -61,7 +61,8 @@ class HotkeyBinding:
 
 @dataclass(frozen=True)
 class QuantityHotkey:
-    key: str
+    id: str
+    key: str | None
     quantity: int
     enabled: bool = True
 
@@ -98,12 +99,19 @@ REFRESH_POLICY = RateLimitPolicy(cooldown_ms=1000, max_in_flight=1)
 RATE_LIMIT_NOTICE_MS = 1000
 QUOTE_FRESHNESS_MS = 5000
 MAX_ORDER_HOTKEY_RULES = 15
+MAX_QUANTITY_HOTKEY_RULES = 20
 
 VALID_ORDER_SIDES = {"buy", "sell"}
 VALID_ORDER_TYPES = {"limit", "market"}
 VALID_TIFS = {"Day", "GTC", "IOC", "EXT", "GTC_EXT"}
 DEFAULT_ORDER_KEYS = tuple(f"Shift+F{index}" for index in range(1, 13))
 NUMPAD_QUANTITY_KEYS = tuple(f"Num+{index}" for index in range(1, 10))
+DEFAULT_QUANTITY_HOTKEY_IDS = tuple(
+    f"quantity_default_{index}" for index in range(1, 10)
+)
+DEFAULT_QUANTITY_KEY_BY_ID = dict(
+    zip(DEFAULT_QUANTITY_HOTKEY_IDS, NUMPAD_QUANTITY_KEYS)
+)
 _ROUTE_RE = re.compile(r"^[A-Z0-9._-]+$")
 
 
@@ -150,7 +158,12 @@ def _binding(
 
 def _default_quantity_hotkeys() -> tuple[QuantityHotkey, ...]:
     return tuple(
-        QuantityHotkey(key=f"Num+{index}", quantity=index * 100, enabled=True)
+        QuantityHotkey(
+            id=f"quantity_default_{index}",
+            key=f"Num+{index}",
+            quantity=index * 100,
+            enabled=True,
+        )
         for index in range(1, 10)
     )
 
@@ -195,7 +208,7 @@ def bindings_from_config(config: HotkeyRuntimeConfig) -> tuple[HotkeyBinding, ..
     for hotkey in config.quantity_hotkeys:
         bindings.append(
             _binding(
-                f"quantity_{hotkey.key.lower().replace('+', '_')}",
+                hotkey.id,
                 hotkey.key,
                 HotkeyAction.QUANTITY_SET,
                 HotkeyContext.MAIN_WINDOW,
@@ -258,14 +271,40 @@ def validate_hotkey_config(config: HotkeyRuntimeConfig) -> list[str]:
         errors.append("默认 ROUTE 格式无效")
 
     quantities = tuple(config.quantity_hotkeys)
-    expected_keys = set(NUMPAD_QUANTITY_KEYS)
-    if {item.key for item in quantities} != expected_keys:
-        errors.append("股数快捷键必须且只能包含 Num 1 到 Num 9")
+    if len(quantities) < len(DEFAULT_QUANTITY_HOTKEY_IDS):
+        errors.append("股数快捷键必须保留 Num 1 到 Num 9")
+    if len(quantities) > MAX_QUANTITY_HOTKEY_RULES:
+        errors.append(f"股数快捷键最多 {MAX_QUANTITY_HOTKEY_RULES} 条")
+
+    quantity_ids: set[str] = set()
+    quantity_keys: set[str] = set()
     for item in quantities:
-        if item.key not in expected_keys:
-            errors.append(f"不支持的股数快捷键：{item.key}")
+        item_id = str(item.id or "").strip()
+        key = str(item.key or "").strip()
+        if not item_id:
+            errors.append("股数快捷键规则缺少 id")
+        elif item_id in quantity_ids:
+            errors.append(f"股数快捷键规则 id 重复：{item_id}")
+        quantity_ids.add(item_id)
+
+        fixed_key = DEFAULT_QUANTITY_KEY_BY_ID.get(item_id)
+        if fixed_key is not None and key != fixed_key:
+            errors.append(f"{item_id} 的固定按键必须是 {fixed_key}")
+        elif fixed_key is None and key in NUMPAD_QUANTITY_KEYS:
+            errors.append(f"自定义股数快捷键不能占用固定按键：{key}")
+        if item.enabled and not key:
+            errors.append(f"{item_id or '股数快捷键'} 已启用但没有快捷键")
+        normalized_key = _normalize_key(key)
+        if normalized_key:
+            if normalized_key in quantity_keys:
+                errors.append(f"股数快捷键重复：{key}")
+            quantity_keys.add(normalized_key)
         if not isinstance(item.quantity, int) or item.quantity <= 0:
-            errors.append(f"{item.key} 股数必须是正整数")
+            errors.append(f"{key or item_id} 股数必须是正整数")
+
+    for default_id, expected_key in DEFAULT_QUANTITY_KEY_BY_ID.items():
+        if default_id not in quantity_ids:
+            errors.append(f"缺少固定股数快捷键：{expected_key}")
 
     rules = tuple(config.order_hotkeys)
     if len(rules) > MAX_ORDER_HOTKEY_RULES:

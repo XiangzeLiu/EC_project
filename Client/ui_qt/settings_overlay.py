@@ -30,9 +30,12 @@ from PySide6.QtWidgets import (
 from . import theme
 from .client_version import client_version
 from .hotkey_config import (
+    DEFAULT_QUANTITY_HOTKEY_IDS,
+    DEFAULT_QUANTITY_KEY_BY_ID,
     DEFAULT_HOTKEY_CONFIG,
     FIXED_HOTKEY_DESCRIPTIONS,
     MAX_ORDER_HOTKEY_RULES,
+    MAX_QUANTITY_HOTKEY_RULES,
     VALID_TIFS,
     HotkeyRuntimeConfig,
     OrderHotkeyRule,
@@ -93,8 +96,7 @@ class SettingsOverlay(QWidget):
         self._route_options = self._normalize_routes(route_options)
         self._route_effective = bool(route_effective)
         self._hidden_effective = bool(hidden_effective)
-        self._quantity_enabled: dict[str, QCheckBox] = {}
-        self._quantity_spins: dict[str, QSpinBox] = {}
+        self._quantity_rows: list[dict[str, object]] = []
         self._order_rows: list[dict[str, object]] = []
 
         root = QVBoxLayout(self)
@@ -172,7 +174,7 @@ class SettingsOverlay(QWidget):
         sidebar_layout.setContentsMargins(10, 12, 10, 12)
         sidebar_layout.setSpacing(8)
         self.hotkey_tab_btn = self._make_tab_button("快捷键设置", 0)
-        self.about_tab_btn = self._make_tab_button("关于 SC Client", 1)
+        self.about_tab_btn = self._make_tab_button("关于 client", 1)
         sidebar_layout.addWidget(self.hotkey_tab_btn)
         sidebar_layout.addWidget(self.about_tab_btn)
         sidebar_layout.addStretch(1)
@@ -241,37 +243,108 @@ class SettingsOverlay(QWidget):
         page.setObjectName("settingsPage")
         outer = QVBoxLayout(page)
         outer.setContentsMargins(4, 8, 4, 10)
-        outer.setSpacing(0)
-        layout = QGridLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(16)
-        layout.setVerticalSpacing(8)
-        layout.addWidget(self._header_label("启用"), 0, 0)
-        layout.addWidget(self._header_label("小键盘按键"), 0, 1)
-        layout.addWidget(self._header_label("股数"), 0, 2)
-        layout.setColumnStretch(3, 1)
-        layout.setRowMinimumHeight(0, 22)
-        for row, item in enumerate(self._config.quantity_hotkeys, start=1):
-            enabled = QCheckBox()
-            enabled.setChecked(bool(item.enabled))
-            key_label = QLabel(item.key.replace("Num+", "Num "))
-            key_label.setObjectName("settingsMutedText")
-            spin = QSpinBox()
-            spin.setRange(1, 999999)
-            spin.setSingleStep(100)
-            spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-            spin.setValue(max(1, int(item.quantity)))
-            spin.setMinimumWidth(120)
-            spin.setAlignment(Qt.AlignCenter)
-            self._quantity_enabled[item.key] = enabled
-            self._quantity_spins[item.key] = spin
-            key_label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(enabled, row, 0, Qt.AlignCenter)
-            layout.addWidget(key_label, row, 1)
-            layout.addWidget(spin, row, 2)
-        outer.addLayout(layout)
-        outer.addStretch(1)
+        outer.setSpacing(10)
+
+        self.quantity_scroll = QScrollArea()
+        self.quantity_scroll.setWidgetResizable(True)
+        self.quantity_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.quantity_scroll.setObjectName("settingsScrollArea")
+        self.quantity_rows_host = QWidget()
+        self.quantity_rows_host.setObjectName("settingsOrderRows")
+        self.quantity_rows_layout = QGridLayout(self.quantity_rows_host)
+        self.quantity_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.quantity_rows_layout.setHorizontalSpacing(16)
+        self.quantity_rows_layout.setVerticalSpacing(8)
+        self.quantity_scroll.setWidget(self.quantity_rows_host)
+        outer.addWidget(self.quantity_scroll, 1)
+
+        controls = QHBoxLayout()
+        self.add_quantity_btn = QPushButton("+ 添加规则")
+        self.add_quantity_btn.setObjectName("settingsSecondaryButton")
+        self.add_quantity_btn.clicked.connect(self._add_quantity_rule)
+        self.quantity_count_label = QLabel("")
+        self.quantity_count_label.setObjectName("settingsMutedText")
+        controls.addWidget(self.add_quantity_btn)
+        controls.addStretch(1)
+        controls.addWidget(self.quantity_count_label)
+        outer.addLayout(controls)
+
+        self._render_quantity_rules(list(self._config.quantity_hotkeys))
         return page
+
+    def _render_quantity_rules(self, rules: list[QuantityHotkey]) -> None:
+        while self.quantity_rows_layout.count():
+            item = self.quantity_rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self._quantity_rows.clear()
+
+        by_id = {rule.id: rule for rule in rules}
+        ordered_rules = [
+            by_id[item_id]
+            for item_id in DEFAULT_QUANTITY_HOTKEY_IDS
+            if item_id in by_id
+        ]
+        ordered_rules.extend(
+            rule for rule in rules if rule.id not in DEFAULT_QUANTITY_KEY_BY_ID
+        )
+
+        headers = ("启用", "快捷键", "股数", "操作")
+        for col, header in enumerate(headers):
+            self.quantity_rows_layout.addWidget(self._header_label(header), 0, col)
+        for row_index, rule in enumerate(ordered_rules, start=1):
+            self._add_quantity_row_widgets(row_index, rule)
+        self.quantity_rows_layout.setColumnStretch(4, 1)
+        self._update_quantity_count()
+
+    def _add_quantity_row_widgets(self, row: int, rule: QuantityHotkey) -> None:
+        enabled = QCheckBox()
+        enabled.setChecked(bool(rule.enabled))
+        fixed_key = DEFAULT_QUANTITY_KEY_BY_ID.get(rule.id)
+        if fixed_key is not None:
+            key_widget: QWidget = QLabel(fixed_key.replace("Num+", "Num "))
+            key_widget.setObjectName("settingsKeyCell")
+            key_widget.setToolTip("默认保底按键，不支持修改")
+            key_widget.setAlignment(Qt.AlignCenter)  # type: ignore[union-attr]
+            key_edit = None
+        else:
+            key_edit = KeyCaptureEdit(rule.key or "")
+            key_widget = key_edit
+
+        spin = QSpinBox()
+        spin.setRange(1, 999999)
+        spin.setSingleStep(100)
+        spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        spin.setValue(max(1, int(rule.quantity)))
+        spin.setMinimumWidth(120)
+        spin.setAlignment(Qt.AlignCenter)
+
+        row_data: dict[str, object] = {
+            "id": rule.id,
+            "fixed_key": fixed_key,
+            "key": key_edit,
+            "enabled": enabled,
+            "quantity": spin,
+        }
+        if fixed_key is not None:
+            action_widget: QWidget = QLabel("固定")
+            action_widget.setObjectName("settingsMutedText")
+            action_widget.setAlignment(Qt.AlignCenter)  # type: ignore[union-attr]
+        else:
+            delete_btn = QPushButton("删除")
+            delete_btn.setObjectName("settingsDangerButton")
+            delete_btn.clicked.connect(
+                lambda _checked=False, data=row_data: self._delete_quantity_row(data)
+            )
+            action_widget = delete_btn
+        row_data["action"] = action_widget
+        self._quantity_rows.append(row_data)
+
+        widgets = (enabled, key_widget, spin, action_widget)
+        for col, widget in enumerate(widgets):
+            alignment = Qt.AlignCenter if isinstance(widget, QCheckBox) else Qt.Alignment()
+            self.quantity_rows_layout.addWidget(widget, row, col, alignment)
 
     def _build_order_page(self) -> QWidget:
         page = QWidget()
@@ -366,7 +439,7 @@ class SettingsOverlay(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(28, 26, 28, 26)
         layout.setSpacing(14)
-        title = QLabel("SC Client")
+        title = QLabel("client")
         title.setObjectName("settingsAboutName")
         title.setFont(theme.ui_font(18, bold=True))
         self.version_label = QLabel(client_version())
@@ -533,21 +606,69 @@ class SettingsOverlay(QWidget):
             )
         return tuple(rules)
 
-    def _collect_config(self) -> HotkeyRuntimeConfig:
-        quantities = tuple(
-            QuantityHotkey(
-                key=key,
-                quantity=spin.value(),
-                enabled=bool(self._quantity_enabled[key].isChecked()),
+    def _collect_quantity_rules(self) -> tuple[QuantityHotkey, ...]:
+        rules: list[QuantityHotkey] = []
+        for row in self._quantity_rows:
+            fixed_key = row.get("fixed_key")
+            key_edit = row.get("key")
+            if fixed_key is not None:
+                key = str(fixed_key)
+            else:
+                assert isinstance(key_edit, KeyCaptureEdit)
+                key = key_edit.text().strip() or None
+            enabled = row["enabled"]
+            quantity = row["quantity"]
+            assert isinstance(enabled, QCheckBox)
+            assert isinstance(quantity, QSpinBox)
+            rules.append(
+                QuantityHotkey(
+                    id=str(row.get("id") or ""),
+                    key=key,
+                    quantity=quantity.value(),
+                    enabled=bool(enabled.isChecked()),
+                )
             )
-            for key, spin in sorted(self._quantity_spins.items())
-        )
+        return tuple(rules)
+
+    def _collect_config(self) -> HotkeyRuntimeConfig:
         default_route = self._route_combo_value(self.default_route_combo, "SMART")
         return HotkeyRuntimeConfig(
             default_route=default_route,
-            quantity_hotkeys=quantities,
+            quantity_hotkeys=self._collect_quantity_rules(),
             order_hotkeys=self._collect_order_rules(),
         )
+
+    def _add_quantity_rule(self) -> None:
+        if len(self._quantity_rows) >= MAX_QUANTITY_HOTKEY_RULES:
+            self.set_error(f"股数快捷键最多 {MAX_QUANTITY_HOTKEY_RULES} 条")
+            return
+        next_index = 1
+        existing_ids = {str(row.get("id")) for row in self._quantity_rows}
+        while f"quantity_custom_{next_index}" in existing_ids:
+            next_index += 1
+        rules = list(self._collect_quantity_rules())
+        rules.append(
+            QuantityHotkey(
+                id=f"quantity_custom_{next_index}",
+                key=None,
+                quantity=100,
+                enabled=False,
+            )
+        )
+        self._render_quantity_rules(rules)
+
+    def _delete_quantity_row(self, row_data: dict[str, object]) -> None:
+        rules = [
+            rule
+            for rule, source in zip(self._collect_quantity_rules(), self._quantity_rows)
+            if source is not row_data
+        ]
+        self._render_quantity_rules(rules)
+
+    def _update_quantity_count(self) -> None:
+        count = len(self._quantity_rows)
+        self.quantity_count_label.setText(f"{count} / {MAX_QUANTITY_HOTKEY_RULES}")
+        self.add_quantity_btn.setEnabled(count < MAX_QUANTITY_HOTKEY_RULES)
 
     def _add_order_rule(self) -> None:
         if len(self._order_rows) >= MAX_ORDER_HOTKEY_RULES:
@@ -575,8 +696,7 @@ class SettingsOverlay(QWidget):
 
     def _restore_defaults(self) -> None:
         self._config = DEFAULT_HOTKEY_CONFIG
-        self._quantity_enabled.clear()
-        self._quantity_spins.clear()
+        self._quantity_rows.clear()
         self.hotkey_tabs.removeTab(0)
         self.hotkey_tabs.insertTab(0, self._build_quantity_page(), "股数快捷键")
         self.hotkey_tabs.removeTab(1)

@@ -8,6 +8,7 @@ set "PLATFORM_ID=0"
 set "ROOT_DIR=%cd%"
 set "ENTRY_FILE=%ROOT_DIR%\Client\main.py"
 set "FONT_DIR=%ROOT_DIR%\Client\assets\fonts"
+set "ICON_DIR=%ROOT_DIR%\Client\assets\icons"
 set "BUILD_REQUIREMENTS=%ROOT_DIR%\Client\requirements-build.txt"
 set "DIST_ROOT=%ROOT_DIR%\dist\ClientInstaller"
 set "APP_DIST=%DIST_ROOT%\app"
@@ -36,6 +37,10 @@ if not exist "%FONT_DIR%\Inter-Variable.ttf" (
 )
 if not exist "%FONT_DIR%\JetBrainsMono-Variable.ttf" (
   echo [Client Package] ERROR: missing JetBrains Mono font.
+  goto :fail
+)
+if not exist "%ICON_DIR%\search.svg" (
+  echo [Client Package] ERROR: missing Client search icon.
   goto :fail
 )
 if not exist "%BUILD_REQUIREMENTS%" (
@@ -133,6 +138,7 @@ echo [Client Package] Building portable application...
   --specpath "%SPEC_DIR%" ^
   --paths "%ROOT_DIR%" ^
   --add-data "%FONT_DIR%;Client\assets\fonts" ^
+  --add-data "%ICON_DIR%;Client\assets\icons" ^
   --add-data "%BUILD_INFO%;Client" ^
   --collect-all tzdata ^
   --collect-all websockets ^

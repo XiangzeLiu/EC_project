@@ -9,6 +9,7 @@ import ctypes
 import os
 import re
 import sys
+from pathlib import Path
 
 
 def _install_packaged_exception_handler() -> None:
@@ -74,6 +75,9 @@ def _run_package_self_test() -> int:
         for font_name in ("Inter-Variable.ttf", "JetBrainsMono-Variable.ttf"):
             if not (theme.FONT_DIR / font_name).is_file():
                 raise RuntimeError(f"missing bundled font: {font_name}")
+        search_icon = Path(__file__).resolve().parent / "assets" / "icons" / "search.svg"
+        if not search_icon.is_file():
+            raise RuntimeError("missing bundled search icon")
         if getattr(sys, "frozen", False) and not packaged_build_info_available():
             raise RuntimeError("missing packaged build metadata")
         if not re.fullmatch(r"v_0_\d{14}", client_version()):

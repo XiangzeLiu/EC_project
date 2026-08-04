@@ -166,6 +166,16 @@ QWidget {{
     font-size: 10pt;
 }}
 
+QPushButton:focus,
+QCheckBox:focus,
+QRadioButton:focus,
+QTabBar:focus,
+QTabBar::tab:focus,
+QAbstractItemView:focus,
+QAbstractItemView::item:focus {{
+    outline: none;
+}}
+
 {SCROLLBAR_QSS}
 
 QMainWindow, QWidget#root {{
@@ -211,14 +221,6 @@ QFrame#inputBox, QLineEdit, QComboBox {{
 QComboBox::drop-down {{
     width: 18px;
     border: none;
-}}
-
-QLineEdit[pendingSide="buy"] {{
-    border: 2px solid {ACCENT_GREEN};
-}}
-
-QLineEdit[pendingSide="sell"] {{
-    border: 2px solid {ACCENT_RED};
 }}
 
 QComboBox:hover,
@@ -281,11 +283,6 @@ QPushButton#sellButton:pressed {{
     border-color: #D92740;
     padding-top: 8px;
     padding-bottom: 6px;
-}}
-
-QPushButton#buyButton[pending="true"],
-QPushButton#sellButton[pending="true"] {{
-    border: 2px solid {ACCENT_YELLOW};
 }}
 
 QPushButton#buyButton:disabled,
@@ -444,12 +441,6 @@ QPushButton#cancelOrderButton:pressed {{
     background: #D92740;
     border-color: #D92740;
     padding-top: 1px;
-}}
-
-QPushButton#qtyStepButton {{
-    padding: 3px 4px;
-    min-width: 28px;
-    max-width: 34px;
 }}
 
 QPushButton#consoleButton {{
@@ -661,6 +652,28 @@ QPushButton#settingsSecondaryButton:pressed {{
 QPushButton#settingsDangerButton {{
     background: transparent;
     color: {ACCENT_RED};
+}}
+
+QPushButton#quoteQueryButton {{
+    background: {PANEL_ALT_BG};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    color: {TEXT_MUTED};
+    padding: 0;
+    min-height: 44px;
+    max-height: 44px;
+}}
+
+QPushButton#quoteQueryButton:hover {{
+    background: #252C34;
+    border-color: {TEXT_LOW};
+    color: {TEXT_PRIMARY};
+}}
+
+QPushButton#quoteQueryButton:pressed {{
+    background: {INPUT_BG};
+    border-color: {BORDER};
+    color: {ACCENT_BLUE};
 }}
 
 QTableView {{

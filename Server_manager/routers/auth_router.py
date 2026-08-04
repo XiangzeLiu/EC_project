@@ -11,6 +11,7 @@ from models import LoginRequest, LoginResponse, LogoutResponse
 from config import CLIENT_TOKEN_TTL_SECONDS, SERVER_TOKEN, session_store, log, load_users_from_json, active_client_tokens
 from auth import (
     generate_client_token,
+    inspect_client_token,
     get_client_username,
     invalidate_client_token,
     invalidate_client_tokens_by_username,
@@ -215,9 +216,10 @@ async def verify_client_token(request: Request):
     if str(node.get("status") or "").strip().lower() == "suspended":
         return deny("node_suspended")
 
-    username = get_client_username(client_token)
-    if not username:
-        return deny("invalid_or_expired")
+    token_info, auth_reason = inspect_client_token(client_token)
+    username = str((token_info or {}).get("username") or "")
+    if auth_reason:
+        return deny(auth_reason, username)
 
     account = get_account_by_username(username)
     bound_endpoint = resolve_trade_server_address(account)

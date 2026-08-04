@@ -50,14 +50,20 @@ def generate_client_token(username: str) -> str:
 
 def get_client_token_info(token: str) -> dict | None:
     """获取客户端 token 对应的用户信息"""
+    info, reason = inspect_client_token(token)
+    return info if not reason else None
+
+
+def inspect_client_token(token: str) -> tuple[dict | None, str]:
+    """返回 token 信息以及稳定的认证失败原因。"""
     info = active_client_tokens.get(token)
     if not info:
-        return None
+        return None, "auth_invalid"
     created_at = float(info.get("created_at") or 0)
     if created_at <= 0 or time.time() - created_at > CLIENT_TOKEN_TTL_SECONDS:
         active_client_tokens.pop(token, None)
-        return None
-    return info
+        return dict(info), "auth_expired"
+    return info, ""
 
 
 def prune_expired_client_tokens() -> int:

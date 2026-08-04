@@ -104,6 +104,8 @@ class TradingSession:
         self._symbol_order_options_lock = threading.Lock()
         self._symbol_order_options: dict[str, dict] = {}
         self.last_login_error: dict = {}
+        self.auth_expires_in: int = 0
+        self.auth_deadline_monotonic: float = 0.0
         self.broker_detail = self._default_broker_detail()
         # 登录后从 SM 获取的 TS 地址
         self.se_address: str = ""
@@ -294,6 +296,15 @@ class TradingSession:
         })
         if status == 200:
             self.http.token = resp.get("token", "")
+            try:
+                self.auth_expires_in = max(0, int(resp.get("expires_in") or 0))
+            except (TypeError, ValueError):
+                self.auth_expires_in = 0
+            self.auth_deadline_monotonic = (
+                time.monotonic() + self.auth_expires_in
+                if self.auth_expires_in > 0
+                else 0.0
+            )
             self.se_address = resp.get("se_address", "") or ""
             self.set_broker_detail(None)
             self.connected = True
@@ -315,12 +326,27 @@ class TradingSession:
         """鐧诲嚭"""
         if self.connected:
             self.http.post("/auth/logout", {})
+        self.clear_local_auth()
+
+    def clear_local_auth(self) -> None:
+        """Clear Client-side authentication without waiting for SM."""
         self.http.token = ""
+        self.auth_expires_in = 0
+        self.auth_deadline_monotonic = 0.0
         self.set_broker_detail(None)
         self.invalidate_order_cache()
         self.clear_symbol_order_options()
         self.connected = False
         self.mock_mode = False
+
+    def auth_seconds_remaining(self) -> float | None:
+        if self.auth_deadline_monotonic <= 0:
+            return None
+        return max(0.0, self.auth_deadline_monotonic - time.monotonic())
+
+    def is_auth_expired(self) -> bool:
+        remaining = self.auth_seconds_remaining()
+        return remaining is not None and remaining <= 0
 
     def invalidate_order_cache(self) -> None:
         with self._order_cache_lock:

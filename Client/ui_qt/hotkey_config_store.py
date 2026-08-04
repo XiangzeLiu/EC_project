@@ -22,7 +22,7 @@ from .hotkey_config import (
 from .shortcut_controller import validate_shortcut_sequences
 
 
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 LEGACY_CONFIG_VERSION = 1
 APP_DIR_NAME = "SC Client"
 HOTKEY_FILE_NAME = "hotkey.json"
@@ -144,7 +144,12 @@ def _serialize_config(config: HotkeyRuntimeConfig) -> dict:
         "version": CONFIG_VERSION,
         "default_route": config.default_route,
         "quantity_hotkeys": [
-            {"key": item.key, "quantity": int(item.quantity), "enabled": bool(item.enabled)}
+            {
+                "id": item.id,
+                "key": item.key,
+                "quantity": int(item.quantity),
+                "enabled": bool(item.enabled),
+            }
             for item in config.quantity_hotkeys
         ],
         "order_hotkeys": [
@@ -198,15 +203,21 @@ def _parse_config(raw: object, default_config: HotkeyRuntimeConfig) -> HotkeyRun
 def _parse_quantity(item: object, index: int) -> QuantityHotkey:
     if not isinstance(item, dict):
         raise ValueError(f"第 {index + 1} 条股数快捷键必须是对象")
-    key = str(item.get("key") or "").strip()
+    item_id = str(item.get("id") or "").strip()
+    if not item_id:
+        raise ValueError(f"第 {index + 1} 条股数快捷键缺少 id")
+    raw_key = item.get("key")
+    if raw_key is not None and not isinstance(raw_key, str):
+        raise ValueError(f"{item_id} key 必须是字符串或 null")
+    key = raw_key.strip() if isinstance(raw_key, str) and raw_key.strip() else None
     try:
         quantity = int(item.get("quantity") or 0)
     except (TypeError, ValueError):
-        raise ValueError(f"{key or index + 1} 股数必须是整数") from None
+        raise ValueError(f"{key or item_id} 股数必须是整数") from None
     enabled = item.get("enabled", True)
     if not isinstance(enabled, bool):
-        raise ValueError(f"{key} enabled 必须是布尔值")
-    return QuantityHotkey(key=key, quantity=quantity, enabled=enabled)
+        raise ValueError(f"{item_id} enabled 必须是布尔值")
+    return QuantityHotkey(id=item_id, key=key, quantity=quantity, enabled=enabled)
 
 
 def _parse_order_rule(item: object, index: int) -> OrderHotkeyRule:

@@ -33,6 +33,10 @@ log = logging.getLogger("client.ts_websocket")
 class TSAuthenticationError(Exception):
     """Raised when TS explicitly rejects the Client CONNECT request."""
 
+    def __init__(self, message: str, code: str = "AUTH_INVALID"):
+        super().__init__(message)
+        self.code = str(code or "AUTH_INVALID").strip().upper()
+
 # 导入重连配置常量（从 constants 模块）
 try:
     from ..constants import (TS_RECONNECT_BASE_INTERVAL, TS_RECONNECT_MAX_INTERVAL,
@@ -453,6 +457,8 @@ class TSWebSocketClient:
                     try:
                         if not self.on_reconnect_prepare(reconnect_attempts, self._connection_id):
                             raise ConnectionRefusedError("reconnect_prepare_failed")
+                    except TSAuthenticationError:
+                        raise
                     except Exception as prep_exc:
                         last_error = f"reconnect_prepare_failed: {prep_exc}"
                         raise ConnectionRefusedError(last_error)
@@ -485,7 +491,8 @@ class TSWebSocketClient:
             except TSAuthenticationError as exc:
                 last_error = str(exc) or "authentication_failed"
                 self._active = False
-                self._emit_state("auth_failed", message=last_error)
+                state = "auth_expired" if exc.code == "AUTH_EXPIRED" else "auth_invalid"
+                self._emit_state(state, message=last_error, code=exc.code)
                 break
             except websockets.exceptions.ConnectionClosed as e:
                 # 管理端强制断开：不进行自动重连
@@ -625,10 +632,12 @@ class TSWebSocketClient:
             ack = json.loads(ack_raw)
 
             if ack.get("type") != "CONNECT_ACK":
-                err_msg = ack.get("payload", {}).get("message", "Auth failed")
+                err_payload = ack.get("payload", {}) if isinstance(ack.get("payload", {}), dict) else {}
+                err_msg = err_payload.get("message", "Auth failed")
+                err_code = str(err_payload.get("code") or "AUTH_INVALID").strip().upper()
                 if self.on_status:
                     self.on_status(f"Auth failed: {err_msg}")
-                raise TSAuthenticationError(err_msg)
+                raise TSAuthenticationError(err_msg, code=err_code)
 
             self._connected = True
             self._authenticated_event.set()
@@ -725,9 +734,27 @@ class TSWebSocketClient:
                         pass
 
             if msg_type == "ERROR":
+                err_payload = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
+                err_code = str(err_payload.get("code") or "").strip().upper()
+                if err_code in {"AUTH_EXPIRED", "AUTH_INVALID", "AUTH_REVOKED"}:
+                    self._active = False
+                    self._reconnect_enabled = False
+                    self._connected = False
+                    if self._conn_lost is not None:
+                        self._conn_lost.set()
+                    state = "auth_expired" if err_code == "AUTH_EXPIRED" else "auth_invalid"
+                    self._emit_state(
+                        state,
+                        message=str(err_payload.get("message") or "Authentication required"),
+                        code=err_code,
+                    )
+                    try:
+                        await ws.close()
+                    except Exception:
+                        pass
+                    return
 
                 if self.on_status:
-                    err_payload = msg.get("payload", {})
                     self.on_status(f"Error [{err_payload.get('code', '')}]: {err_payload.get('message', '')}")
 
             if self.on_message:

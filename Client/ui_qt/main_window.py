@@ -10,8 +10,8 @@ import time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QEasingCurve, QModelIndex, QObject, QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QAbstractTableModel, QEasingCurve, QEvent, QModelIndex, QObject, QPropertyAnimation, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -31,6 +31,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QProgressBar,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -45,6 +48,7 @@ else:
     from Client.ui_qt import theme
 
 from Client.constants import (
+    AUTH_EXPIRY_WARNING_SECONDS,
     DEFAULT_TS_HOST,
     DEFAULT_TS_PORT,
     DEFAULT_TS_WS_URL,
@@ -368,6 +372,15 @@ class DataTableModel(QAbstractTableModel):
         self.endResetModel()
 
 
+class NoFocusRectItemDelegate(QStyledItemDelegate):
+    """Keep item-view focus behavior while suppressing its dotted focus frame."""
+
+    def paint(self, painter, option, index) -> None:
+        clean_option = QStyleOptionViewItem(option)
+        clean_option.state &= ~QStyle.State_HasFocus
+        super().paint(painter, clean_option, index)
+
+
 class TradingSlot:
     def __init__(self, panel_id: int):
         self.panel_id = panel_id
@@ -382,13 +395,10 @@ class TradingSlot:
         self.hidden_order: QCheckBox | None = None
         self.hidden_order_caption: QLabel | None = None
         self.price: QLineEdit | None = None
-        self.last: QLabel | None = None
         self.bid: QLabel | None = None
         self.ask: QLabel | None = None
         self.buy: QPushButton | None = None
         self.sell: QPushButton | None = None
-        self.minus: QPushButton | None = None
-        self.plus: QPushButton | None = None
         self.pending_action = ""
         self.pending_symbol = ""
         self.pending_order_type = ""
@@ -398,6 +408,7 @@ class TradingSlot:
         self.confirm_guard_until = 0.0
         self.trade_enabled = False
         self.symbol_pending = False
+        self.quote_query_button: QPushButton | None = None
 
     def symbol_text(self) -> str:
         return self.symbol.currentText().strip().upper() if self.symbol else ""
@@ -448,15 +459,11 @@ class TradingSlot:
         self._apply_trade_enabled()
 
     def clear_quote(self) -> None:
-        for label in (self.last, self.bid, self.ask):
+        for label in (self.bid, self.ask):
             if label:
                 label.setText("--")
 
     def update_quote(self, quote: dict) -> None:
-        if self.last:
-            text = f"{float(quote.get('last', 0) or 0):.2f}"
-            if self.last.text() != text:
-                self.last.setText(text)
         if self.bid:
             text = f"{float(quote.get('bid', 0) or 0):.2f}"
             if self.bid.text() != text:
@@ -490,7 +497,6 @@ class TradingTerminalQt(QMainWindow):
         self._hotkey_config: HotkeyRuntimeConfig = DEFAULT_HOTKEY_CONFIG
         self._settings_overlay: SettingsOverlay | None = None
         self._action_limiter = ActionRateLimiter()
-        self._quote_sync_timers: dict[int, QTimer] = {}
         self._ts_connection = TSConnectionCoordinator(
             http_client=self.http,
             session_provider=lambda: self.session,
@@ -541,6 +547,8 @@ class TradingTerminalQt(QMainWindow):
         self._last_ui_error_at = 0.0
         self._last_reconnect_notice_attempt = 0
         self._reconnect_failed = False
+        self._auth_warning_shown = False
+        self._auth_exit_started = False
         self._connection_status_label = "OFFLINE"
         self._orders_raw: list[dict] = []
         self._positions_raw: list[dict] = []
@@ -550,13 +558,15 @@ class TradingTerminalQt(QMainWindow):
         self._resize_effect_timer = QTimer(self)
         self._resize_effect_timer.setSingleShot(True)
         self._resize_effect_timer.timeout.connect(self._restore_resize_effects)
+        self._window_state_layout_timer = QTimer(self)
+        self._window_state_layout_timer.setSingleShot(True)
+        self._window_state_layout_timer.timeout.connect(self._finalize_window_state_layout)
 
         app = QApplication.instance()
         if app is not None:
             app.focusChanged.connect(self._on_focus_changed)
 
-        root = QWidget()
-        root.setObjectName("root")
+        root = self._create_root_widget()
         self.setCentralWidget(root)
 
         shell = QVBoxLayout(root)
@@ -572,7 +582,8 @@ class TradingTerminalQt(QMainWindow):
         card_layout.setContentsMargins(34, 34, 34, 34)
         card_layout.setSpacing(0)
 
-        title = make_label("SC  登录", color=theme.ACCENT_BLUE, font=theme.mono_font(30, bold=True))
+        title = make_label("登录", color=theme.ACCENT_BLUE, font=theme.mono_font(30, bold=True))
+        title.setObjectName("loginTitle")
         title.setAlignment(Qt.AlignCenter)
         title.setMinimumHeight(40)
         title.setStyleSheet(f'color: {theme.ACCENT_BLUE}; font-size: 30px; font-weight: 900; letter-spacing: 1px; line-height: 1.0;')
@@ -618,6 +629,8 @@ class TradingTerminalQt(QMainWindow):
         form_wrap_layout.addWidget(login_field("账号", self._login_user_entry))
         form_wrap_layout.addWidget(login_field("密码", self._login_pass_entry))
         login_layout.addWidget(form_wrap, alignment=Qt.AlignHCenter)
+        self._auth_notice_label = self._make_auth_notice_label("")
+        login_layout.addWidget(self._auth_notice_label)
         login_layout.addSpacing(46)
 
         login_buttons = QWidget()
@@ -805,6 +818,7 @@ class TradingTerminalQt(QMainWindow):
             self._set_init_hint("请输入账号和密码")
             return
         self._set_init_hint("")
+        self._set_auth_notice("")
         self._show_connection_page()
         self._startup_login_required = True
         self._update_init_step("auth", "登录中...", theme.ACCENT_YELLOW)
@@ -827,20 +841,44 @@ class TradingTerminalQt(QMainWindow):
         if self._init_hint_label:
             self._init_hint_label.setText(text)
 
+    @staticmethod
+    def _make_auth_notice_label(text: str) -> QLabel:
+        label = make_label(text, color=theme.ACCENT_YELLOW, font=theme.ui_font(11, bold=True))
+        label.setAlignment(Qt.AlignCenter)
+        label.setWordWrap(True)
+        label.setMinimumHeight(24)
+        label.setStyleSheet(f"color: {theme.ACCENT_YELLOW}; background: transparent; border: none;")
+        return label
+
+    def _set_auth_notice(self, text: str) -> None:
+        label = getattr(self, "_auth_notice_label", None)
+        if label is not None:
+            label.setText(str(text or ""))
+
     def _set_init_actions_visible(self, visible: bool) -> None:
         for btn in (self._retry_btn, self._cancel_btn):
             if btn:
                 btn.setVisible(visible)
 
     def _build_root(self) -> None:
-        root = QWidget()
-        root.setObjectName("root")
+        root = self._create_root_widget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._build_header())
         layout.addWidget(self._build_workspace(), 1)
+
+    @staticmethod
+    def _create_root_widget() -> QWidget:
+        root = QWidget()
+        root.setObjectName("root")
+        root.setAttribute(Qt.WA_StyledBackground, True)
+        palette = root.palette()
+        palette.setColor(QPalette.Window, QColor(theme.TERM_BG))
+        root.setPalette(palette)
+        root.setAutoFillBackground(True)
+        return root
 
     @staticmethod
     def _repolish(widget: QWidget | None) -> None:
@@ -1076,17 +1114,6 @@ class TradingTerminalQt(QMainWindow):
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(16)
 
-        logo = QLabel("SC")
-        logo.setObjectName("mainLogo")
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedSize(46, 32)
-        logo.setStyleSheet(
-            f"background: transparent; color: {theme.ACCENT_BLUE}; "
-            "border: none; padding: 0; font-size: 30px; font-weight: 900;"
-        )
-        logo.setFont(theme.ui_font(24, bold=True))
-        layout.addWidget(logo)
-
         switch = QFrame()
         switch.setStyleSheet(f"background: {theme.PANEL_ALT_BG}; border: 1px solid {theme.BORDER}; border-radius: 8px;")
         switch_layout = QHBoxLayout(switch)
@@ -1144,8 +1171,8 @@ class TradingTerminalQt(QMainWindow):
 
         slot_row = QHBoxLayout()
         slot_row.setSpacing(20)
-        slot_row.addWidget(self._build_slot(1, "", "100", "", -10, 10))
-        slot_row.addWidget(self._build_slot(2, "", "1", "", -1, 1))
+        slot_row.addWidget(self._build_slot(1, "", "100", ""))
+        slot_row.addWidget(self._build_slot(2, "", "1", ""))
         layout.addLayout(slot_row)
 
         middle = QHBoxLayout()
@@ -1158,7 +1185,7 @@ class TradingTerminalQt(QMainWindow):
         self._activate_panel(1)
         return workspace
 
-    def _build_slot(self, idx: int, symbol: str, qty: str, price: str, minus_step: int, plus_step: int) -> QFrame:
+    def _build_slot(self, idx: int, symbol: str, qty: str, price: str) -> QFrame:
         slot = TradingSlot(idx)
         self.slots[idx] = slot
         card = TradingPanelFrame()
@@ -1184,10 +1211,17 @@ class TradingTerminalQt(QMainWindow):
         slot.symbol = make_select(symbol, [symbol])
         slot.symbol.setEditable(True)
         slot.symbol.lineEdit().returnPressed.connect(lambda pid=idx: self._on_symbol_enter(pid))
-        slot.symbol.currentTextChanged.connect(lambda _text, pid=idx: self._schedule_quote_sync(pid))
-        slot_grid.addWidget(self._control_block("SYMBOL", slot.symbol), 0, 0)
+        symbol_control = QWidget()
+        symbol_layout = QHBoxLayout(symbol_control)
+        symbol_layout.setContentsMargins(0, 0, 0, 0)
+        symbol_layout.setSpacing(8)
+        symbol_layout.addWidget(slot.symbol, 1)
+        slot.quote_query_button = self._build_quote_query_button(idx)
+        symbol_layout.addWidget(slot.quote_query_button, 0)
+        slot.symbol.currentTextChanged.connect(lambda _text, pid=idx: self._on_symbol_text_changed(pid))
+        slot_grid.addWidget(self._control_block("SYMBOL", symbol_control), 0, 0)
 
-        quote_box, slot.last, slot.bid, slot.ask = self._build_quote_box()
+        quote_box, slot.bid, slot.ask = self._build_quote_box()
         slot_grid.addWidget(quote_box, 0, 1)
 
         slot.order_type = make_select("Limit", ["Limit", "Market"])
@@ -1203,10 +1237,8 @@ class TradingTerminalQt(QMainWindow):
         slot.tif = make_select("Day", ["Day", "GTC", "IOC", "EXT", "GTC_EXT"])
         right_config_layout.addWidget(self._control_block("TIF", slot.tif), 1)
 
-        qty_box, slot.qty_label, slot.minus, slot.plus = self._build_qty(qty, minus_step, plus_step)
+        qty_box, slot.qty_label = self._build_qty(qty)
         slot.qty_box = qty_box
-        slot.minus.clicked.connect(lambda _checked=False, pid=idx, delta=minus_step: self._adj_qty(delta, pid))
-        slot.plus.clicked.connect(lambda _checked=False, pid=idx, delta=plus_step: self._adj_qty(delta, pid))
         right_config_layout.addWidget(self._control_block("QTY", qty_box), 1)
 
         hide_block = QWidget()
@@ -1226,7 +1258,6 @@ class TradingTerminalQt(QMainWindow):
         slot_grid.addWidget(right_config, 1, 1)
 
         slot.price = make_input(price, field_type=TradePriceInput)
-        slot.price.setProperty("pendingSide", "")
         slot.price.returnPressed.connect(lambda pid=idx: self._on_price_enter(pid))
         slot_grid.addWidget(self._control_block("PRICE", slot.price), 2, 0)
 
@@ -1253,7 +1284,7 @@ class TradingTerminalQt(QMainWindow):
         layout.addLayout(slot_grid)
         return card
 
-    def _build_quote_box(self) -> tuple[QFrame, QLabel, QLabel, QLabel]:
+    def _build_quote_box(self) -> tuple[QFrame, QLabel, QLabel]:
         box = QFrame()
         box.setObjectName("inputBox")
         box.setMinimumHeight(72)
@@ -1261,26 +1292,22 @@ class TradingTerminalQt(QMainWindow):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setHorizontalSpacing(8)
         labels: list[QLabel] = []
-        for col, (caption, color) in enumerate((("LAST", theme.TEXT_MUTED), ("BID", theme.ACCENT_GREEN), ("ASK", theme.ACCENT_RED))):
+        for col, (caption, color) in enumerate((("BID", theme.ACCENT_GREEN), ("ASK", theme.ACCENT_RED))):
             layout.addWidget(make_label(caption, color=theme.TEXT_LOW, font=theme.mono_font(9)), 0, col, alignment=Qt.AlignHCenter | Qt.AlignBottom)
             value = make_label("--", color=color, font=theme.mono_font(11))
             value.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
             layout.addWidget(value, 1, col, alignment=Qt.AlignHCenter | Qt.AlignTop)
             layout.setColumnStretch(col, 1)
             labels.append(value)
-        return box, labels[0], labels[1], labels[2]
+        return box, labels[0], labels[1]
 
-    def _build_qty(self, value: str, minus_step: int, plus_step: int) -> tuple[QFrame, QLineEdit, QPushButton, QPushButton]:
+    def _build_qty(self, value: str) -> tuple[QFrame, QLineEdit]:
         box = QFrame()
         box.setObjectName("inputBox")
         box.setMinimumHeight(44)
         layout = QHBoxLayout(box)
         layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(3)
-        minus = make_button(str(minus_step), object_name="qtyStepButton", min_width=28)
-        minus.setFixedWidth(34)
-        plus = make_button(f"+{plus_step}" if plus_step > 0 else str(plus_step), object_name="qtyStepButton", min_width=28)
-        plus.setFixedWidth(34)
         qty = QLineEdit(value)
         qty.setObjectName("qtyInput")
         qty.setAlignment(Qt.AlignCenter)
@@ -1288,10 +1315,23 @@ class TradingTerminalQt(QMainWindow):
         qty.setMinimumWidth(34)
         qty.setMaxLength(7)
         qty.editingFinished.connect(lambda field=qty: self._normalize_qty_field(field))
-        layout.addWidget(minus)
         layout.addWidget(qty, 1)
-        layout.addWidget(plus)
-        return box, qty, minus, plus
+        return box, qty
+
+    def _build_quote_query_button(self, panel_id: int) -> QPushButton:
+        button = QPushButton()
+        button.setObjectName("quoteQueryButton")
+        button.setFixedSize(40, 44)
+        button.setFocusPolicy(Qt.NoFocus)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setToolTip("查询行情")
+        button.setAccessibleName("查询行情")
+        icon_path = Path(__file__).resolve().parents[1] / "assets" / "icons" / "search.svg"
+        if icon_path.is_file():
+            button.setIcon(QIcon(str(icon_path)))
+            button.setIconSize(QSize(18, 18))
+        button.clicked.connect(lambda _checked=False, pid=panel_id: self._on_symbol_query_requested(pid))
+        return button
 
     def _normalize_qty_field(self, field: QLineEdit) -> None:
         try:
@@ -1387,7 +1427,7 @@ class TradingTerminalQt(QMainWindow):
 
         self.positions_model = DataTableModel(["\u4ee3\u7801", "\u4e70\u5165", "\u5356\u51fa", "\u6301\u4ed3", "\u5747\u4ef7", "\u73b0\u4ef7", "\u672a\u5b9e\u73b0", "\u5df2\u5b9e\u73b0", "\u6210\u4ea4"])
         self.positions_table = self._make_table(self.positions_model)
-        self.positions_table.clicked.connect(self._on_position_clicked)
+        self.positions_table.doubleClicked.connect(self._on_position_double_clicked)
         body.addWidget(self.positions_table, 1)
         return panel
 
@@ -1424,6 +1464,7 @@ class TradingTerminalQt(QMainWindow):
         table = QTableView()
         table.setObjectName("tradeDataTable")
         table.setModel(model)
+        table.setItemDelegate(NoFocusRectItemDelegate(table))
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         table.verticalHeader().hide()
         table.setShowGrid(False)
@@ -1474,6 +1515,47 @@ class TradingTerminalQt(QMainWindow):
                 self._clock.setText(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             except RuntimeError:
                 self._clock = None
+        self._check_auth_lifetime()
+
+    def _check_auth_lifetime(self) -> None:
+        session = self.session
+        if not session or not session.connected or self._auth_exit_started:
+            return
+        remaining = session.auth_seconds_remaining()
+        if remaining is None:
+            return
+        if remaining <= 0:
+            self._start_authentication_recovery("AUTH_EXPIRED")
+            return
+        if (
+            AUTH_EXPIRY_WARNING_SECONDS > 0
+            and remaining <= AUTH_EXPIRY_WARNING_SECONDS
+            and not self._auth_warning_shown
+        ):
+            self._auth_warning_shown = True
+            minutes = max(1, int((AUTH_EXPIRY_WARNING_SECONDS + 59) // 60))
+            self._show_weak_tip(
+                f"认证将在{minutes}分钟后到期，到期后需要重新登录",
+                "warn",
+            )
+
+    def _start_authentication_recovery(self, code: str) -> None:
+        if self._auth_exit_started:
+            return
+        self._auth_exit_started = True
+        normalized = str(code or "AUTH_INVALID").strip().upper()
+        notice = (
+            "认证已过期，请重新认证登录"
+            if normalized == "AUTH_EXPIRED"
+            else "认证已失效，请重新认证登录"
+        )
+        self._teardown_shortcuts()
+        self._reset_runtime_action_state()
+        if self.session:
+            self.session.bind_se_client(None)
+            self.session.clear_local_auth()
+        self._ts_connection.abort(release=False, wait=False)
+        self._reset_to_login_page(auth_notice=notice)
 
     def _poll(self) -> None:
         now = time.time()
@@ -1581,7 +1663,7 @@ class TradingTerminalQt(QMainWindow):
         finally:
             self._ui(lambda: self._reset_to_login_page("交易服务器重连失败，已释放占用，请重新登录。"))
 
-    def _reset_to_login_page(self, hint: str = "") -> None:
+    def _reset_to_login_page(self, hint: str = "", auth_notice: str = "") -> None:
         self._teardown_shortcuts()
         self._reset_runtime_action_state()
         self.session = None
@@ -1596,6 +1678,8 @@ class TradingTerminalQt(QMainWindow):
         self._last_ui_error_at = 0.0
         self._last_reconnect_notice_attempt = 0
         self._reconnect_failed = False
+        self._auth_warning_shown = False
+        self._auth_exit_started = False
         self._order_refresh.set_order_mode("live", refresh=False)
         self._orders_raw = []
         self._positions_raw = []
@@ -1604,11 +1688,10 @@ class TradingTerminalQt(QMainWindow):
         self._ts_connection.reset()
         self._quote_subscriptions.reset(clear_desired=True)
         self._log_rows = []
-        self._build_login_root(hint)
+        self._build_login_root(hint, auth_notice=auth_notice)
 
-    def _build_login_root(self, hint: str = "") -> None:
-        root = QWidget()
-        root.setObjectName("root")
+    def _build_login_root(self, hint: str = "", auth_notice: str = "") -> None:
+        root = self._create_root_widget()
         self.setCentralWidget(root)
         shell = QVBoxLayout(root)
         shell.setContentsMargins(22, 22, 22, 22)
@@ -1621,7 +1704,8 @@ class TradingTerminalQt(QMainWindow):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(34, 34, 34, 34)
         card_layout.setSpacing(0)
-        title = make_label("SC  登录", color=theme.ACCENT_BLUE, font=theme.mono_font(30, bold=True))
+        title = make_label("登录", color=theme.ACCENT_BLUE, font=theme.mono_font(30, bold=True))
+        title.setObjectName("loginTitle")
         title.setAlignment(Qt.AlignCenter)
         title.setMinimumHeight(40)
         title.setStyleSheet(f"color: {theme.ACCENT_BLUE}; font-size: 30px; font-weight: 900; letter-spacing: 1px; line-height: 1.0;")
@@ -1659,6 +1743,8 @@ class TradingTerminalQt(QMainWindow):
         form_wrap_layout.addWidget(login_field("账号", self._login_user_entry))
         form_wrap_layout.addWidget(login_field("密码", self._login_pass_entry))
         login_layout.addWidget(form_wrap, alignment=Qt.AlignHCenter)
+        self._auth_notice_label = self._make_auth_notice_label(auth_notice)
+        login_layout.addWidget(self._auth_notice_label)
         login_layout.addSpacing(46)
         login_buttons = QWidget()
         login_buttons.setMaximumWidth(560)
@@ -2092,6 +2178,8 @@ class TradingTerminalQt(QMainWindow):
                 QTimer.singleShot(300, self._show_startup_login)
             return
         self._startup_login_required = False
+        self._auth_warning_shown = False
+        self._auth_exit_started = False
         self._login_username = username
         self._login_password = ""
         self._update_init_step("auth", "\u5df2\u767b\u5f55", theme.ACCENT_GREEN)
@@ -2168,6 +2256,12 @@ class TradingTerminalQt(QMainWindow):
                 self._handle_ts_reconnecting(f"Reconnecting ({attempt})")
             else:
                 self._update_init_step("se", f"连接中 ({attempt}/{TS_RECONNECT_MAX_ATTEMPTS})...", theme.ACCENT_YELLOW)
+            return
+
+        if state in ("auth_expired", "auth_invalid"):
+            self._start_authentication_recovery(
+                str(detail.get("code") or ("AUTH_EXPIRED" if state == "auth_expired" else "AUTH_INVALID"))
+            )
             return
 
         if state in ("auth_failed", "retry_exhausted"):
@@ -2439,11 +2533,10 @@ class TradingTerminalQt(QMainWindow):
         self._ui(lambda: (self._apply_broker_status_ui(), self._log_user_error_once(msg, "warn") if (not ok and log_errors and msg) else None))
 
     def _on_symbol_enter(self, pid: int) -> None:
-        timer = self._quote_sync_timers.get(pid)
-        if timer and timer.isActive():
-            timer.stop()
         slot = self.slots.get(pid)
         if not slot:
+            return
+        if slot.symbol_pending:
             return
         self._activate_panel(pid)
         sym = slot.symbol_text()
@@ -2459,17 +2552,21 @@ class TradingTerminalQt(QMainWindow):
         self._mark_symbol_pending(pid, sym)
         self._quote_subscriptions.request_symbol(pid, sym)
 
-    def _schedule_quote_sync(self, pid: int) -> None:
+    def _on_symbol_query_requested(self, pid: int) -> None:
+        self._on_symbol_enter(pid)
+
+    def _on_symbol_text_changed(self, pid: int) -> None:
         slot = self.slots.get(pid)
-        if slot and slot.symbol_text() != slot.current_symbol:
-            self._mark_symbol_pending(pid, slot.symbol_text())
-        timer = self._quote_sync_timers.get(pid)
-        if timer is None:
-            timer = QTimer(self)
-            timer.setSingleShot(True)
-            timer.timeout.connect(lambda pid=pid: self._on_symbol_enter(pid))
-            self._quote_sync_timers[pid] = timer
-        timer.start(350)
+        if not slot:
+            return
+        symbol = slot.symbol_text()
+        if symbol == slot.current_symbol and not slot.symbol_pending:
+            return
+        self._cancel_pending_order(pid)
+        if symbol != slot.current_symbol:
+            slot.current_symbol = ""
+            slot.clear_quote()
+        slot.set_symbol_pending(False)
 
     def _mark_symbol_pending(self, pid: int, symbol: str) -> None:
         slot = self.slots.get(pid)
@@ -2689,8 +2786,6 @@ class TradingTerminalQt(QMainWindow):
         if slot.price:
             slot.price.setEnabled(True)
             slot.price.setText("Market" if normalized_type == "market" else (f"{quote_price:.2f}" if quote_price > 0 else ""))
-            slot.price.setProperty("pendingSide", side)
-            self._repolish(slot.price)
             slot.price.setFocus()
             slot.price.selectAll()
         slot.pending_action = "Buy to Open" if side == "buy" else "Sell to Close"
@@ -2700,7 +2795,6 @@ class TradingTerminalQt(QMainWindow):
         slot.pending_hidden = effective_hidden
         slot.pending_created_at = time.monotonic()
         direction = "买入" if side == "buy" else "卖出"
-        self._set_pending_button_state(slot, side)
         if normalized_type == "market":
             self._append_log(f"市价{direction}待确认：{symbol}", "inf")
         elif quote_price > 0:
@@ -2746,21 +2840,12 @@ class TradingTerminalQt(QMainWindow):
         slot.pending_hidden = False
         slot.pending_created_at = 0.0
         if slot.price:
-            slot.price.setProperty("pendingSide", "")
             is_market = bool(slot.order_type and slot.order_type.currentText() == "Market")
             slot.price.setEnabled(not is_market)
             if is_market:
                 slot.price.setText("Market")
-            self._repolish(slot.price)
-        self._set_pending_button_state(slot, "")
         if log:
             self._append_log("已取消待提交状态", "inf")
-
-    def _set_pending_button_state(self, slot: TradingSlot, side: str) -> None:
-        for button, value in ((slot.buy, "buy"), (slot.sell, "sell")):
-            if button:
-                button.setProperty("pending", side == value)
-                self._repolish(button)
 
     def _cancel_all_pending_orders(self) -> None:
         for pid in list(self.slots):
@@ -3225,23 +3310,24 @@ class TradingTerminalQt(QMainWindow):
             "warn",
         )
 
-    def _on_position_clicked(self, index: QModelIndex) -> None:
+    def _on_position_double_clicked(self, index: QModelIndex) -> None:
         row = index.row()
         if 0 <= row < len(self._positions_raw):
             sym = str(self._positions_raw[row].get("symbol", "")).strip().upper()
-            if sym and 1 in self.slots:
-                slot = self.slots[1]
+            slot = self._active_slot()
+            if sym and slot:
+                panel_id = slot.panel_id
                 if slot.symbol and slot.symbol.findText(sym) < 0:
                     slot.symbol.addItem(sym)
                 if slot.symbol:
                     slot.symbol.setCurrentText(sym)
-                self._on_symbol_enter(1)
+                self._on_symbol_enter(panel_id)
 
     def _on_server_disconnect(self) -> None:
-        if self.session:
-            self.session.connected = False
-        self._set_se_connection_ui(False)
-        self._log_user_error_once("Server disconnected")
+        if self.session and self.session.is_auth_expired():
+            self._start_authentication_recovery("AUTH_EXPIRED")
+            return
+        self._log_user_error_once("管理服务暂时不可用，当前交易连接保持不变", "warn")
 
     def closeEvent(self, event) -> None:
         try:
@@ -3268,6 +3354,23 @@ class TradingTerminalQt(QMainWindow):
             self._resize_effect_timer.start(120)
         self._sync_settings_overlay_geometry()
         self._position_toasts()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            self._window_state_layout_timer.start(0)
+
+    def _finalize_window_state_layout(self) -> None:
+        central = self.centralWidget()
+        if central is not None:
+            layout = central.layout()
+            if layout is not None:
+                layout.invalidate()
+                layout.activate()
+            central.update()
+        self._sync_settings_overlay_geometry()
+        self._position_toasts()
+        self.update()
 
 
 class DuplicateLoginDialog(QDialog):
@@ -3307,7 +3410,8 @@ class ManagerLoginDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
 
-        title = make_label("SC  登录", color=theme.ACCENT_BLUE, font=theme.mono_font(24, bold=True))
+        title = make_label("登录", color=theme.ACCENT_BLUE, font=theme.mono_font(24, bold=True))
+        title.setObjectName("loginTitle")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 

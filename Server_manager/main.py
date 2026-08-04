@@ -2518,13 +2518,22 @@ async def update_account(request: Request, account_id: int):
 @app.get("/api/accounts/se-status")
 async def check_se_status(request: Request, address: str = ""):
     """Return TS online/occupation state for an authenticated Client call."""
-    from auth import get_client_username
+    from auth import inspect_client_token
 
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
-    token_user = get_client_username(token)
-    if not token_user:
-        return {"ok": False, "error": "Unauthorized", "online": False}
+    token_info, auth_reason = inspect_client_token(token)
+    token_user = str((token_info or {}).get("username") or "")
+    if auth_reason:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "authentication_required",
+                "code": auth_reason.upper(),
+                "online": False,
+            },
+        )
 
     account = database.get_account_by_username(token_user)
     bound_endpoint = database.resolve_trade_server_address(account)

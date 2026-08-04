@@ -29,7 +29,7 @@ import main as sm_main
 import node_state
 from fastapi.testclient import TestClient
 
-from Client.network.ts_websocket import TSWebSocketClient
+from Client.network.ts_websocket import TSAuthenticationError, TSWebSocketClient
 from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
 from Client import constants as client_constants
 from Client.services.trading_session import TradingSession
@@ -571,6 +571,57 @@ class AccessChainTests(unittest.TestCase):
         self.assertEqual(auth.get_client_username(token), "")
         self.assertNotIn(token, sm_config.active_client_tokens)
 
+    def test_expired_client_token_has_stable_reason(self):
+        token = auth.generate_client_token("expired-reason-user")
+        sm_config.active_client_tokens[token]["created_at"] = (
+            time.time() - sm_config.CLIENT_TOKEN_TTL_SECONDS - 1
+        )
+
+        info, reason = auth.inspect_client_token(token)
+
+        self.assertEqual(reason, "auth_expired")
+        self.assertEqual(info["username"], "expired-reason-user")
+        self.assertNotIn(token, sm_config.active_client_tokens)
+
+    def test_se_status_returns_structured_auth_expiry(self):
+        token = auth.generate_client_token("expired-status-user")
+        sm_config.active_client_tokens[token]["created_at"] = (
+            time.time() - sm_config.CLIENT_TOKEN_TTL_SECONDS - 1
+        )
+
+        response = self.client.get(
+            "/api/accounts/se-status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "AUTH_EXPIRED")
+        self.assertFalse(response.json()["online"])
+
+    def test_client_login_uses_server_expiry_countdown(self):
+        class LoginHttp:
+            token = ""
+
+            @staticmethod
+            def post(path, payload):
+                self.assertEqual(path, "/auth/login")
+                self.assertFalse(payload["force"])
+                return 200, {
+                    "token": "client-token",
+                    "se_address": "wss://ts.example.com/ws",
+                    "expires_in": 300,
+                }
+
+        started = time.monotonic()
+        session = TradingSession(LoginHttp())
+
+        ok, _message = session.login("trader", "password")
+
+        self.assertTrue(ok)
+        self.assertEqual(session.auth_expires_in, 300)
+        self.assertGreaterEqual(session.auth_deadline_monotonic, started + 299)
+        self.assertLessEqual(session.auth_seconds_remaining(), 300)
+
     def test_expired_connection_recheck_releases_stale_occupation(self):
         self.client.post("/api/domain-pool/import", json={
             "domains": ["ts-01.ts.scjrdomain.com"],
@@ -611,6 +662,7 @@ class AccessChainTests(unittest.TestCase):
             },
         ).json()
         self.assertFalse(rechecked["valid"])
+        self.assertEqual(rechecked["reason"], "auth_expired")
         self.assertTrue(rechecked["occupation_released"])
         self.assertIsNone(
             node_state.manager.get_occupation_info(approved["server_id"])
@@ -1172,15 +1224,13 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
         slot.order_type = FakeWidget()
         slot.tif = FakeWidget()
         slot.price = FakeWidget()
-        slot.minus = FakeWidget()
-        slot.plus = FakeWidget()
         slot.buy = FakeWidget()
         slot.sell = FakeWidget()
 
         slot.set_trade_enabled(False)
         self.assertFalse(slot.buy.enabled)
         self.assertFalse(slot.sell.enabled)
-        for widget in (slot.symbol, slot.order_type, slot.tif, slot.price, slot.minus, slot.plus):
+        for widget in (slot.symbol, slot.order_type, slot.tif, slot.price):
             self.assertTrue(widget.enabled)
 
         slot.set_trade_enabled(True)
@@ -1415,6 +1465,29 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
         self.assertFalse(coordinator.prepare_reconnect(generation, 2, "conn-wrong-node"))
         self.assertEqual(occupied, ["conn-initial", "conn-reconnect"])
 
+    def test_reconnect_auth_expiry_is_not_reduced_to_network_failure(self):
+        class ExpiredHttp:
+            token = "expired-token"
+
+            @staticmethod
+            def get(_path):
+                return 401, {"ok": False, "code": "AUTH_EXPIRED", "online": False}
+
+        coordinator = TSConnectionCoordinator(
+            http_client=ExpiredHttp(),
+            session_provider=lambda: SimpleNamespace(connected=True),
+            username_provider=lambda: "trader",
+            reconnect_allowed_provider=lambda: True,
+            background_runner=lambda job: job(),
+        )
+        generation = coordinator._begin_attempt()
+        coordinator._server_id = "node-1"
+
+        with self.assertRaises(TSAuthenticationError) as ctx:
+            coordinator.prepare_reconnect(generation, 1, "conn-expired")
+
+        self.assertEqual(ctx.exception.code, "AUTH_EXPIRED")
+
     def test_stop_interrupts_retry_wait_without_extra_connection(self):
         reconnecting = threading.Event()
         attempts = []
@@ -1492,6 +1565,43 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(old.closed[0][0], ts_ws_server._FORCE_DISCONNECT_CODE)
         self.assertFalse(new.closed)
 
+    async def test_client_auth_error_disables_reconnect_immediately(self):
+        states = []
+
+        class ClientSocket:
+            def __init__(self):
+                self.closed = False
+
+            async def recv(self):
+                return json.dumps({
+                    "type": "ERROR",
+                    "payload": {
+                        "code": "AUTH_EXPIRED",
+                        "message": "Authentication required",
+                    },
+                })
+
+            async def close(self):
+                self.closed = True
+
+        client = TSWebSocketClient(
+            ws_url="ws://127.0.0.1:8900/ws",
+            reconnect_enabled=True,
+            on_state_callback=lambda state, detail: states.append((state, detail)),
+        )
+        client._active = True
+        client._connected = True
+        client._conn_lost = asyncio.Event()
+        ws = ClientSocket()
+
+        await client._receive_loop(ws)
+
+        self.assertFalse(client._active)
+        self.assertFalse(client._reconnect_enabled)
+        self.assertTrue(ws.closed)
+        self.assertEqual(states[0][0], "auth_expired")
+        self.assertEqual(states[0][1]["code"], "AUTH_EXPIRED")
+
     async def test_connect_propagates_physical_connection_id_to_sm_verification(self):
         captured = []
         connection_id = "conn-propagated-to-sm"
@@ -1538,13 +1648,74 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         original_validate = ts_ws_server._validate_client_token
         try:
             async def fake_validate(token, server_id="", recheck_username="", connection_id=""):
-                return {"valid": False, "allowed": False, "reason": "invalid_or_expired"}
+                return {"valid": False, "allowed": False, "reason": "auth_expired"}
 
             ts_ws_server._validate_client_token = fake_validate
             self.assertFalse(await ts_ws_server._revalidate_connection(ws))
+            self.assertEqual(ws.sent[0]["payload"]["code"], "AUTH_EXPIRED")
             self.assertEqual(ws.closed[0][0], 4004)
         finally:
             ts_ws_server._validate_client_token = original_validate
+
+    async def test_ping_pong_does_not_wait_for_sm_revalidation(self):
+        validation_calls = []
+        ws = _ScriptedWebSocket([
+            json.dumps({
+                "type": "CONNECT",
+                "payload": {
+                    "token": "client-token",
+                    "server_id": "node-1",
+                    "connection_id": "conn-ping",
+                },
+            }),
+            json.dumps({"type": "PING", "id": "ping-1", "payload": {}}),
+        ])
+        original_validate = ts_ws_server._validate_client_token
+        try:
+            async def fake_validate(token, server_id="", recheck_username="", connection_id=""):
+                validation_calls.append((token, recheck_username))
+                return {
+                    "valid": True,
+                    "allowed": True,
+                    "username": "user",
+                    "server_id": "node-1",
+                    "token_type": "client",
+                }
+
+            ts_ws_server._validate_client_token = fake_validate
+            await ts_ws_server.handle_client_connection(ws)
+        finally:
+            ts_ws_server._validate_client_token = original_validate
+            ts_ws_server._cancel_pending_releases("user", "node-1")
+
+        self.assertEqual(validation_calls, [("client-token", "")])
+        self.assertEqual([message["type"] for message in ws.sent[:2]], ["CONNECT_ACK", "PONG"])
+
+    async def test_background_auth_recheck_closes_expired_connection(self):
+        ws = _FakeWebSocket()
+        ts_ws_server._connections[ws] = {
+            "server_id": "node-1",
+            "username": "user",
+            "client_token": "expired-token",
+            "connection_id": "conn-background-expired",
+            "last_auth_check": 0,
+        }
+        original_validate = ts_ws_server._validate_client_token
+        original_interval = ts_ws_server._AUTH_RECHECK_INTERVAL
+        try:
+            async def fake_validate(token, server_id="", recheck_username="", connection_id=""):
+                return {"valid": False, "allowed": False, "reason": "auth_expired"}
+
+            ts_ws_server._validate_client_token = fake_validate
+            ts_ws_server._AUTH_RECHECK_INTERVAL = 0.01
+            await asyncio.wait_for(ts_ws_server._auth_recheck_loop(ws), timeout=0.2)
+        finally:
+            ts_ws_server._validate_client_token = original_validate
+            ts_ws_server._AUTH_RECHECK_INTERVAL = original_interval
+            ts_ws_server._connections.pop(ws, None)
+
+        self.assertEqual(ws.sent[0]["payload"]["code"], "AUTH_EXPIRED")
+        self.assertEqual(ws.closed[0][0], 4004)
 
     async def test_pending_disconnect_release_is_cancelled_by_reconnect(self):
         called = []

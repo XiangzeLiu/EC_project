@@ -11,14 +11,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt import main_window as client_main_window
 from Client.ui_qt.hotkey_config_store import load_hotkey_config, save_hotkey_config
 from Client.ui_qt.hotkey_config import (
+    DEFAULT_QUANTITY_HOTKEY_IDS,
     DEFAULT_HOTKEY_CONFIG,
     HOTKEY_BINDINGS,
+    MAX_QUANTITY_HOTKEY_RULES,
     ORDER_HOTKEY_POLICY,
     ORDER_SUBMIT_POLICY,
     HotkeyAction,
@@ -26,6 +28,7 @@ from Client.ui_qt.hotkey_config import (
     HotkeyContext,
     HotkeyRuntimeConfig,
     OrderHotkeyRule,
+    QuantityHotkey,
     RateLimitPolicy,
     validate_bindings,
     validate_hotkey_config,
@@ -91,6 +94,96 @@ class ActionRateLimiterTests(unittest.TestCase):
 
 
 class HotkeyConfigTests(unittest.TestCase):
+    def test_quantity_defaults_are_fixed_and_custom_rules_round_trip(self):
+        default_quantities = DEFAULT_HOTKEY_CONFIG.quantity_hotkeys
+        self.assertEqual(
+            tuple(item.id for item in default_quantities),
+            DEFAULT_QUANTITY_HOTKEY_IDS,
+        )
+        self.assertEqual(
+            tuple(item.key for item in default_quantities),
+            tuple(f"Num+{index}" for index in range(1, 10)),
+        )
+
+        custom = QuantityHotkey(
+            id="quantity_custom_1",
+            key="F8",
+            quantity=350,
+            enabled=True,
+        )
+        config = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            quantity_hotkeys=default_quantities + (custom,),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "hotkey.json")
+            save_hotkey_config(config, path=path)
+            loaded = load_hotkey_config(path=path)
+            with open(path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+
+        self.assertTrue(loaded.used_local_config)
+        self.assertEqual(loaded.config, config)
+        self.assertEqual(payload["version"], 3)
+        self.assertEqual(payload["quantity_hotkeys"][-1]["id"], "quantity_custom_1")
+
+    def test_quantity_rules_require_defaults_and_enforce_total_limit(self):
+        missing_default = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            quantity_hotkeys=DEFAULT_HOTKEY_CONFIG.quantity_hotkeys[1:],
+        )
+        errors = validate_hotkey_config(missing_default)
+        self.assertTrue(any("必须保留" in error for error in errors))
+        self.assertTrue(any("Num+1" in error for error in errors))
+
+        changed_default = replace(
+            DEFAULT_HOTKEY_CONFIG.quantity_hotkeys[0],
+            key="F8",
+        )
+        changed_config = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            quantity_hotkeys=(changed_default,) + DEFAULT_HOTKEY_CONFIG.quantity_hotkeys[1:],
+        )
+        self.assertTrue(
+            any("固定按键" in error for error in validate_hotkey_config(changed_config))
+        )
+
+        custom_rules = tuple(
+            QuantityHotkey(
+                id=f"quantity_custom_{index}",
+                key=f"Ctrl+F{index}",
+                quantity=index * 10,
+                enabled=True,
+            )
+            for index in range(1, 13)
+        )
+        too_many = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            quantity_hotkeys=DEFAULT_HOTKEY_CONFIG.quantity_hotkeys + custom_rules,
+        )
+        self.assertEqual(len(too_many.quantity_hotkeys), MAX_QUANTITY_HOTKEY_RULES + 1)
+        self.assertTrue(
+            any("最多 20 条" in error for error in validate_hotkey_config(too_many))
+        )
+
+    def test_old_structured_config_version_falls_back_without_migration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "hotkey.json")
+            save_hotkey_config(DEFAULT_HOTKEY_CONFIG, path=path)
+            with open(path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+            payload["version"] = 2
+            for item in payload["quantity_hotkeys"]:
+                item.pop("id", None)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+
+            loaded = load_hotkey_config(path=path)
+
+        self.assertFalse(loaded.used_local_config)
+        self.assertTrue(loaded.errors)
+        self.assertEqual(loaded.config, DEFAULT_HOTKEY_CONFIG)
+
     def test_production_bindings_keep_order_rules_disabled(self):
         self.assertTrue(HOTKEY_BINDINGS)
         order_rules = [binding for binding in HOTKEY_BINDINGS if binding.action == HotkeyAction.ORDER_PREPARE_RULE]
@@ -342,6 +435,8 @@ class FakeTradingSession:
     def __init__(self):
         self.connected = True
         self.mock_mode = False
+        self.auth_remaining = None
+        self.local_auth_cleared = False
         self.orders = []
         self.order_details = []
         self.order_queries = []
@@ -390,6 +485,19 @@ class FakeTradingSession:
         return []
 
     def logout(self):
+        self.connected = False
+
+    def auth_seconds_remaining(self):
+        return self.auth_remaining
+
+    def is_auth_expired(self):
+        return self.auth_remaining is not None and self.auth_remaining <= 0
+
+    def bind_se_client(self, _client):
+        pass
+
+    def clear_local_auth(self):
+        self.local_auth_cleared = True
         self.connected = False
 
 
@@ -442,6 +550,86 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.25, "Buy to Open", "limit", "Day"))
         self.assertEqual(len(self.session.orders), 2)
 
+    def test_trade_panels_use_quantity_input_without_step_buttons(self):
+        for slot in self.window.slots.values():
+            self.assertIsNotNone(slot.qty_label)
+            self.assertTrue(slot.qty_label.isEnabled())
+            self.assertEqual(
+                slot.qty_box.findChildren(QPushButton, "qtyStepButton"),
+                [],
+            )
+
+        first = self.window.slots[1]
+        first.qty_label.setText("275")
+        first.qty_label.editingFinished.emit()
+        self.assertEqual(first.qty_value(), 275)
+
+    def test_trade_panels_display_bid_and_ask_without_last(self):
+        for slot in self.window.slots.values():
+            captions = {
+                label.text()
+                for label in slot.container.findChildren(QLabel)
+            }
+            self.assertIn("BID", captions)
+            self.assertIn("ASK", captions)
+            self.assertNotIn("LAST", captions)
+
+        first = self.window.slots[1]
+        first.update_quote({"last": 185.20, "bid": 185.10, "ask": 185.30})
+        self.assertEqual(first.bid.text(), "185.10")
+        self.assertEqual(first.ask.text(), "185.30")
+        first.clear_quote()
+        self.assertEqual(first.bid.text(), "--")
+        self.assertEqual(first.ask.text(), "--")
+
+    def test_symbol_edit_does_not_auto_query_until_explicit_confirmation(self):
+        slot = self.window.slots[1]
+        requested = []
+        self.window._quote_subscriptions.request_symbol = (
+            lambda panel_id, symbol: requested.append((panel_id, symbol)) or 1
+        )
+        slot.set_trade_enabled(True)
+        slot.symbol.setCurrentText("MSFT")
+        self.app.processEvents()
+        QTest.qWait(420)
+
+        self.assertEqual(requested, [])
+        self.assertEqual(slot.current_symbol, "")
+        self.assertFalse(slot.symbol_pending)
+        self.assertEqual(slot.bid.text(), "--")
+        self.assertEqual(slot.ask.text(), "--")
+        self.assertFalse(slot.buy.isEnabled())
+        self.assertFalse(slot.sell.isEnabled())
+
+        slot.symbol.lineEdit().setFocus()
+        QTest.keyClick(slot.symbol.lineEdit(), Qt.Key_Return)
+        self.assertEqual(requested, [(1, "MSFT")])
+
+    def test_quote_query_button_is_styled_and_queries_its_own_panel(self):
+        left = self.window.slots[1]
+        right = self.window.slots[2]
+        requested = []
+        self.window._quote_subscriptions.request_symbol = (
+            lambda panel_id, symbol: requested.append((panel_id, symbol)) or 1
+        )
+
+        for slot in (left, right):
+            self.assertIsNotNone(slot.quote_query_button)
+            self.assertEqual(slot.quote_query_button.objectName(), "quoteQueryButton")
+            self.assertEqual(slot.quote_query_button.size().width(), 40)
+            self.assertEqual(slot.quote_query_button.size().height(), 44)
+            self.assertEqual(slot.quote_query_button.focusPolicy(), Qt.NoFocus)
+            self.assertFalse(slot.quote_query_button.isCheckable())
+            self.assertFalse(slot.quote_query_button.icon().isNull())
+        self.assertIn("QPushButton#quoteQueryButton:hover", client_main_window.theme.APP_QSS)
+        self.assertIn("QPushButton#quoteQueryButton:pressed", client_main_window.theme.APP_QSS)
+
+        right.symbol.setCurrentText("MU")
+        right.quote_query_button.click()
+        self.assertEqual(requested, [(2, "MU")])
+        self.assertEqual(left.symbol_text(), "AAPL")
+        self.assertEqual(right.symbol_text(), "MU")
+
     def test_header_hides_provider_name_and_preserves_read_only(self):
         self.session.broker_detail["broker_type"] = "interactive_brokers"
         self.session.broker_detail["account"] = {"authority_level": "read-only"}
@@ -459,24 +647,46 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._set_ts_connection_state("offline")
         self.assertFalse(self.window.live_orders_btn.property("online"))
 
-    def test_header_logo_and_order_tab_labels_match_updated_style(self):
+    def test_header_has_no_brand_logo_and_order_tabs_keep_updated_style(self):
         logo = self.window.findChild(QLabel, "mainLogo")
-        self.assertIsNotNone(logo)
-        self.assertEqual(logo.text(), "SC")
-        self.assertEqual((logo.width(), logo.height()), (46, 32))
-        self.assertGreaterEqual(logo.font().pixelSize(), 20)
+        self.assertIsNone(logo)
         self.assertEqual(self.window.live_orders_btn.text(), "● 进行中")
         self.assertTrue(self.window.live_orders_btn.property("selected"))
 
     def test_trade_tables_use_dark_scrollbar_style(self):
         self.assertEqual(self.window.orders_table.objectName(), "tradeDataTable")
         self.assertEqual(self.window.positions_table.objectName(), "tradeDataTable")
+        for table in (self.window.orders_table, self.window.positions_table):
+            self.assertNotEqual(table.focusPolicy(), Qt.NoFocus)
+            self.assertIsInstance(
+                table.itemDelegate(),
+                client_main_window.NoFocusRectItemDelegate,
+            )
         scrollbar_qss = client_main_window.theme.SCROLLBAR_QSS
         self.assertIn("QScrollBar:vertical", scrollbar_qss)
         self.assertIn("QScrollBar::handle:horizontal:hover", scrollbar_qss)
         self.assertIn("background: #5A6675", scrollbar_qss)
+        self.assertIn("QPushButton:focus", client_main_window.theme.APP_QSS)
+        self.assertIn("QCheckBox:focus", client_main_window.theme.APP_QSS)
+        self.assertIn("QAbstractItemView::item:focus", client_main_window.theme.APP_QSS)
         self.assertIn(scrollbar_qss, client_main_window.theme.APP_QSS)
         self.assertIn(scrollbar_qss, client_main_window.theme.COMBO_POPUP_QSS)
+
+    def test_root_background_and_window_state_layout_refresh_are_enabled(self):
+        root = self.window.centralWidget()
+        self.assertTrue(root.testAttribute(Qt.WA_StyledBackground))
+        self.assertEqual(
+            root.palette().color(root.backgroundRole()).name().upper(),
+            client_main_window.theme.TERM_BG,
+        )
+
+        self.window.show()
+        self.app.processEvents()
+        self.window.resize(1500, 900)
+        self.window._finalize_window_state_layout()
+        self.app.processEvents()
+
+        self.assertEqual(root.geometry(), self.window.contentsRect())
 
     def test_settings_combos_use_the_same_dark_popup_as_main_controls(self):
         self.window._open_settings_overlay()
@@ -798,9 +1008,16 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             [self.window._settings_overlay.hotkey_tabs.tabText(i) for i in range(3)],
             ["股数快捷键", "下单快捷键", "固定快捷键"],
         )
-        self.assertTrue(all(spin.alignment() & Qt.AlignHCenter for spin in self.window._settings_overlay._quantity_spins.values()))
-        self.assertEqual(len(self.window._settings_overlay._quantity_enabled), 9)
-        self.assertTrue(all(check.isChecked() for check in self.window._settings_overlay._quantity_enabled.values()))
+        quantity_rows = self.window._settings_overlay._quantity_rows
+        self.assertTrue(all(row["quantity"].alignment() & Qt.AlignHCenter for row in quantity_rows))
+        self.assertEqual(len(quantity_rows), 9)
+        self.assertTrue(all(row["enabled"].isChecked() for row in quantity_rows))
+        self.assertTrue(all(row["key"] is None for row in quantity_rows))
+        self.assertEqual(
+            [row["fixed_key"] for row in quantity_rows],
+            [f"Num+{index}" for index in range(1, 10)],
+        )
+        self.assertEqual(self.window._settings_overlay.quantity_count_label.text(), "9 / 20")
         first_rule = self.window._settings_overlay._order_rows[0]
         self.assertTrue(first_rule["key"].alignment() & Qt.AlignHCenter)
         self.assertTrue(first_rule["offset"].alignment() & Qt.AlignHCenter)
@@ -818,6 +1035,24 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertTrue(
             self.window._settings_overlay.version_label.text().startswith("v_0_")
         )
+        self.assertEqual(
+            self.window._settings_overlay.about_tab_btn.text(),
+            "关于 client",
+        )
+        self.assertNotEqual(
+            self.window._settings_overlay.hotkey_tab_btn.focusPolicy(),
+            Qt.NoFocus,
+        )
+        self.assertNotEqual(
+            self.window._settings_overlay.about_tab_btn.focusPolicy(),
+            Qt.NoFocus,
+        )
+        about_name = self.window._settings_overlay.findChild(
+            QLabel,
+            "settingsAboutName",
+        )
+        self.assertIsNotNone(about_name)
+        self.assertEqual(about_name.text(), "client")
         self.window.show()
         self.app.processEvents()
         self.window._settings_overlay.hotkey_tabs.setCurrentIndex(1)
@@ -839,7 +1074,11 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
     def test_quantity_hotkey_enabled_state_is_saved_and_applied(self):
         self.window._open_settings_overlay()
         overlay = self.window._settings_overlay
-        enabled = overlay._quantity_enabled["Num+1"]
+        first_row = next(
+            row for row in overlay._quantity_rows
+            if row["id"] == "quantity_default_1"
+        )
+        enabled = first_row["enabled"]
         enabled.setChecked(False)
 
         overlay.save_btn.click()
@@ -859,6 +1098,63 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         loaded = load_hotkey_config()
         self.assertTrue(loaded.used_local_config)
         self.assertFalse(next(item for item in loaded.config.quantity_hotkeys if item.key == "Num+1").enabled)
+
+    def test_quantity_rules_can_be_added_deleted_and_apply_to_active_panel(self):
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        overlay.add_quantity_btn.click()
+        self.assertEqual(len(overlay._quantity_rows), 10)
+        self.assertEqual(overlay.quantity_count_label.text(), "10 / 20")
+
+        custom_row = overlay._quantity_rows[-1]
+        self.assertIsNone(custom_row["fixed_key"])
+        custom_row["key"].setText("F8")
+        custom_row["quantity"].setValue(350)
+        custom_row["enabled"].setChecked(True)
+        overlay.save_btn.click()
+        self.app.processEvents()
+
+        self.assertIsNone(self.window._settings_overlay)
+        custom = self.window._hotkey_config.quantity_hotkeys[-1]
+        self.assertEqual(custom.key, "F8")
+        self.assertEqual(custom.quantity, 350)
+        self.assertTrue(custom.enabled)
+
+        self.window._activate_panel(2)
+        self.window.show()
+        self.window.activateWindow()
+        self.window.setFocus()
+        self.app.processEvents()
+        QTest.keyClick(self.window, Qt.Key_F8)
+        self.app.processEvents()
+        self.assertEqual(self.window.slots[2].qty_value(), 350)
+        self.assertEqual(self.window.slots[1].qty_value(), 100)
+
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        custom_row = overlay._quantity_rows[-1]
+        custom_row["action"].click()
+        self.assertEqual(len(overlay._quantity_rows), 9)
+        self.assertEqual(overlay.quantity_count_label.text(), "9 / 20")
+
+    def test_quantity_rule_limit_and_conflict_are_enforced_in_settings(self):
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        for _ in range(11):
+            overlay.add_quantity_btn.click()
+        self.assertEqual(len(overlay._quantity_rows), 20)
+        self.assertFalse(overlay.add_quantity_btn.isEnabled())
+        overlay._add_quantity_rule()
+        self.assertIn("最多 20 条", overlay.error_label.text())
+
+        custom_row = overlay._quantity_rows[-1]
+        custom_row["key"].setText("Space")
+        custom_row["enabled"].setChecked(True)
+        emitted = []
+        overlay.save_requested.connect(emitted.append)
+        overlay.save_btn.click()
+        self.assertEqual(emitted, [])
+        self.assertIn("快捷键冲突", overlay.error_label.text())
 
     def test_settings_conflict_stays_open_and_is_not_saved(self):
         self.window._open_settings_overlay()
@@ -911,6 +1207,24 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders, [("AAPL", 100, 185.10, "Sell to Close", "limit", "Day")])
         self.assertEqual(self.window.slots[1].pending_action, "")
 
+    def test_pending_order_has_no_price_or_side_button_selection_frame(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+        }
+
+        self.window._prepare_limit_order("buy", 1, "ask")
+        slot = self.window.slots[1]
+
+        self.assertEqual(slot.pending_action, "Buy to Open")
+        self.assertIsNone(slot.price.property("pendingSide"))
+        self.assertIsNone(slot.buy.property("pending"))
+        self.assertIsNone(slot.sell.property("pending"))
+        self.assertNotIn('QLineEdit[pendingSide="buy"]', client_main_window.theme.APP_QSS)
+        self.assertNotIn('QPushButton#buyButton[pending="true"]', client_main_window.theme.APP_QSS)
+
     def test_limit_preparation_reads_latest_raw_quote_before_ui_flush(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
@@ -960,6 +1274,25 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         QTest.mouseClick(self.window.slots[1].container, Qt.LeftButton)
         self.assertEqual(self.window._active_panel_id, 1)
+
+    def test_position_requires_double_click_and_loads_active_panel(self):
+        self.window._update_positions([{"symbol": "MU", "qty": 100}])
+        requested = []
+        self.window._quote_subscriptions.request_symbol = (
+            lambda panel_id, symbol: requested.append((panel_id, symbol)) or 1
+        )
+        self.window._activate_panel(2)
+        index = self.window.positions_model.index(0, 0)
+
+        self.window.positions_table.clicked.emit(index)
+        self.assertEqual(self.window.slots[2].symbol_text(), "")
+        self.assertEqual(requested, [])
+
+        self.window.positions_table.doubleClicked.emit(index)
+        self.assertEqual(self.window._active_panel_id, 2)
+        self.assertEqual(self.window.slots[2].symbol_text(), "MU")
+        self.assertEqual(self.window.slots[1].symbol_text(), "AAPL")
+        self.assertEqual(requested, [(2, "MU")])
 
     def test_numpad_quantity_does_not_capture_main_keyboard_digits(self):
         self.window._setup_shortcuts()
@@ -1062,9 +1395,6 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         slot = self.window.slots[1]
         slot.set_trade_enabled(True)
         slot.symbol.setCurrentText("MSFT")
-        timer = self.window._quote_sync_timers.get(1)
-        if timer:
-            timer.stop()
         self.window._mark_symbol_pending(1, "MSFT")
         self.assertFalse(slot.buy.isEnabled())
         self.assertFalse(slot.sell.isEnabled())
@@ -1079,9 +1409,6 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
     def test_quote_sync_retries_symbol_that_was_pending_during_reconnect(self):
         slot = self.window.slots[1]
         slot.symbol.setCurrentText("MSFT")
-        timer = self.window._quote_sync_timers.get(1)
-        if timer:
-            timer.stop()
         self.window._mark_symbol_pending(1, "MSFT")
         requested = []
         reconciled = []
@@ -1165,6 +1492,46 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(tips, [("风险警告", "warn")])
 
+    def test_auth_expiry_warning_is_emitted_once(self):
+        tips = []
+        self.session.auth_remaining = 30
+        self.window._show_weak_tip = (
+            lambda message, level="inf", duration_ms=3000: tips.append((message, level))
+        )
+
+        self.window._check_auth_lifetime()
+        self.window._check_auth_lifetime()
+
+        self.assertEqual(
+            tips,
+            [("认证将在1分钟后到期，到期后需要重新登录", "warn")],
+        )
+
+    def test_auth_expiry_returns_to_login_with_centered_yellow_notice(self):
+        expired_session = self.session
+        expired_session.auth_remaining = 0
+
+        self.window._check_auth_lifetime()
+
+        self.assertIsNone(self.window.session)
+        self.assertTrue(expired_session.local_auth_cleared)
+        self.assertFalse(self.window._main_ui_built)
+        self.assertEqual(
+            self.window._auth_notice_label.text(),
+            "认证已过期，请重新认证登录",
+        )
+        self.assertTrue(self.window._auth_notice_label.alignment() & Qt.AlignHCenter)
+        self.assertIn(
+            client_main_window.theme.ACCENT_YELLOW,
+            self.window._auth_notice_label.styleSheet(),
+        )
+
+    def test_temporary_sm_health_failure_keeps_authenticated_trading_session(self):
+        self.window._on_server_disconnect()
+
+        self.assertTrue(self.session.connected)
+        self.assertTrue(self.window._se_connected)
+
     def test_weak_notification_deduplicates_same_active_message_and_level(self):
         initial_count = len(self.window._toast_widgets)
 
@@ -1224,6 +1591,40 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             client_main_window.HOTKEY_BINDINGS = original_bindings
 
         self.assertEqual(self.session.orders, [("AAPL", 100, 0.0, "Buy to Open", "market", "Day")])
+
+    def test_temporary_order_hotkey_uses_right_active_panel(self):
+        binding = HotkeyBinding(
+            "test_market_buy_right",
+            "F8",
+            HotkeyAction.ORDER_MARKET,
+            HotkeyContext.TRADE_PANEL,
+            True,
+            {"side": "buy"},
+        )
+        right = self.window.slots[2]
+        right.symbol.setCurrentText("MU")
+        right.current_symbol = "MU"
+        right.qty_label.setText("275")
+        original_bindings = client_main_window.HOTKEY_BINDINGS
+        client_main_window.HOTKEY_BINDINGS = (binding,)
+        try:
+            self.window._setup_shortcuts()
+            self.window.show()
+            self.window.activateWindow()
+            right.symbol.lineEdit().setFocus()
+            self.app.processEvents()
+
+            QTest.keyClick(right.symbol.lineEdit(), Qt.Key_F8)
+            self.app.processEvents()
+        finally:
+            self.window._teardown_shortcuts()
+            client_main_window.HOTKEY_BINDINGS = original_bindings
+
+        self.assertEqual(self.window._active_panel_id, 2)
+        self.assertEqual(
+            self.session.orders,
+            [("MU", 275, 0.0, "Buy to Open", "market", "Day")],
+        )
 
 
 class TraderServerOrderLimitTests(unittest.TestCase):

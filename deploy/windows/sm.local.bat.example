@@ -4,3 +4,5 @@ set "SM_DNSPOD_SECRET_ID="
 set "SM_DNSPOD_SECRET_KEY="
 set "SM_DNSPOD_LINE="
 set "SM_DNS_TTL=600"
+rem Test-stage Client login lifetime. Change to 86400 after acceptance.
+set "CLIENT_TOKEN_TTL_SECONDS=300"

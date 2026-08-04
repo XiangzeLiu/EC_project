@@ -54,6 +54,8 @@ class ClientPackagingTests(unittest.TestCase):
         self.assertIn('set "APP_DISPLAY_NAME=SC Client"', script)
         self.assertIn('set "APP_EXE_NAME=SCClient"', script)
         self.assertIn("requirements-build.txt", script)
+        self.assertIn('set "ICON_DIR=%ROOT_DIR%\\Client\\assets\\icons"', script)
+        self.assertIn('--add-data "%ICON_DIR%;Client\\assets\\icons"', script)
         self.assertIn("--package-self-test", script)
         self.assertIn("ALLOW_PORTABLE_ONLY", script)
         self.assertRegex(script, re.compile(r"Inno Setup 6 was not found.*goto :fail", re.S))

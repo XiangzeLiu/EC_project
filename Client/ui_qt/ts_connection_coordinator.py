@@ -13,7 +13,17 @@ from Client.constants import (
     DEFAULT_TS_WS_URL,
     TS_RECONNECT_ENABLED,
 )
-from Client.network.ts_websocket import TSWebSocketClient
+from Client.network.ts_websocket import TSAuthenticationError, TSWebSocketClient
+
+
+_AUTH_FAILURE_CODES = {"AUTH_EXPIRED", "AUTH_INVALID", "AUTH_REVOKED"}
+
+
+def _auth_failure_code(status_code: int, response: dict) -> str:
+    code = str((response or {}).get("code") or "").strip().upper()
+    if code in _AUTH_FAILURE_CODES:
+        return code
+    return "AUTH_INVALID" if status_code in (401, 403) else ""
 
 
 def _default_ts_target() -> str:
@@ -176,6 +186,11 @@ class TSConnectionCoordinator(QObject):
             response = response or {}
             if not self._is_current(generation):
                 return
+            auth_code = _auth_failure_code(status_code, response)
+            if auth_code:
+                state = "auth_expired" if auth_code == "AUTH_EXPIRED" else "auth_invalid"
+                self.state_changed.emit(generation, state, {"code": auth_code})
+                return
             if status_code != 200 or not response.get("ok"):
                 self.connection_failed.emit(generation, "交易服务器校验失败", "", True)
                 return
@@ -315,6 +330,8 @@ class TSConnectionCoordinator(QObject):
             elif normalized in {
                 "reconnecting",
                 "auth_failed",
+                "auth_expired",
+                "auth_invalid",
                 "retry_exhausted",
                 "force_disconnected",
             }:
@@ -339,6 +356,12 @@ class TSConnectionCoordinator(QObject):
         except Exception:
             return False
         response = response or {}
+        auth_code = _auth_failure_code(status_code, response)
+        if auth_code:
+            raise TSAuthenticationError(
+                "Client authentication is no longer valid",
+                code=auth_code,
+            )
         if status_code != 200 or not response.get("ok") or not response.get("online"):
             return False
         occupied_by = str(response.get("occupied_by") or "").strip()
