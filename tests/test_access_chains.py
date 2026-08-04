@@ -479,7 +479,8 @@ class AccessChainTests(unittest.TestCase):
             headers=headers,
         ).json()
         self.assertFalse(other_status["ok"])
-        self.assertEqual(other_status["error"], "address_not_bound_to_account")
+        self.assertEqual(other_status["error"], "account_binding_mismatch")
+        self.assertNotIn("address", other_status)
 
         other_occupy = self.client.post(
             f"/api/nodes/{second['server_id']}/occupy",
@@ -506,6 +507,10 @@ class AccessChainTests(unittest.TestCase):
             headers=headers,
         ).json()
         self.assertTrue(own_status["online"])
+        self.assertNotIn("address", own_status)
+        self.assertNotIn("occupied_by", own_status)
+        self.assertNotIn("node_name", own_status)
+        self.assertTrue(own_status["available_to_current_client"])
         own_occupy = self.client.post(
             f"/api/nodes/{first['server_id']}/occupy",
             headers=headers,
@@ -1331,10 +1336,11 @@ class ClientConnectionLifecycleTests(unittest.TestCase):
 
         class FakeHttp:
             token = "token"
+            responses = iter(("node-1", "node-2"))
 
-            @staticmethod
-            def get(path):
-                server_id = "node-2" if "ts-02" in path else "node-1"
+            @classmethod
+            def get(cls, path):
+                server_id = next(cls.responses)
                 return 200, {"ok": True, "online": True, "server_id": server_id}
 
             @staticmethod

@@ -25,6 +25,7 @@ from ..api.factory import BrokerFactory
 from ..api.base import BaseBrokerAPI
 from ..config import state
 from ..network import ws_server
+from .client_security import safe_client_message, safe_order_status_message
 
 log = logging.getLogger("trader_server.config_sync")
 
@@ -72,13 +73,7 @@ def get_broker_status(public: bool = False) -> dict:
             "capabilities": capabilities,
             "error": dict(_last_connect_error),
         }
-        if public and str(status["broker_type"]).lower() in {"ib", "interactive_brokers"} and status["error"]:
-            status["error"] = {
-                "code": "IB_UNAVAILABLE",
-                "message": "无法连接IB服务器",
-                "retryable": bool(status["error"].get("retryable", True)),
-            }
-        return status
+        return _client_status(status) if public else status
     capabilities_fn = getattr(_current_broker, "effective_capabilities", None)
     capabilities = capabilities_fn() if callable(capabilities_fn) else _current_broker.capabilities()
     detail_fn = getattr(_current_broker, "status_detail", None)
@@ -93,13 +88,40 @@ def get_broker_status(public: bool = False) -> dict:
     }
     if isinstance(detail, dict):
         status.update(detail)
-    if public and str(status["broker_type"]).lower() in {"ib", "interactive_brokers"} and status.get("error"):
-        status["error"] = {
-            "code": "IB_UNAVAILABLE",
-            "message": "无法连接IB服务器",
-            "retryable": bool(status["error"].get("retryable", True)),
+    return _client_status(status) if public else status
+
+
+def _client_status(status: dict) -> dict:
+    account = status.get("account") if isinstance(status.get("account"), dict) else {}
+    authority = str(account.get("authority_level") or "unknown").strip().lower()
+    read_only = authority in {"read-only", "read_only", "readonly"}
+    raw_error = status.get("error") if isinstance(status.get("error"), dict) else {}
+    error: dict[str, object] = {}
+    if raw_error:
+        code = str(raw_error.get("code") or "BROKER_CONNECT_FAILED").strip().upper()
+        error = {
+            "code": "TRADING_SERVICE_UNAVAILABLE",
+            "message": safe_client_message(code, str(raw_error.get("message") or ""), "交易服务暂不可用"),
+            "retryable": bool(raw_error.get("retryable", True)),
         }
-    return status
+    order_options = status.get("order_options") if isinstance(status.get("order_options"), dict) else {}
+    return {
+        "connected": bool(status.get("connected")),
+        "capabilities": dict(status.get("capabilities") or {}),
+        "read_only": read_only,
+        "account": {"authority_level": "read-only" if read_only else "full"},
+        "order_options": {
+            "default_route": str(order_options.get("default_route") or "SMART").strip().upper() or "SMART",
+            "routes": [str(item).strip().upper() for item in order_options.get("routes") or ["SMART"] if str(item).strip()],
+            "route_editable": bool(order_options.get("route_editable", False)),
+            "hidden_order": bool(order_options.get("hidden_order", False)),
+        },
+        "error": error,
+    }
+
+
+def get_client_trading_status() -> dict:
+    return get_broker_status(public=True)
 
 def _reset_connect_retry_state() -> None:
     global _connect_failure_count, _next_connect_retry_at, _auto_retry_paused, _auto_retry_pause_reason, _last_connect_error
@@ -194,7 +216,16 @@ def _schedule_broker_push(message: dict) -> None:
 
 
 def _on_order_event_from_broker(event: dict) -> None:
-    payload = dict(event or {})
+    raw_payload = dict(event or {})
+    payload = {
+        key: raw_payload.get(key)
+        for key in (
+            "order_id", "symbol", "status", "filled_qty", "remaining_qty",
+            "avg_fill_price", "can_cancel", "updated_at", "action",
+        )
+        if key in raw_payload
+    }
+    payload["status_message"] = safe_order_status_message(raw_payload)
     payload.setdefault("event_id", f"ordevt_{uuid.uuid4().hex}")
     payload.setdefault("updated_at", "")
     _schedule_broker_push({
@@ -206,7 +237,12 @@ def _on_order_event_from_broker(event: dict) -> None:
 
 
 def _on_position_event_from_broker(event: dict) -> None:
-    payload = dict(event or {})
+    raw_payload = dict(event or {})
+    payload = {
+        key: raw_payload.get(key)
+        for key in ("reason", "symbol", "order_id", "updated_at")
+        if key in raw_payload
+    }
     payload.setdefault("event_id", f"posevt_{uuid.uuid4().hex}")
     payload.setdefault("reason", "account_update")
     _schedule_broker_push({
@@ -591,14 +627,16 @@ def _on_quote_from_broker(quote: dict):
     也可能在 async 上下文中直接被调用。
     quote 格式: {"symbol", "bid", "ask", "last", "volume", "ts"}
     """
+    public_quote = {
+        key: quote.get(key)
+        for key in ("symbol", "bid", "ask", "last", "volume", "ts")
+        if key in quote
+    }
     msg = {
         "type": "QUOTE_DATA",
         "id": f"quote_{int(time.time() * 1000)}",
         "timestamp": int(time.time() * 1000),
-        "payload": {
-            **quote,
-            "broker_type": _current_broker_type,
-        },
+        "payload": public_quote,
     }
     # 广播给所有已连接的 Client
     try:
@@ -624,10 +662,8 @@ def _broadcast_status(broker_type: str, status: str):
         "id": f"bsc_{int(time.time() * 1000)}",
         "timestamp": int(time.time() * 1000),
         "payload": {
-            "broker_type": broker_type,
             "status": status,
-            "config_version": _local_config_version,
-            "broker_detail": get_broker_status(public=True),
+            "broker_detail": get_client_trading_status(),
         },
     }
     try:

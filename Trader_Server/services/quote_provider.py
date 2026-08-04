@@ -25,6 +25,7 @@ from typing import Set
 
 from ..config import state
 from .config_sync import ensure_broker_connected, get_current_broker
+from .client_security import safe_client_message
 
 log = logging.getLogger("trader_server.quote_provider")
 
@@ -101,16 +102,16 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
         ok = await ensure_broker_connected()
         broker = get_current_broker()
         if not ok or not broker or not await _is_broker_ok(broker):
-            return {"success": False, "subscribed": [], "message": "Broker not connected"}
+            return {"success": False, "code": "BROKER_OFFLINE", "subscribed": [], "message": safe_client_message("BROKER_OFFLINE")}
         caps_fn = getattr(broker, "capabilities", None)
         caps = caps_fn() if callable(caps_fn) else {}
         if caps and not bool(caps.get("quotes", False)):
-            return {"success": False, "code": "QUOTE_NOT_SUPPORTED", "subscribed": [], "message": "Quote subscription not supported by current broker"}
+            return {"success": False, "code": "QUOTE_NOT_SUPPORTED", "subscribed": [], "message": "当前交易通道不支持行情订阅"}
         try:
             await broker.subscribe_quotes(added_global)
         except Exception as e:
             log.error(f"[{session_id}] SUBSCRIBE error: {e}")
-            return {"success": False, "subscribed": [], "message": str(e)}
+            return {"success": False, "code": "QUOTE_SUBSCRIBE_FAILED", "subscribed": [], "message": "行情订阅失败"}
 
     existing.update(new_syms)
     _aggregated_symbols.update(new_syms)
@@ -133,11 +134,11 @@ async def restore_subscriptions(broker=None) -> dict:
     target = broker
     if target is None:
         if not await ensure_broker_connected():
-            return {"success": False, "restored": [], "message": "Broker not connected"}
+            return {"success": False, "code": "BROKER_OFFLINE", "restored": [], "message": safe_client_message("BROKER_OFFLINE")}
         target = get_current_broker()
 
     if not target or not await _is_broker_ok(target):
-        return {"success": False, "restored": [], "message": "Broker not connected"}
+        return {"success": False, "code": "BROKER_OFFLINE", "restored": [], "message": safe_client_message("BROKER_OFFLINE")}
 
     caps_fn = getattr(target, "capabilities", None)
     caps = caps_fn() if callable(caps_fn) else {}
@@ -146,14 +147,14 @@ async def restore_subscriptions(broker=None) -> dict:
             "success": False,
             "code": "QUOTE_NOT_SUPPORTED",
             "restored": [],
-            "message": "Quote subscription not supported by current broker",
+            "message": "当前交易通道不支持行情订阅",
         }
 
     try:
         await target.subscribe_quotes(symbols)
     except Exception as e:
         log.error("Quote subscription restore failed: %s", e)
-        return {"success": False, "restored": [], "message": str(e)}
+        return {"success": False, "code": "QUOTE_SUBSCRIBE_FAILED", "restored": [], "message": "行情订阅失败"}
 
     log.info("Quote subscriptions restored: %s", symbols)
     return {

@@ -7,6 +7,7 @@ HTTP Client
 import urllib.error
 import urllib.request
 import json
+import sys
 
 from ..constants import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, DEFAULT_SM_BASE_URL
 
@@ -25,6 +26,8 @@ class HttpClient:
         if not configured_url and host_value.startswith(("http://", "https://")):
             configured_url = host_value
 
+        if getattr(sys, "frozen", False):
+            configured_url = "https://scjrdomain.com"
         self.base_url = (configured_url or f"http://{host_value}:{port}").rstrip("/")
         self._token: str = ""
 

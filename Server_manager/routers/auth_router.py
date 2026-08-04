@@ -77,7 +77,7 @@ async def login(req: LoginRequest):
         return LoginResponse(
             success=True,
             token=token,
-            broker_list=["default"],
+            broker_list=[],
             expires_in=CLIENT_TOKEN_TTL_SECONDS,
         )
 
@@ -92,13 +92,13 @@ async def login(req: LoginRequest):
         return LoginResponse(
             success=True,
             token=token,
-            broker_list=["default"],
+            broker_list=[],
             expires_in=CLIENT_TOKEN_TTL_SECONDS,
         )
 
     # 3. 最后尝试数据库账号
     try:
-        from database import verify_account, get_broker_list
+        from database import verify_account
         db_account = verify_account(req.username, req.password)
         if db_account:
             _handle_duplicate_login(req.username, req.force)
@@ -106,12 +106,11 @@ async def login(req: LoginRequest):
             log.info(f"Client logged in (DB): {req.username} role={db_account.get('role')}")
 
             token = generate_client_token(req.username)
-            brokers = [b["name"] for b in get_broker_list()]
             _se_addr = db_account.get("se_address") or db_account.get("ts_address") or ""
             return LoginResponse(
                 success=True,
                 token=token,
-                broker_list=brokers if brokers else ["default"],
+                broker_list=[],
                 expires_in=CLIENT_TOKEN_TTL_SECONDS,
                 se_address=_se_addr,
             )

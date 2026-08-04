@@ -442,18 +442,18 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.25, "Buy to Open", "limit", "Day"))
         self.assertEqual(len(self.session.orders), 2)
 
-    def test_header_combines_connection_and_full_broker_name(self):
+    def test_header_hides_provider_name_and_preserves_read_only(self):
         self.session.broker_detail["broker_type"] = "interactive_brokers"
         self.session.broker_detail["account"] = {"authority_level": "read-only"}
         self.window._set_ts_connection_state("online")
-        self.assertEqual(self.window.status_text.text(), "ONLINE INTERACTIVE BROKERS")
+        self.assertEqual(self.window.status_text.text(), "ONLINE")
         self.assertFalse(self.window.read_only_label.isHidden())
         self.assertTrue(self.window.live_orders_btn.property("online"))
 
         self.session.broker_detail["broker_type"] = "tastytrade"
         self.session.broker_detail["account"] = {"authority_level": "full"}
         self.window._apply_broker_status_ui()
-        self.assertEqual(self.window.status_text.text(), "ONLINE TASTYTRADE")
+        self.assertEqual(self.window.status_text.text(), "ONLINE")
         self.assertTrue(self.window.read_only_label.isHidden())
 
         self.window._set_ts_connection_state("offline")

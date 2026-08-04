@@ -16,6 +16,7 @@ import ipaddress
 import json
 import logging
 import queue
+import sys
 import threading
 import time
 import uuid
@@ -59,6 +60,8 @@ class TSWebSocketClient:
         self.host = host
         self.port = port
         self.ws_url = self.normalize_endpoint(ws_url or host, default_port=port)
+        if getattr(sys, "frozen", False):
+            self.validate_production_endpoint(self.ws_url)
         self.token = token
         self.server_id = server_id
         self.on_message = on_message_callback
@@ -131,6 +134,20 @@ class TSWebSocketClient:
             if default_port:
                 authority = f"{authority}:{default_port}"
         return f"ws://{authority}{path}"
+
+    @staticmethod
+    def validate_production_endpoint(endpoint: str) -> None:
+        parsed = urlsplit(str(endpoint or ""))
+        hostname = str(parsed.hostname or "").strip().lower()
+        allowed_host = hostname == "scjrdomain.com" or hostname.endswith(".scjrdomain.com")
+        if (
+            parsed.scheme.lower() != "wss"
+            or not allowed_host
+            or parsed.port not in (None, 443)
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("交易服务地址无效")
 
     @property
     def endpoint(self) -> str:
@@ -538,7 +555,7 @@ class TSWebSocketClient:
             )
             if TS_RECONNECT_MAX_ATTEMPTS > 0 and reconnect_attempts >= TS_RECONNECT_MAX_ATTEMPTS:
                 if self.on_status:
-                    self.on_status(f"Reconnect failed after {reconnect_attempts} attempts: {last_error}")
+                    self.on_status(f"Reconnect failed after {reconnect_attempts} attempts")
                 self._emit_state(
                     "retry_exhausted",
                     attempt=reconnect_attempts,
@@ -555,7 +572,7 @@ class TSWebSocketClient:
         self._active = False
         self._connected = False
         if self.on_status and last_error and not self._connected and last_error != "Force disconnected by admin":
-            self.on_status(f"Disconnected: {last_error}")
+            self.on_status("Disconnected")
 
         try:
             if not self._loop.is_closed():
@@ -572,9 +589,9 @@ class TSWebSocketClient:
         """建立连接并运行主循环"""
         uri = self.ws_url
 
-        self._emit_state("connecting", connection_id=connection_id, endpoint=uri)
+        self._emit_state("connecting", connection_id=connection_id)
         if self.on_status:
-            self.on_status(f"Connecting to {uri}...")
+            self.on_status("Connecting...")
 
         # ★ 初始化连接丢失事件（每次新连接重置）
         self._conn_lost = asyncio.Event()
@@ -616,18 +633,20 @@ class TSWebSocketClient:
             self._connected = True
             self._authenticated_event.set()
             payload = ack.get("payload", {})
-            self._session_id = payload.get("session_id", "")
-            self._node_info = payload.get("node_info", {})
+            self._session_id = ""
+            self._node_info = {}
 
             if self.on_status:
-                self.on_status(f"Authenticated! Session: {self._session_id}")
+                self.on_status("Authenticated")
             self._emit_state(
                 "authenticated",
                 connection_id=connection_id,
-                session_id=self._session_id,
             )
             if self.on_message:
-                self.on_message({"event": "connected", "data": ack})
+                self.on_message({
+                    "event": "connected",
+                    "data": {"payload": {"broker_detail": payload.get("broker_detail", {})}},
+                })
 
             # 阶段3: 主循环 — 接收消息 + 心跳 + 处理待发请求
             # ★ return_exceptions=True: 任意子协程异常退出不会杀死其他协程

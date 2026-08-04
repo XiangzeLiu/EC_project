@@ -115,7 +115,7 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
             private = config_sync.get_broker_status()
             public = config_sync.get_broker_status(public=True)
             self.assertIn("Gateway", private["error"]["message"])
-            self.assertEqual(public["error"]["message"], "无法连接IB服务器")
+            self.assertEqual(public["error"]["message"], "交易服务暂不可用")
             self.assertNotIn("Gateway", public["error"]["message"])
         finally:
             config_sync._current_broker = original[0]
@@ -895,8 +895,9 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         broadcast.assert_called_once_with("interactive_brokers", "connected")
         status = config_sync.get_broker_status(public=True)
         self.assertTrue(status["connected"])
-        self.assertEqual(status["config_version"], 7)
-        self.assertEqual(status["account"]["account_id"], "U123")
+        self.assertNotIn("config_version", status)
+        self.assertNotIn("account_id", status["account"])
+        self.assertNotIn("broker_type", status)
         self.assertTrue(status["capabilities"]["orders"])
 
     async def test_config_sync_preserves_private_error_and_shortens_client_error(self):
@@ -944,8 +945,8 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         public = config_sync.get_broker_status(public=True)
         self.assertEqual(private["error"]["code"], "IB_API_HANDSHAKE_TIMEOUT")
         self.assertIn("Gateway API", private["error"]["message"])
-        self.assertEqual(public["error"]["code"], "IB_UNAVAILABLE")
-        self.assertEqual(public["error"]["message"], "无法连接IB服务器")
+        self.assertEqual(public["error"]["code"], "TRADING_SERVICE_UNAVAILABLE")
+        self.assertEqual(public["error"]["message"], "交易服务暂不可用")
 
 
 class InteractiveBrokersRegistrationWorkerTests(unittest.TestCase):

@@ -46,13 +46,40 @@ class QueryResult:
     error_code: str = ""
     message: str = ""
 
-# ── Sanitize ────────────────────────────────────────────────────────────────────
-_BROKER_RE = re.compile(r'\b(tastytrade|tastyworks|tastytrade\.com|tastyworks\.com)\b', re.I)
+# ── User-visible message sanitization ──────────────────────────────────────────
+_TRADING_PROVIDER_RE = re.compile(
+    r"\b(?:tastytrade|tastyworks|interactive(?:\s+|_)brokers?|ibkr|ib|tt|ib\s+gateway|gateway|tws)\b",
+    re.I,
+)
+_URL_RE = re.compile(r"\b(?:https?|wss?)://[^\s\]\[<>()]+", re.I)
+_IP_PORT_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?![\w.])")
+_IPV6_RE = re.compile(r"\[(?=[0-9a-f:]*:)[0-9a-f:]+\](?::\d{1,5})?", re.I)
+_DOMAIN_RE = re.compile(
+    r"(?<![\w@])(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d{1,5})?(?:/[\w./?%&=+-]*)?",
+    re.I,
+)
+_WINDOWS_PATH_RE = re.compile(r"\b[a-z]:\\[^\r\n]+", re.I)
+_INTERNAL_ID_RE = re.compile(
+    r"\b(?:sess|trc|conn|connection|session|trace)[-_:= ]+[a-z0-9_-]+\b",
+    re.I,
+)
+_ACCOUNT_ID_RE = re.compile(r"\bU\d{5,}\b", re.I)
+_LABELED_ACCOUNT_RE = re.compile(r"\b(?:account|acct|client_id|账户)[\s:=#-]+[a-z0-9-]+\b", re.I)
 
 
 def sanitize(text: str) -> str:
-    """过滤日志中的敏感信息"""
-    return _BROKER_RE.sub("broker", str(text))
+    """Remove provider, infrastructure, and internal identifiers from UI text."""
+    value = str(text or "")
+    value = _TRADING_PROVIDER_RE.sub("交易服务", value)
+    value = _URL_RE.sub("[服务地址]", value)
+    value = _IP_PORT_RE.sub("[服务地址]", value)
+    value = _IPV6_RE.sub("[服务地址]", value)
+    value = _DOMAIN_RE.sub("[服务地址]", value)
+    value = _WINDOWS_PATH_RE.sub("[本地路径]", value)
+    value = _INTERNAL_ID_RE.sub("[内部标识]", value)
+    value = _LABELED_ACCOUNT_RE.sub("[账户]", value)
+    value = _ACCOUNT_ID_RE.sub("[账户]", value)
+    return value
 
 
 class TradingSession:
@@ -104,7 +131,6 @@ class TradingSession:
     @staticmethod
     def _default_broker_detail() -> dict:
         return {
-            "broker_type": "none",
             "connected": False,
             "capabilities": {
                 "quotes": False,
@@ -113,25 +139,34 @@ class TradingSession:
                 "positions": False,
                 "order_query": False,
             },
+            "read_only": False,
             "account": {},
+            "order_options": {},
             "error": {},
         }
 
     def _normalize_broker_detail(self, detail: dict | None = None) -> dict:
         base = self._default_broker_detail()
         if isinstance(detail, dict):
-            base.update(detail)
-        base["broker_type"] = str(base.get("broker_type") or "none")
+            for key in ("connected", "capabilities", "read_only", "account", "order_options", "error"):
+                if key in detail:
+                    base[key] = detail[key]
         base["connected"] = bool(base.get("connected"))
         base["capabilities"] = dict(base.get("capabilities") or {})
-        base["account"] = dict(base.get("account") or {})
+        legacy_account = dict(base.get("account") or {})
+        authority = str(legacy_account.get("authority_level") or "unknown").strip().lower()
+        base["read_only"] = bool(base.get("read_only")) or authority in {
+            "read-only", "read_only", "readonly"
+        }
+        base["account"] = {"authority_level": "read-only" if base["read_only"] else "full"}
+        base["order_options"] = dict(base.get("order_options") or {})
         base["error"] = dict(base.get("error") or {})
         return base
 
     def set_broker_detail(self, detail: dict | None = None) -> dict:
-        previous_type = str(getattr(self, "broker_detail", {}).get("broker_type") or "none")
+        was_connected = bool(getattr(self, "broker_detail", {}).get("connected"))
         self.broker_detail = self._normalize_broker_detail(detail)
-        if previous_type != self.broker_detail["broker_type"] or not self.broker_detail["connected"]:
+        if was_connected != self.broker_detail["connected"] or not self.broker_detail["connected"]:
             self.clear_symbol_order_options()
         return self.broker_detail
 
@@ -190,12 +225,12 @@ class TradingSession:
             return "交易服务器未连接"
         if not self.broker_detail.get("connected"):
             error = self.broker_detail.get("error") or {}
-            return sanitize(error.get("message") or "券商服务未连接")
+            return sanitize(error.get("message") or "交易服务未连接")
         if capability and not (self.broker_detail.get("capabilities") or {}).get(capability, False):
             if capability in {"orders", "cancel_order"}:
                 return "当前账户为只读权限，不支持下单或撤单"
-            return "当前券商账户不支持该功能"
-        return "券商服务不可用"
+            return "当前交易通道不支持该功能"
+        return "交易服务不可用"
 
     def can_trade(self) -> bool:
         return self.has_broker_capability("orders")
@@ -205,7 +240,7 @@ class TradingSession:
             return False, self.broker_detail, "交易服务器未连接"
         resp = self._request_se("BROKER_STATUS_QUERY", {}, timeout=8.0)
         if not isinstance(resp, dict):
-            return False, self.broker_detail, "券商状态查询超时"
+            return False, self.broker_detail, "交易状态查询超时"
         payload = resp.get("payload", {}) if isinstance(resp.get("payload", {}), dict) else {}
         detail = payload.get("broker_detail")
         if isinstance(detail, dict):
@@ -369,16 +404,16 @@ class TradingSession:
 
             resp_pos = self._request_se("POSITION_QUERY", {}, timeout=12.0)
             if not isinstance(resp_pos, dict):
-                self._pos_error = "\u4ea4\u6613\u670d\u52a1\u8bf7\u6c42\u8d85\u65f6\u6216\u5238\u5546\u670d\u52a1\u4e0d\u53ef\u7528"
+                self._pos_error = "交易服务请求超时或暂不可用"
                 return QueryResult(False, error_code="POSITION_QUERY_TIMEOUT", message=self._pos_error)
 
             payload_pos = resp_pos.get("payload", {}) or {}
             if not payload_pos.get("success"):
                 err_code = payload_pos.get("code", "") or payload_pos.get("error_code", "")
                 if err_code == "BROKER_OFFLINE":
-                    self._pos_error = "券商服务未连接"
+                    self._pos_error = "交易服务未连接"
                 elif err_code == "NO_BROKER":
-                    self._pos_error = "\u672a\u52a0\u8f7d\u5238\u5546\u914d\u7f6e"
+                    self._pos_error = "未加载交易服务配置"
                 else:
                     self._pos_error = sanitize(payload_pos.get("message", "持仓查询失败"))
                 return QueryResult(

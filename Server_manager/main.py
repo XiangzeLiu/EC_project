@@ -2535,24 +2535,23 @@ async def check_se_status(request: Request, address: str = ""):
             "online": False,
         }
 
-    supplied = address_candidates(address)
     bound = address_candidates(bound_endpoint)
+    supplied = address_candidates(address)
     if supplied and not (supplied & bound):
         return {
             "ok": False,
-            "error": "address_not_bound_to_account",
+            "error": "account_binding_mismatch",
             "online": False,
+            "occupied": False,
+            "available_to_current_client": False,
         }
-
     requested = bound
     if not requested:
         return {
             "ok": True,
             "online": False,
-            "reason": "empty address",
-            "address": address,
-            "occupied_by": "",
-            "occupied_at": "",
+            "occupied": False,
+            "available_to_current_client": False,
         }
 
     for state in node_state.manager._states.values():
@@ -2566,24 +2565,20 @@ async def check_se_status(request: Request, address: str = ""):
             continue
         if state.is_online:
             occ_info = node_state.manager.get_occupation_info(state.server_id)
+            occupied_by = str((occ_info or {}).get("occupied_by") or "").strip()
             return {
                 "ok": True,
                 "online": True,
-                "node_name": state._node_name,
                 "server_id": state.server_id,
-                "match_field": "memory",
-                "address": address,
-                "occupied_by": (occ_info or {}).get("occupied_by", ""),
-                "occupied_at": (occ_info or {}).get("occupied_at", ""),
+                "occupied": bool(occupied_by),
+                "available_to_current_client": not occupied_by or occupied_by == token_user,
             }
 
     return {
         "ok": True,
         "online": False,
-        "reason": f"未找到与地址 '{address}' 匹配的在线子服务器",
-        "address": address,
-        "occupied_by": "",
-        "occupied_at": "",
+        "occupied": False,
+        "available_to_current_client": False,
     }
 
 def _push_sse_result(request_id: str, data_json: str):

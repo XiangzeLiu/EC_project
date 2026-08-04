@@ -1,4 +1,5 @@
 import os
+import sys
 
 """
 Constants & Theme Definitions
@@ -62,14 +63,20 @@ HEARTBEAT_INTERVAL = 10000  # 心跳检测间隔 (10s)
 MOCK_QUOTE_INTERVAL = 500   # 模拟行情推送间隔 (ms)
 
 # ── Server defaults ─────────────────────────────────────────────────────────────
-DEFAULT_SM_BASE_URL = os.getenv("CLIENT_SM_BASE_URL", "https://scjrdomain.com").strip()
-DEFAULT_SERVER_HOST = os.getenv("CLIENT_SM_HOST", "127.0.0.1")
-DEFAULT_SERVER_PORT = int(os.getenv("CLIENT_SM_PORT", "8800"))
+IS_PACKAGED_CLIENT = bool(getattr(sys, "frozen", False))
+
+DEFAULT_SM_BASE_URL = (
+    "https://scjrdomain.com"
+    if IS_PACKAGED_CLIENT
+    else os.getenv("CLIENT_SM_BASE_URL", "https://scjrdomain.com").strip()
+)
+DEFAULT_SERVER_HOST = "127.0.0.1" if IS_PACKAGED_CLIENT else os.getenv("CLIENT_SM_HOST", "127.0.0.1")
+DEFAULT_SERVER_PORT = 8800 if IS_PACKAGED_CLIENT else int(os.getenv("CLIENT_SM_PORT", "8800"))
 
 # ── Trader_Server (TS) 直连配置 ────────────────────────────────────────────
-DEFAULT_TS_WS_URL = os.getenv("CLIENT_TS_WS_URL", "").strip()
-DEFAULT_TS_HOST = os.getenv("CLIENT_TS_HOST", "127.0.0.1")
-DEFAULT_TS_PORT = int(os.getenv("CLIENT_TS_PORT", "8900"))
+DEFAULT_TS_WS_URL = "" if IS_PACKAGED_CLIENT else os.getenv("CLIENT_TS_WS_URL", "").strip()
+DEFAULT_TS_HOST = "127.0.0.1" if IS_PACKAGED_CLIENT else os.getenv("CLIENT_TS_HOST", "127.0.0.1")
+DEFAULT_TS_PORT = 8900 if IS_PACKAGED_CLIENT else int(os.getenv("CLIENT_TS_PORT", "8900"))
 
 # ── TS 自动重连配置 ───────────────────────────────────────────────────────────
 TS_RECONNECT_ENABLED = os.getenv("CLIENT_TS_RECONNECT_ENABLED", "1").strip().lower() not in {"0", "false", "no"}  # 是否启用自动重连

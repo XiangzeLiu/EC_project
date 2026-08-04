@@ -4,7 +4,6 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import quote
 
 from PySide6.QtCore import QObject, Signal
 
@@ -173,9 +172,7 @@ class TSConnectionCoordinator(QObject):
         target = str(target_address or self.target_address or _default_ts_target()).strip()
         self.validation_started.emit(generation)
         try:
-            status_code, response = self._http.get(
-                f"/api/accounts/se-status?address={quote(target, safe='')}"
-            )
+            status_code, response = self._http.get("/api/accounts/se-status")
             response = response or {}
             if not self._is_current(generation):
                 return
@@ -191,11 +188,12 @@ class TSConnectionCoordinator(QObject):
                 )
                 return
             occupied_by = str(response.get("occupied_by") or "").strip()
-            if occupied_by and occupied_by != self._username_provider():
+            available = response.get("available_to_current_client")
+            if available is False or (available is None and occupied_by and occupied_by != self._username_provider()):
                 self.connection_failed.emit(
                     generation,
                     "交易服务器已被占用",
-                    f"当前交易服务器已被账户“{occupied_by}”占用，无法连接。",
+                    "当前交易服务器已被其他会话占用，无法连接。",
                     True,
                 )
                 return
@@ -337,16 +335,15 @@ class TSConnectionCoordinator(QObject):
             target = self._target_address or self._last_endpoint or _default_ts_target()
             current_server_id = self._server_id
         try:
-            status_code, response = self._http.get(
-                f"/api/accounts/se-status?address={quote(target, safe='')}"
-            )
+            status_code, response = self._http.get("/api/accounts/se-status")
         except Exception:
             return False
         response = response or {}
         if status_code != 200 or not response.get("ok") or not response.get("online"):
             return False
         occupied_by = str(response.get("occupied_by") or "").strip()
-        if occupied_by and occupied_by != self._username_provider():
+        available = response.get("available_to_current_client")
+        if available is False or (available is None and occupied_by and occupied_by != self._username_provider()):
             return False
         server_id = str(response.get("server_id") or "").strip()
         if current_server_id and server_id and server_id != current_server_id:

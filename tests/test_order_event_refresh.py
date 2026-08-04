@@ -420,7 +420,7 @@ class ClientOrderEventTests(unittest.TestCase):
 
         self.assertEqual(
             messages,
-            ["订单已被券商拒绝，无需撤销：[6099] Passive Limit Price Too Far From NBBO"],
+            ["订单未被接受，无需撤销：[6099] Passive Limit Price Too Far From NBBO"],
         )
 
 

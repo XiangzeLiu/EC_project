@@ -126,6 +126,7 @@ echo [Client Package] Building portable application...
   --clean ^
   --onedir ^
   --windowed ^
+  --disable-windowed-traceback ^
   --name "%APP_EXE_NAME%" ^
   --distpath "%APP_DIST%" ^
   --workpath "%WORK_DIR%" ^
@@ -154,7 +155,7 @@ if not "%SELFTEST_RESULT%"=="0" (
 )
 
 echo [Client Package] Checking package for local-only files...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$blockedNames=@('.tt_config.json','.env','.env.production','server_manager.db','server_manager.db-wal','server_manager.db-shm'); $blockedExt=@('.log','.db','.sqlite','.pyc'); $bad=Get-ChildItem -LiteralPath '%APP_OUT%' -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { ($blockedNames -contains $_.Name) -or ($blockedExt -contains $_.Extension.ToLowerInvariant()) -or ($_.FullName -match '\\(data|logs)\\') }; if($bad){Write-Host '[Client Package] ERROR: local-only files found:'; $bad.FullName; exit 1}"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$blockedNames=@('.tt_config.json','.env','.env.production','server_manager.db','server_manager.db-wal','server_manager.db-shm'); $blockedExt=@('.log','.db','.sqlite','.pyc','.py','.md','.rtf'); $bad=Get-ChildItem -LiteralPath '%APP_OUT%' -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { ($blockedNames -contains $_.Name) -or ($blockedExt -contains $_.Extension.ToLowerInvariant()) -or ($_.FullName -match '\\(data|logs)\\') }; if($bad){Write-Host '[Client Package] ERROR: local-only files found:'; $bad.FullName; exit 1}"
 if errorlevel 1 goto :fail
 
 echo [Client Package] Creating portable ZIP...

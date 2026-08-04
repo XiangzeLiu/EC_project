@@ -326,11 +326,11 @@ class SettingsOverlay(QWidget):
 
     def _order_capability_note(self) -> str:
         if not self._route_effective and not self._hidden_effective:
-            return "当前券商不应用 ROUTE / HIDE：配置可以保存，实际下单使用 SMART 且按普通订单执行"
+            return "当前交易通道不应用 ROUTE / HIDE：配置可以保存，实际下单使用 SMART 且按普通订单执行"
         if not self._route_effective:
-            return "当前券商不应用 ROUTE：配置可以保存，实际下单使用 SMART"
+            return "当前交易通道不应用 ROUTE：配置可以保存，实际下单使用 SMART"
         if not self._hidden_effective:
-            return "当前券商不应用 HIDE：配置可以保存，实际按普通订单执行"
+            return "当前交易通道不应用 HIDE：配置可以保存，实际按普通订单执行"
         return ""
 
     def _build_fixed_page(self) -> QWidget:
@@ -417,7 +417,7 @@ class SettingsOverlay(QWidget):
         self._center_combo(combo)
         combo.setToolTip(
             "该 ROUTE 将按配置执行" if self._route_effective
-            else "配置可以保存；当前券商实际下单使用 SMART"
+            else "配置可以保存；当前交易通道实际下单使用 SMART"
         )
         return combo
 
@@ -470,7 +470,7 @@ class SettingsOverlay(QWidget):
         hidden.setEnabled(True)
         hidden.setToolTip(
             "该规则将使用 HIDE 订单" if self._hidden_effective
-            else "配置可以保存；当前券商实际按普通订单执行"
+            else "配置可以保存；当前交易通道实际按普通订单执行"
         )
         delete_btn = QPushButton("删除")
         delete_btn.setObjectName("settingsDangerButton")

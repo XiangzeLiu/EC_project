@@ -198,7 +198,7 @@ async def handle_client_connection(ws: WebSocket):
             await _send_error(
                 ws,
                 'TOKEN_INVALID',
-                auth_ctx.get('reason', 'Client token is invalid'),
+                '交易服务鉴权失败',
                 trace_id=trace_id,
             )
             await ws.close(code=4003)
@@ -231,8 +231,8 @@ async def handle_client_connection(ws: WebSocket):
         state.ws_clients.append(ws)
         _cancel_pending_releases(username, server_id)
         await _replace_existing_node_connections(ws, username, server_id)
-        from ..services.config_sync import get_broker_status
-        broker_detail = get_broker_status(public=True)
+        from ..services.config_sync import get_client_trading_status
+        broker_detail = get_client_trading_status()
 
         from ..services.message_log import on_auth, on_connect
 
@@ -241,17 +241,10 @@ async def handle_client_connection(ws: WebSocket):
 
         ack = {
             'type': 'CONNECT_ACK',
-            'id': f'ack_{session_id}',
+            'id': f'ack_{connection_id or session_id}',
             'timestamp': int(time.time() * 1000),
             'payload': {
                 'status': 'SUCCESS',
-                'session_id': session_id,
-                'node_info': {
-                    'server_id': state.server_id,
-                    'node_name': state.node_name,
-                    'region': state.region,
-                    'status': state.status,
-                },
                 'broker_detail': broker_detail,
                 'heartbeat_interval': 30,
                 'trace_id': trace_id,
@@ -510,7 +503,7 @@ async def _route_message(
         return response
     except Exception as exc:
         log.error('Handler error for %s: %s', msg_type, exc, exc_info=True)
-        err_resp = _error_response('INTERNAL_ERROR', str(exc)[:100], trace_id=trace_id)
+        err_resp = _error_response('INTERNAL_ERROR', '交易服务处理失败，请稍后重试', trace_id=trace_id)
         on_send(session_id, 'ERROR', err_resp.get('payload'), False, trace_id=trace_id)
         return err_resp
 
@@ -548,7 +541,7 @@ async def _handle_economic_query(msg: dict[str, Any], sid: str, trace_id: str = 
 
 
 async def _handle_status_query(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
-    from ..services.config_sync import get_broker_status
+    from ..services.config_sync import get_client_trading_status
 
     return {
         'type': 'STATUS_RESPONSE',
@@ -556,16 +549,7 @@ async def _handle_status_query(msg: dict[str, Any], sid: str, trace_id: str = ''
         'timestamp': int(time.time() * 1000),
         'payload': {
             'status': 'ok',
-            'node_info': {
-                'server_id': state.server_id,
-                'node_name': state.node_name,
-                'region': state.region,
-                'registration_status': state.status,
-                'heartbeat_ok': state.heartbeat_ok,
-                'heartbeat_fail_count': state.heartbeat_fail_count,
-                'connections': len(_connections),
-            },
-            'broker_detail': get_broker_status(public=True),
+            'broker_detail': get_client_trading_status(),
             'trace_id': trace_id,
         },
     }
@@ -681,8 +665,8 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
 
 
 async def _handle_broker_status_query(msg: dict[str, Any], sid: str, trace_id: str = '', conn: dict[str, Any] | None = None) -> dict[str, Any]:
-    from ..services.config_sync import get_broker_status
-    broker_detail = get_broker_status(public=True)
+    from ..services.config_sync import get_client_trading_status
+    broker_detail = get_client_trading_status()
     return {
         'type': 'BROKER_STATUS_RESPONSE',
         'id': msg.get('id', ''),

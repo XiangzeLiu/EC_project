@@ -11,6 +11,25 @@ import re
 import sys
 
 
+def _install_packaged_exception_handler() -> None:
+    if not getattr(sys, "frozen", False):
+        return
+
+    def handle_exception(_exc_type, _exc_value, _traceback) -> None:
+        try:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.critical(
+                None,
+                "SC Client",
+                "程序发生异常，请重新启动；如重复出现，请联系管理员。",
+            )
+        except Exception:
+            pass
+
+    sys.excepthook = handle_exception
+
+
 def _enable_windows_dpi_awareness() -> None:
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -75,6 +94,7 @@ def main() -> int:
     if "--package-self-test" in sys.argv:
         return _run_package_self_test()
     _ensure_project_root_on_path()
+    _install_packaged_exception_handler()
 
     from Client.ui_qt.main_window import run
 

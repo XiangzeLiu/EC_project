@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from .config_sync import ensure_broker_connected, get_broker_status, get_current_broker
+from .client_security import safe_client_message, safe_order_record
 
 log = logging.getLogger("trader_server.trading_svc")
 
@@ -33,7 +34,7 @@ def _ok(
     payload: dict[str, Any] = {
         "success": True,
         "code": code,
-        "message": message,
+        "message": safe_client_message(code, message),
         "retryable": False,
         "source": source,
         "trace_id": _mk_trace_id(trace_id),
@@ -67,8 +68,7 @@ def _ensure_capability(broker: Any, capability: str, code: str, message: str, tr
         caps_fn = getattr(broker, "capabilities", None)
     caps = caps_fn() if callable(caps_fn) else {}
     if caps and not bool(caps.get(capability, False)):
-        broker_type = getattr(broker, "broker_type", "broker")
-        return _error(code, f"{broker_type} {message}", trace_id=trace_id, retryable=False)
+        return _error(code, message, trace_id=trace_id, retryable=False)
     return None
 
 def _validate_order_params(params: dict[str, Any], trace_id: str = "") -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -278,7 +278,7 @@ async def get_orders(mode: str = "live", session_id: str = "", username: str = "
     log.info("[%s][%s] ORDER_QUERY: mode=%s", session_id, trace_id, mode)
 
     try:
-        orders = await broker.get_orders(mode=mode)
+        orders = [safe_order_record(item) for item in await broker.get_orders(mode=mode)]
         return _ok({"orders": orders, "count": len(orders), "mode": mode}, code="ORDER_QUERY_OK", trace_id=trace_id)
     except NotImplementedError as exc:
         return _error("ORDER_QUERY_NOT_SUPPORTED", str(exc), trace_id=trace_id)

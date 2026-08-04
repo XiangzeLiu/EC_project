@@ -119,8 +119,8 @@ def localize_user_message(msg: str) -> str:
         return ""
 
     replacements = {
-        "Broker not connected": "券商服务未连接",
-        "Broker status query timed out": "券商状态查询超时",
+        "Broker not connected": "交易服务未连接",
+        "Broker status query timed out": "交易状态查询超时",
         "Quote subscribe failed": "行情订阅失败",
         "Quote unsubscribe failed": "行情取消订阅失败",
         "Position fetch failed": "持仓获取失败",
@@ -152,11 +152,11 @@ def localize_user_message(msg: str) -> str:
 
     connect_target_match = re.fullmatch(r"Connecting to (.+)\.\.\.", text)
     if connect_target_match:
-        return f"正在连接：{connect_target_match.group(1)}"
+        return "正在连接交易服务..."
 
     authenticated_match = re.fullmatch(r"Authenticated! Session: (.+)", text)
     if authenticated_match:
-        return f"鉴权成功，会话：{authenticated_match.group(1)}"
+        return "交易服务鉴权成功"
 
     startswith_replacements = (
         ("Trade server is occupied by ", "交易服务器已被占用："),
@@ -180,7 +180,8 @@ def localize_user_message(msg: str) -> str:
     text = text.replace("TS not connected", "交易服务器未连接")
     text = text.replace("SE not connected", "交易服务器未连接")
     text = text.replace("remote host refused connection (port may not be ready)", "远程主机拒绝连接（端口可能尚未就绪）")
-    text = text.replace("broker", "券商")
+    text = re.sub(r"\bbroker\b", "交易服务", text, flags=re.I)
+    text = text.replace("券商", "交易服务")
     return text
 
 def make_label(text: str, *, color: str | None = None, font=None, object_name: str | None = None) -> QLabel:
@@ -1218,7 +1219,7 @@ class TradingTerminalQt(QMainWindow):
         slot.hidden_order = QCheckBox()
         slot.hidden_order.setObjectName("hiddenOrderCheck")
         slot.hidden_order.setEnabled(False)
-        slot.hidden_order.setToolTip("当前券商不支持 HIDE 订单")
+        slot.hidden_order.setToolTip("当前交易通道不支持 HIDE 订单")
         hide_layout.addWidget(slot.hidden_order_caption)
         hide_layout.addWidget(slot.hidden_order, 0, Qt.AlignCenter)
         right_config_layout.addWidget(hide_block, 0)
@@ -1742,25 +1743,13 @@ class TradingTerminalQt(QMainWindow):
         raw = getattr(self.session, "broker_detail", None) if self.session else None
         if isinstance(raw, dict):
             return raw
-        return {"broker_type": "none", "connected": False, "capabilities": {}, "account": {}}
+        return {"connected": False, "capabilities": {}, "read_only": False, "account": {}}
 
-    @staticmethod
-    def _broker_display_name(broker_type: str) -> str:
-        normalized = str(broker_type or "none").strip().lower()
-        if normalized in {"", "none"}:
-            return ""
-        if normalized == "tastytrade":
-            return "TASTYTRADE"
-        if normalized == "interactive_brokers":
-            return "INTERACTIVE BROKERS"
-        return normalized.replace("_", " ").upper()
-
-    def _update_header_broker_status(self, broker_type: str, read_only: bool) -> None:
+    def _update_header_broker_status(self, read_only: bool) -> None:
         if not hasattr(self, "status_text"):
             return
-        broker_name = self._broker_display_name(broker_type)
         status = self._connection_status_label or "OFFLINE"
-        self.status_text.setText(f"{status} {broker_name}".strip())
+        self.status_text.setText(status)
         if hasattr(self, "read_only_label"):
             self.read_only_label.setVisible(read_only)
 
@@ -1845,12 +1834,11 @@ class TradingTerminalQt(QMainWindow):
         detail = self._broker_detail_state()
         active = bool(detail.get("connected") and self.session and self.session.connected and self._se_connected)
         account = detail.get("account") if isinstance(detail.get("account"), dict) else {}
-        broker_type = str(detail.get("broker_type") or "none").upper()
-        authority = str(account.get("authority_level") or "unknown")
-        read_only = authority in {"read-only", "read_only", "readonly"}
+        authority = str(account.get("authority_level") or "unknown").lower()
+        read_only = bool(detail.get("read_only")) or authority in {"read-only", "read_only", "readonly"}
         if hasattr(self, "account_state"):
             style_status_pill(self.account_state, "Connect" if active else "Offline", active=True, danger=not active)
-        self._update_header_broker_status(broker_type, read_only)
+        self._update_header_broker_status(read_only)
         self._set_live_orders_online(self._connection_status_label == "ONLINE")
         orders_enabled = self._broker_capability_enabled("orders")
         for slot in self.slots.values():
@@ -1891,7 +1879,7 @@ class TradingTerminalQt(QMainWindow):
         if slot.hidden_order:
             slot.hidden_order.setEnabled(hidden_supported)
             slot.hidden_order.setToolTip(
-                "以 HIDE 订单方式提交" if hidden_supported else "当前券商不支持 HIDE 订单"
+                "以 HIDE 订单方式提交" if hidden_supported else "当前交易通道不支持 HIDE 订单"
             )
             if not hidden_supported:
                 slot.hidden_order.setChecked(False)
@@ -2298,13 +2286,11 @@ class TradingTerminalQt(QMainWindow):
         elif msg_type == "POSITION_INVALIDATED":
             self._order_refresh.handle_position_event(payload)
         elif msg_type == "FORCE_DISCONNECT":
-            reason = payload.get("reason", "admin_force_release")
-            self._log_user_error_once(f"交易服务器连接被强制断开，原因：{reason}", "warn")
+            self._log_user_error_once("交易服务连接已被管理员断开", "warn")
             self._se_disconnect()
         elif msg_type == "ERROR":
-            code = payload.get("code", "")
             message = localize_user_message(payload.get("message", ""))
-            self._log_user_error_once(f"交易服务器错误[{code}]：{message}")
+            self._log_user_error_once(f"交易服务错误：{message or '操作失败，请稍后重试'}")
     def _on_init_se_status(self, msg: str) -> None:
         self._ui(lambda: self._handle_init_se_status_ui(msg))
 
@@ -2668,7 +2654,7 @@ class TradingTerminalQt(QMainWindow):
         if side not in {"buy", "sell"} or pid not in self.slots:
             return
         if not self.session or not self._trade_controls_enabled():
-            message = self.session.broker_unavailable_message("orders") if self.session else "券商服务不可用"
+            message = self.session.broker_unavailable_message("orders") if self.session else "交易服务不可用"
             self._log_user_error_once(message, "warn")
             return
         symbol = self._shortcut_symbol(pid)
@@ -2820,7 +2806,7 @@ class TradingTerminalQt(QMainWindow):
         source: str = "button",
     ) -> None:
         if not self.session or not self._trade_controls_enabled():
-            message = self.session.broker_unavailable_message("orders") if self.session else "券商服务不可用"
+            message = self.session.broker_unavailable_message("orders") if self.session else "交易服务不可用"
             self._log_user_error_once(message, "warn")
             return
         slot = self.slots[pid]
@@ -2991,7 +2977,7 @@ class TradingTerminalQt(QMainWindow):
 
     def _cancel_selected_order(self) -> None:
         if not self.session or not self._broker_capability_enabled("cancel_order"):
-            message = self.session.broker_unavailable_message("cancel_order") if self.session else "券商服务不可用"
+            message = self.session.broker_unavailable_message("cancel_order") if self.session else "交易服务不可用"
             self._log_user_error_once(message, "warn")
             return
         selected_order = self._selected_order()
@@ -3003,13 +2989,13 @@ class TradingTerminalQt(QMainWindow):
             ).strip()
             status_message = str(selected_order.get("status_message") or "").strip()
             status_text = {
-                "Rejected": "订单已被券商拒绝，无需撤销",
+                "Rejected": "订单未被接受，无需撤销",
                 "Filled": "订单已成交，无法撤销",
                 "Cancelled": "订单已经撤销",
                 "Expired": "订单已过期，无法撤销",
             }.get(status, "该订单当前不可撤销")
             if status == "Rejected" and status_message:
-                status_text = f"{status_text}：{status_message}"
+                status_text = f"{status_text}：{localize_user_message(status_message)}"
             self._log_user_error_once(status_text, "warn")
             return
         order_id = str(selected_order.get("id", ""))
@@ -3068,7 +3054,7 @@ class TradingTerminalQt(QMainWindow):
     def _cancel_symbol_live_orders(self, pid: int) -> None:
         self._cancel_pending_order(pid)
         if not self.session or not self._broker_capability_enabled("cancel_order"):
-            message = self.session.broker_unavailable_message("cancel_order") if self.session else "券商服务不可用"
+            message = self.session.broker_unavailable_message("cancel_order") if self.session else "交易服务不可用"
             self._log_user_error_once(message, "warn")
             return
         if not self._broker_capability_enabled("order_query"):
