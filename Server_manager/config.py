@@ -125,8 +125,9 @@ SM_CORS_ORIGINS = _env_csv(
 )
 SM_COOKIE_SECURE = _env_bool("SM_COOKIE_SECURE", False)
 SM_COOKIE_SAMESITE = os.environ.get("SM_COOKIE_SAMESITE", "lax").strip().lower() or "lax"
-# Test-stage value. Change the deployment default to 86400 after acceptance.
-CLIENT_TOKEN_TTL_SECONDS = max(60, int(os.environ.get("CLIENT_TOKEN_TTL_SECONDS", "300")))
+# Test-stage value for the private-route latency comparison. Change the deployment
+# default to 86400 after acceptance.
+CLIENT_TOKEN_TTL_SECONDS = max(60, int(os.environ.get("CLIENT_TOKEN_TTL_SECONDS", "900")))
 
 # ── Local Caddy process management ──────────────────────────────────────
 SM_CADDY_AUTO_MANAGE = _env_bool("SM_CADDY_AUTO_MANAGE", True)
