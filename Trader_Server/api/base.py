@@ -46,6 +46,11 @@ class BaseBrokerAPI(ABC):
         }
 
     @classmethod
+    def supported_tifs(cls) -> tuple[str, ...]:
+        """Return TIF values that the adapter can submit safely."""
+        return ("Day",)
+
+    @classmethod
     def credential_profiles(cls) -> list[tuple[str, ...]]:
         """
         返回支持的凭证组合（任意一个满足即可）。
@@ -203,6 +208,7 @@ class BaseBrokerAPI(ABC):
             "route_editable": route_editable,
             "hidden_order": bool(options.get("hidden_order", False)),
             "routes_validated": not route_editable,
+            "supported_tifs": list(self.supported_tifs()),
         }
 
     # ── 行情 ──────────────────────────────────────────────────

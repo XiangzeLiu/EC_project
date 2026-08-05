@@ -11,7 +11,6 @@ if not defined SM_ALLOWED_HOSTS set "SM_ALLOWED_HOSTS=scjrdomain.com,127.0.0.1,l
 if not defined SM_CORS_ORIGINS set "SM_CORS_ORIGINS=https://scjrdomain.com"
 if not defined SM_COOKIE_SECURE set "SM_COOKIE_SECURE=1"
 if not defined SM_DOMAIN_ROOT set "SM_DOMAIN_ROOT=scjrdomain.com"
-if not defined SM_TS_DOMAIN_SUFFIX set "SM_TS_DOMAIN_SUFFIX=ts.scjrdomain.com"
 if not defined SM_DOMAIN_POOL_REQUIRED set "SM_DOMAIN_POOL_REQUIRED=1"
 if not defined SM_DNSPOD_MODE set "SM_DNSPOD_MODE=real"
 if not defined SM_CADDY_AUTO_MANAGE set "SM_CADDY_AUTO_MANAGE=1"
@@ -20,7 +19,9 @@ if not defined SM_CADDY_EXE set "SM_CADDY_EXE=%~dp0caddy\caddy.exe"
 if not defined SM_CADDY_DIR set "SM_CADDY_DIR=%~dp0caddy"
 if not defined SM_CADDY_ADMIN set "SM_CADDY_ADMIN=127.0.0.1:2019"
 if not defined SM_CADDY_START_TIMEOUT set "SM_CADDY_START_TIMEOUT=10"
-if not defined CLIENT_TOKEN_TTL_SECONDS set "CLIENT_TOKEN_TTL_SECONDS=300"
+if not defined CLIENT_TOKEN_TTL_SECONDS set "CLIENT_TOKEN_TTL_SECONDS=86400"
+if not defined SM_BOOTSTRAP_ADMIN_USERNAME set "SM_BOOTSTRAP_ADMIN_USERNAME=admin"
+if not defined SM_BOOTSTRAP_ADMIN_PASSWORD set "SM_BOOTSTRAP_ADMIN_PASSWORD=admin123"
 
 if not exist "%~dp0ServerManager.exe" goto :app_missing
 "%~dp0ServerManager.exe"

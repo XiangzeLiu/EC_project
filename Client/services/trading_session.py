@@ -67,6 +67,16 @@ _ACCOUNT_ID_RE = re.compile(r"\bU\d{5,}\b", re.I)
 _LABELED_ACCOUNT_RE = re.compile(r"\b(?:account|acct|client_id|账户)[\s:=#-]+[a-z0-9-]+\b", re.I)
 
 
+_TECHNICAL_ERROR_RE = re.compile(
+    r"(?:traceback|exception|error|warning|failed|failure|timeout|timed out|connection|"
+    r"websocket|http|urlopen|jsondecode|json decode|none ?type|"
+    r"attributeerror|valueerror|keyerror|typeerror|oserror|winerror|"
+    r"errno|ssl|socket|name resolution|connection refused|connection reset|"
+    r"object has no attribute|invalid literal)",
+    re.I,
+)
+
+
 def sanitize(text: str) -> str:
     """Remove provider, infrastructure, and internal identifiers from UI text."""
     value = str(text or "")
@@ -79,6 +89,14 @@ def sanitize(text: str) -> str:
     value = _INTERNAL_ID_RE.sub("[内部标识]", value)
     value = _LABELED_ACCOUNT_RE.sub("[账户]", value)
     value = _ACCOUNT_ID_RE.sub("[账户]", value)
+    return value
+
+
+def safe_user_message(text: str, fallback: str = "操作失败，请稍后重试") -> str:
+    """Return readable business text without leaking technical exceptions."""
+    value = sanitize(text).strip()
+    if not value or _TECHNICAL_ERROR_RE.search(value):
+        return fallback
     return value
 
 
@@ -200,7 +218,12 @@ class TradingSession:
                     routes.append(value)
             if default_route not in routes:
                 routes.insert(0, default_route)
-            normalized_options[normalized_symbol] = {
+            supported_tifs: list[str] = []
+            for tif in raw.get("supported_tifs") or []:
+                value = str(tif or "").strip()
+                if value and value not in supported_tifs:
+                    supported_tifs.append(value)
+            normalized_option = {
                 "symbol": normalized_symbol,
                 "default_route": default_route,
                 "routes": routes,
@@ -208,6 +231,9 @@ class TradingSession:
                 "hidden_order": bool(raw.get("hidden_order", False)),
                 "routes_validated": bool(raw.get("routes_validated", False)),
             }
+            if "supported_tifs" in raw:
+                normalized_option["supported_tifs"] = supported_tifs
+            normalized_options[normalized_symbol] = normalized_option
         if normalized_options:
             with self._symbol_order_options_lock:
                 self._symbol_order_options.update(normalized_options)
@@ -460,8 +486,8 @@ class TradingSession:
                 )
 
             return QueryResult(True, self._calc_today_activity(pos_rows, orders_raw))
-        except Exception as exc:
-            self._pos_error = sanitize(str(exc))
+        except Exception:
+            self._pos_error = "持仓查询失败，请稍后刷新"
             return QueryResult(False, error_code="POSITION_QUERY_FAILED", message=self._pos_error)
 
     def _mock_positions(self) -> list[dict]:
@@ -746,11 +772,11 @@ class TradingSession:
                     if item.get("raw_status") in LIVE_STATUSES
                 ]
             return QueryResult(True, result)
-        except Exception as exc:
+        except Exception:
             return QueryResult(
                 False,
                 error_code="ORDER_QUERY_FAILED",
-                message=sanitize(str(exc) or "订单查询失败"),
+                message="订单查询失败，请稍后刷新",
             )
 
     def cancel_order(self, order_id: str) -> tuple[bool, str]:
@@ -769,8 +795,8 @@ class TradingSession:
                 self.invalidate_order_cache()
                 return True, f"订单已撤销：{str(order_id)[-6:]}"
             return False, sanitize(payload.get("message", "撤单失败"))
-        except Exception as exc:
-            return False, sanitize(f"鎾ゅ崟澶辫触: {exc}")
+        except Exception:
+            return False, "撤单失败，请刷新订单确认"
 
     def place_order(self, symbol: str, qty: int, price: float,
                     action: str, order_type: str = "limit", tif: str = "Day",
@@ -817,8 +843,8 @@ class TradingSession:
                 oid = payload.get("order_id", "")
                 return True, f"下单已提交，订单号：{str(oid)[-8:]}"
             return False, sanitize(payload.get("message", "下单失败"))
-        except Exception as exc:
-            return False, sanitize(f"下单失败：{exc}")
+        except Exception:
+            return False, "下单失败，请稍后重试"
 
     def enable_mock_mode(self):
         """启用模拟模式"""

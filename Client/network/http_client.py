@@ -72,8 +72,11 @@ class HttpClient:
             except Exception:
                 resp_body = {}
             return e.code, resp_body
-        except Exception as e:
-            return 0, {"detail": str(e)}
+        except Exception:
+            return 0, {
+                "detail": "服务暂时不可用",
+                "error_code": "NETWORK_UNAVAILABLE",
+            }
 
     def get(self, path: str) -> tuple[int, dict]:
         return self.request("GET", path)

@@ -8,8 +8,6 @@ Server Manager - Main Entry Point
     uvicorn Server_manager.main:app --host 0.0.0.0 --port 8800
 
 环境变量:
-    SERVER_USERNAME   服务器登录用户名 (默认: admin)
-    SERVER_PASSWORD   服务器登录密码 (默认: changeme123)
     SERVER_HOST       服务监听地址   (默认: 127.0.0.1；临时直连可设 0.0.0.0)
     SERVER_PORT       服务端口       (默认: 8800)
     TASTY_SECRET      Tastytrade Secret Token
@@ -79,7 +77,7 @@ app = FastAPI(
     title="Trading Server Manager",
     description=(
         "### 交易系统 Server Manager（控制面）\n\n"
-        "- **认证管理**：用户登录/登出，支持 JSON 文件 / 配置文件 / 数据库多级认证\n"
+        "- **认证管理**：用户登录/登出，账号统一由 SM 数据库管理\n"
         "- **节点管理**：注册、审核、占用、状态与心跳管理\n"
         "- **配置管理**：TS 券商配置下发与版本控制\n"
         "- **健康检查**：服务状态监控\n\n"
@@ -124,18 +122,6 @@ _ADMIN_SESSION_MAX_AGE = 7200
 
 # 后台清理间隔：每 30 分钟扫描一次过期 session
 _ADMIN_CLEANUP_INTERVAL = 1800
-
-_ADMIN_JSON_PATH = os.path.join(_SCRIPT_DIR, "admin.json")
-
-
-def _load_admins() -> list[dict]:
-    """从 admin.json 加载超级管理员列表"""
-    try:
-        with open(_ADMIN_JSON_PATH, "r", encoding="utf-8") as f:
-            return __import__("json").load(f)
-    except Exception:
-        return []
-
 
 def _get_session_id(request: Request) -> str | None:
     """从 Cookie 获取管理会话 ID"""

@@ -57,8 +57,7 @@ from Client.constants import (
     TS_RECONNECT_MAX_ATTEMPTS,
 )
 from Client.network.http_client import HttpClient
-from Client.network.temp_latency_diagnostics import record_active_ui_latency
-from Client.services.trading_session import TradingSession, sanitize
+from Client.services.trading_session import TradingSession, safe_user_message, sanitize
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
 from Client.ui_qt.quote_subscription_coordinator import QuoteSubscriptionCoordinator
@@ -71,6 +70,7 @@ from Client.ui_qt.hotkey_config import (
     ENTER_INPUT_GUARD_MS,
     HOTKEY_BINDINGS,
     IDENTICAL_ORDER_COOLDOWN_MS,
+    IOC_QUOTE_FRESHNESS_MS,
     ORDER_CANCEL_POLICY,
     ORDER_SUBMIT_POLICY,
     QUOTE_FRESHNESS_MS,
@@ -81,6 +81,7 @@ from Client.ui_qt.hotkey_config import (
     HotkeyRuntimeConfig,
     OrderHotkeyRule,
     bindings_from_config,
+    format_hotkey_validation_errors,
     validate_hotkey_config,
 )
 from Client.ui_qt.shortcut_controller import ShortcutController, validate_shortcut_sequences
@@ -148,7 +149,7 @@ def localize_user_message(msg: str) -> str:
 
     reconnect_match = re.fullmatch(r"Reconnecting \((\d+)\)\.\.\.(.*)", text)
     if reconnect_match:
-        suffix = reconnect_match.group(2).strip()
+        suffix = ""
         if suffix.startswith("|"):
             suffix = f" | {suffix[1:].strip()}"
         elif suffix:
@@ -180,14 +181,26 @@ def localize_user_message(msg: str) -> str:
     )
     for prefix, repl in startswith_replacements:
         if text.startswith(prefix):
-            return repl + text[len(prefix):]
+            safe_prefix_messages = {
+                "Auth failed": "交易服务认证失败，请重新登录",
+                "Error [": "交易服务暂时不可用，请稍后重试",
+                "Connection error": "交易服务连接异常，请稍后重试",
+                "Disconnected:": "交易服务连接已断开",
+                "Trade server validation failed:": "交易服务器校验失败，请稍后重试",
+                "Trade server connect failed:": "交易服务器连接失败，请稍后重试",
+                "Trade server is occupied by ": "交易服务器当前不可用，请联系管理员",
+                "Login failed (HTTP ": "登录失败，请检查账号或稍后重试",
+            }
+            if prefix in safe_prefix_messages:
+                return safe_prefix_messages[prefix]
+            return safe_user_message(repl + text[len(prefix):], repl.rstrip("："))
 
     text = text.replace("TS not connected", "交易服务器未连接")
     text = text.replace("SE not connected", "交易服务器未连接")
     text = text.replace("remote host refused connection (port may not be ready)", "远程主机拒绝连接（端口可能尚未就绪）")
     text = re.sub(r"\bbroker\b", "交易服务", text, flags=re.I)
     text = text.replace("券商", "交易服务")
-    return text
+    return safe_user_message(text)
 
 def make_label(text: str, *, color: str | None = None, font=None, object_name: str | None = None) -> QLabel:
     label = QLabel(text)
@@ -958,7 +971,8 @@ class TradingTerminalQt(QMainWindow):
         )
         self._shortcut_controller = controller
         if controller.errors:
-            self._append_log(f"快捷键配置无效：{'; '.join(controller.errors)}", "warn")
+            messages = format_hotkey_validation_errors(controller.errors)
+            self._append_log(f"快捷键配置无效：{'；'.join(messages)}", "warn")
             return
         controller.install()
 
@@ -1007,7 +1021,7 @@ class TradingTerminalQt(QMainWindow):
         errors = validate_hotkey_config(config)
         errors.extend(validate_shortcut_sequences(bindings_from_config(config)))
         if errors:
-            message = "；".join(errors[:3])
+            message = "；".join(format_hotkey_validation_errors(errors))
             if self._settings_overlay:
                 self._settings_overlay.set_error(message)
             self._show_weak_tip(f"快捷键配置未保存：{message}", "warn")
@@ -1015,7 +1029,7 @@ class TradingTerminalQt(QMainWindow):
         try:
             save_hotkey_config(config)
         except Exception as exc:
-            message = f"快捷键配置保存失败：{localize_user_message(str(exc))}"
+            message = "快捷键配置保存失败，请检查文件权限或稍后重试"
             if self._settings_overlay:
                 self._settings_overlay.set_error(message)
             self._show_weak_tip(message, "warn")
@@ -1624,8 +1638,6 @@ class TradingTerminalQt(QMainWindow):
             color = theme.ACCENT_GREEN if latency_ms < 120 else theme.ACCENT_YELLOW if latency_ms < 300 else theme.ACCENT_RED
             self.latency_label.setText(f"{latency_ms}ms")
             self.latency_label.setStyleSheet(f"color: {color};")
-            # TEMP_LATENCY_DIAGNOSTIC: remove after the latency incident is explained.
-            record_active_ui_latency(latency_ms)
         self._ui(apply)
 
 
@@ -1893,6 +1905,23 @@ class TradingTerminalQt(QMainWindow):
     def _hidden_order_supported(self, symbol: str = "") -> bool:
         options = self._broker_order_options(symbol)
         return bool(options.get("hidden_order", False))
+
+    def _broker_supported_tifs(self, symbol: str = "") -> set[str]:
+        options = self._broker_order_options(symbol)
+        values = options.get("supported_tifs")
+        if values is None and symbol:
+            detail = self._broker_detail_state()
+            global_options = detail.get("order_options")
+            if isinstance(global_options, dict):
+                values = global_options.get("supported_tifs")
+        return {
+            str(value or "").strip().upper()
+            for value in values or []
+            if str(value or "").strip()
+        }
+
+    def _broker_supports_tif(self, tif: str, symbol: str = "") -> bool:
+        return str(tif or "").strip().upper() in self._broker_supported_tifs(symbol)
 
     def _resolve_route_value(self, route: str, symbol: str = "") -> str:
         options = self._broker_order_options(symbol)
@@ -2729,14 +2758,16 @@ class TradingTerminalQt(QMainWindow):
         )
 
     def _prepare_configured_order(self, params: dict, pid: int) -> None:
+        tif = str(params.get("tif") or "Day")
         self._prepare_order_entry(
             side=str(params.get("side") or ""),
             pid=pid,
             order_type=str(params.get("order_type") or "limit"),
-            tif=str(params.get("tif") or "Day"),
+            tif=tif,
             route=str(params.get("route") or "DEFAULT"),
             hidden=bool(params.get("hidden", False)),
             price_offset=float(params.get("price_offset") or 0.0),
+            submit_immediately=tif.strip().upper() == "IOC",
         )
 
     def _prepare_order_entry(
@@ -2750,6 +2781,7 @@ class TradingTerminalQt(QMainWindow):
         hidden: bool,
         price_offset: float = 0.0,
         price_source: str = "",
+        submit_immediately: bool = False,
     ) -> None:
         if side not in {"buy", "sell"} or pid not in self.slots:
             return
@@ -2760,9 +2792,13 @@ class TradingTerminalQt(QMainWindow):
         symbol = self._shortcut_symbol(pid)
         if not symbol:
             return
+        if submit_immediately and not self._broker_supports_tif(tif, symbol):
+            self._log_user_error_once("当前交易通道不支持 IOC 订单，订单未提交", "warn")
+            return
 
         self._activate_panel(pid)
         slot = self.slots[pid]
+        self._cancel_pending_order(pid)
         normalized_type = "market" if str(order_type).lower() == "market" else "limit"
         if slot.order_type:
             slot.order_type.setCurrentText("Market" if normalized_type == "market" else "Limit")
@@ -2781,16 +2817,35 @@ class TradingTerminalQt(QMainWindow):
         if normalized_type == "limit":
             quote = self._latest_quote_snapshot(symbol)
             received_at = float(quote.get("received_monotonic", 0) or 0)
-            fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= QUOTE_FRESHNESS_MS
-            source = price_source if price_source in {"bid", "ask"} else ("bid" if side == "buy" else "ask")
+            freshness_ms = IOC_QUOTE_FRESHNESS_MS if submit_immediately else QUOTE_FRESHNESS_MS
+            fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= freshness_ms
+            source = "ask" if side == "buy" else "bid"
             quote_price = float(quote.get(source, 0) or 0) if fresh else 0.0
             if quote_price > 0:
-                quote_price = max(0.0, quote_price + float(price_offset or 0.0))
+                adjusted = Decimal(str(quote_price)) + Decimal(str(price_offset or 0.0))
+                quote_price = float(max(Decimal("0"), adjusted).quantize(Decimal("0.01")))
         if slot.price:
-            slot.price.setEnabled(True)
+            slot.price.setEnabled(normalized_type != "market")
             slot.price.setText("Market" if normalized_type == "market" else (f"{quote_price:.2f}" if quote_price > 0 else ""))
-            slot.price.setFocus()
-            slot.price.selectAll()
+            if not submit_immediately:
+                slot.price.setFocus()
+                slot.price.selectAll()
+        if submit_immediately:
+            if normalized_type == "limit" and quote_price <= 0:
+                self._log_user_error_once("IOC 订单未提交：行情不可用或已过期", "warn")
+                return
+            action = "Buy to Open" if side == "buy" else "Sell to Close"
+            self._place_order(
+                action,
+                pid,
+                order_type_override=normalized_type,
+                price_override=0.0 if normalized_type == "market" else quote_price,
+                tif_override=tif,
+                route_override=resolved_route,
+                hidden_override=effective_hidden,
+                source="hotkey",
+            )
+            return
         slot.pending_action = "Buy to Open" if side == "buy" else "Sell to Close"
         slot.pending_symbol = symbol
         slot.pending_order_type = normalized_type
@@ -2889,6 +2944,7 @@ class TradingTerminalQt(QMainWindow):
         *,
         order_type_override: str | None = None,
         price_override: float | None = None,
+        tif_override: str | None = None,
         route_override: str | None = None,
         hidden_override: bool | None = None,
         source: str = "button",
@@ -2902,7 +2958,7 @@ class TradingTerminalQt(QMainWindow):
         qty = slot.qty_value()
         order_type = order_type_override or ("market" if slot.order_type and slot.order_type.currentText() == "Market" else "limit")
         price = float(price_override) if price_override is not None else slot.price_value()
-        tif = slot.tif.currentText() if slot.tif else "Day"
+        tif = tif_override or (slot.tif.currentText() if slot.tif else "Day")
         requested_route = route_override or (slot.route.currentText() if slot.route else "DEFAULT")
         requested_hidden = bool(hidden_override) if hidden_override is not None else bool(slot.hidden_order and slot.hidden_order.isChecked())
         if not sym:
@@ -2984,8 +3040,8 @@ class TradingTerminalQt(QMainWindow):
                 route=route,
                 hidden=hidden,
             ) if active_session else (False, "\u672a\u8fde\u63a5")
-        except Exception as exc:
-            ok, msg = False, sanitize(f"下单失败：{exc}")
+        except Exception:
+            ok, msg = False, "下单失败，请稍后重试"
         self._ui(lambda: self._handle_order_result(ok, msg, limiter_token, generation))
 
     def _handle_order_result(self, ok: bool, msg: str, limiter_token: str = "", generation: int | None = None) -> None:
@@ -3116,8 +3172,8 @@ class TradingTerminalQt(QMainWindow):
         active_session = session or self.session
         try:
             ok, msg = active_session.cancel_order(order_id) if active_session else (False, "\u672a\u8fde\u63a5")
-        except Exception as exc:
-            ok, msg = False, sanitize(f"撤单失败：{exc}")
+        except Exception:
+            ok, msg = False, "撤单失败，请刷新订单确认"
         self._ui(lambda: self._handle_cancel_result(ok, msg, order_id, limiter_token, generation))
 
     def _handle_cancel_result(
@@ -3193,9 +3249,9 @@ class TradingTerminalQt(QMainWindow):
                     query_error = str(query_result.message or "订单查询失败")
             else:
                 orders = session.get_orders("live") if session else []
-        except Exception as exc:
+        except Exception:
             orders = []
-            query_error = str(exc) or "订单查询失败"
+            query_error = "订单查询失败，请稍后刷新"
         order_ids = list(dict.fromkeys(
             str(order.get("id") or "")
             for order in orders
@@ -3210,8 +3266,8 @@ class TradingTerminalQt(QMainWindow):
         for order_id in order_ids:
             try:
                 ok, msg = session.cancel_order(order_id) if session else (False, "未连接")
-            except Exception as exc:
-                ok, msg = False, sanitize(f"撤单失败：{exc}")
+            except Exception:
+                ok, msg = False, "撤单失败，请刷新订单确认"
             if ok:
                 success += 1
             else:

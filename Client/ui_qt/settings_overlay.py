@@ -41,6 +41,7 @@ from .hotkey_config import (
     OrderHotkeyRule,
     QuantityHotkey,
     bindings_from_config,
+    format_hotkey_validation_errors,
     validate_hotkey_config,
 )
 from .shortcut_controller import validate_shortcut_sequences
@@ -709,7 +710,7 @@ class SettingsOverlay(QWidget):
         errors = validate_hotkey_config(config)
         errors.extend(validate_shortcut_sequences(bindings_from_config(config)))
         if errors:
-            self.set_error("；".join(errors[:3]))
+            self.set_error("；".join(format_hotkey_validation_errors(errors)))
             return
         self.set_error("")
         self.save_requested.emit(config)

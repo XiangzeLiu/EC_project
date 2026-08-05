@@ -45,6 +45,11 @@ def _normalize_symbol_order_options(symbol: str, raw: dict) -> dict:
             routes.append(value)
     if default_route not in routes:
         routes.insert(0, default_route)
+    supported_tifs: list[str] = []
+    for tif in raw.get("supported_tifs") or []:
+        value = str(tif or "").strip()
+        if value and value not in supported_tifs:
+            supported_tifs.append(value)
     return {
         "symbol": normalized_symbol,
         "default_route": default_route,
@@ -52,6 +57,7 @@ def _normalize_symbol_order_options(symbol: str, raw: dict) -> dict:
         "route_editable": bool(raw.get("route_editable", False)),
         "hidden_order": bool(raw.get("hidden_order", False)),
         "routes_validated": bool(raw.get("routes_validated", False)),
+        "supported_tifs": supported_tifs,
     }
 
 

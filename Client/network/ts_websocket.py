@@ -27,8 +27,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 import websockets
 
-from .temp_latency_diagnostics import ClientLatencyDiagnostics
-
 log = logging.getLogger("client.ts_websocket")
 
 
@@ -96,8 +94,6 @@ class TSWebSocketClient:
         self._send_wakeup: asyncio.Event | None = None
         self._send_lock: asyncio.Lock | None = None
         self._ping_sent_at: dict[str, dict[str, float | int]] = {}
-        # TEMP_LATENCY_DIAGNOSTIC: remove after the latency incident is explained.
-        self._latency_diagnostic = ClientLatencyDiagnostics()
         self._connection_id = self._new_connection_id()
         self._stop_event = threading.Event()
         self._authenticated_event = threading.Event()
@@ -490,22 +486,22 @@ class TSWebSocketClient:
                     reason="connection_lost",
                 )
                 if self.on_status:
-                    self.on_status(f"Reconnecting ({reconnect_attempts})... | connection_lost")
+                    self.on_status(f"Reconnecting ({reconnect_attempts})...")
 
             except TSAuthenticationError as exc:
                 last_error = str(exc) or "authentication_failed"
                 self._active = False
                 state = "auth_expired" if exc.code == "AUTH_EXPIRED" else "auth_invalid"
-                self._emit_state(state, message=last_error, code=exc.code)
+                self._emit_state(state, message="交易服务认证失败", code=exc.code)
                 break
             except websockets.exceptions.ConnectionClosed as e:
                 # 管理端强制断开：不进行自动重连
                 if getattr(e, "code", None) == 4008:
-                    last_error = "Force disconnected by admin"
+                    last_error = "force_disconnected"
                     self._reconnect_enabled = False
                     self._active = False
                     if self.on_status:
-                        self.on_status(last_error)
+                        self.on_status("交易服务已断开")
                     self._emit_state("force_disconnected", reason=last_error)
                     break
 
@@ -519,7 +515,7 @@ class TSWebSocketClient:
                     reason=type(e).__name__,
                 )
                 if self.on_status:
-                    self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
+                    self.on_status(f"Reconnecting ({reconnect_attempts})...")
 
             except (ConnectionRefusedError, ConnectionResetError, OSError,
                     asyncio.TimeoutError,
@@ -535,7 +531,7 @@ class TSWebSocketClient:
                     reason=type(e).__name__,
                 )
                 if self.on_status:
-                    self.on_status(f"Reconnecting ({reconnect_attempts})... | {type(e).__name__}")
+                    self.on_status(f"Reconnecting ({reconnect_attempts})...")
 
 
             except Exception as e:
@@ -547,10 +543,10 @@ class TSWebSocketClient:
                 self._emit_state(
                     "reconnecting",
                     attempt=reconnect_attempts,
-                    reason=str(e),
+                    reason="connection_error",
                 )
                 if self.on_status:
-                    self.on_status(f"Reconnecting ({reconnect_attempts})... | {e}")
+                    self.on_status(f"Reconnecting ({reconnect_attempts})...")
 
             finally:
                 # 本次尝试结束，标记断开状态
@@ -566,11 +562,11 @@ class TSWebSocketClient:
             )
             if TS_RECONNECT_MAX_ATTEMPTS > 0 and reconnect_attempts >= TS_RECONNECT_MAX_ATTEMPTS:
                 if self.on_status:
-                    self.on_status(f"Reconnect failed after {reconnect_attempts} attempts")
+                    self.on_status("交易服务重连失败")
                 self._emit_state(
                     "retry_exhausted",
                     attempt=reconnect_attempts,
-                    reason=last_error,
+                    reason="retry_exhausted",
                 )
                 break
 
@@ -591,7 +587,6 @@ class TSWebSocketClient:
         except Exception:
             pass
         finally:
-            self._latency_diagnostic.close()
             self._loop = None
             self._thread = None
             self._stopped_event.set()
@@ -641,13 +636,11 @@ class TSWebSocketClient:
                 err_msg = err_payload.get("message", "Auth failed")
                 err_code = str(err_payload.get("code") or "AUTH_INVALID").strip().upper()
                 if self.on_status:
-                    self.on_status(f"Auth failed: {err_msg}")
+                    self.on_status("交易服务认证失败")
                 raise TSAuthenticationError(err_msg, code=err_code)
 
             self._connected = True
             self._authenticated_event.set()
-            self._latency_diagnostic.start()
-            self._latency_diagnostic.record("websocket_authenticated")
             payload = ack.get("payload", {})
             self._session_id = ""
             self._node_info = {}
@@ -732,17 +725,6 @@ class TSWebSocketClient:
                     sent_at = float(ping_meta.get("queued_perf") or time.perf_counter())
                     latency_precise_ms = max(0.0, (time.perf_counter() - sent_at) * 1000)
                     latency_ms = max(0, int(latency_precise_ms))
-                    server_diag = msg.get("payload", {}) if isinstance(msg.get("payload", {}), dict) else {}
-                    self._latency_diagnostic.record(
-                        "client_pong_received",
-                        ping_id=ping_id,
-                        latency_ms=round(latency_precise_ms, 3),
-                        client_send_lock_wait_ms=round(float(ping_meta.get("lock_wait_ms") or 0.0), 3),
-                        client_send_duration_ms=round(float(ping_meta.get("send_duration_ms") or 0.0), 3),
-                        server_received_utc_ms=server_diag.get("server_received_utc_ms"),
-                        server_send_started_utc_ms=server_diag.get("server_send_started_utc_ms"),
-                        server_send_lock_wait_ms=server_diag.get("server_send_lock_wait_ms"),
-                    )
                 if ping_meta is not None and self.on_latency:
                     try:
                         self.on_latency(latency_ms)
@@ -774,7 +756,7 @@ class TSWebSocketClient:
                     state = "auth_expired" if err_code == "AUTH_EXPIRED" else "auth_invalid"
                     self._emit_state(
                         state,
-                        message=str(err_payload.get("message") or "Authentication required"),
+                        message="交易服务认证失败",
                         code=err_code,
                     )
                     try:
@@ -784,7 +766,7 @@ class TSWebSocketClient:
                     return
 
                 if self.on_status:
-                    self.on_status(f"Error [{err_payload.get('code', '')}]: {err_payload.get('message', '')}")
+                    self.on_status("交易服务暂时不可用")
 
             if self.on_message:
                 try:
@@ -802,22 +784,9 @@ class TSWebSocketClient:
         }
         try:
             queued_perf = time.perf_counter()
-            queued_utc_ms = int(time.time() * 1000)
-            ping_meta: dict[str, float | int] = {
-                "queued_perf": queued_perf,
-                "queued_utc_ms": queued_utc_ms,
-            }
+            ping_meta: dict[str, float | int] = {"queued_perf": queued_perf}
             self._ping_sent_at[ping_id] = ping_meta
-            send_diag = await self._send_ws_json(ws, ping)
-            if isinstance(send_diag, dict):
-                ping_meta.update(send_diag)
-            self._latency_diagnostic.record(
-                "client_ping_sent",
-                ping_id=ping_id,
-                queued_utc_ms=queued_utc_ms,
-                client_send_lock_wait_ms=round(float(ping_meta.get("lock_wait_ms") or 0.0), 3),
-                client_send_duration_ms=round(float(ping_meta.get("send_duration_ms") or 0.0), 3),
-            )
+            await self._send_ws_json(ws, ping)
             # 避免异常场景下累计过多旧 PING 记录。
             if len(self._ping_sent_at) > 8:
                 for old_id in list(self._ping_sent_at)[:-8]:

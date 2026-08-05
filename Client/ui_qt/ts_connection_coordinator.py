@@ -227,12 +227,12 @@ class TSConnectionCoordinator(QObject):
                 self._server_id = server_id
                 self._target_address = target
             self.connect_validated(target, generation=generation)
-        except Exception as exc:
+        except Exception:
             if self._is_current(generation):
                 self.connection_failed.emit(
                     generation,
                     "交易服务器校验失败",
-                    str(exc),
+                    "交易服务器校验失败，请稍后重试。",
                     True,
                 )
 

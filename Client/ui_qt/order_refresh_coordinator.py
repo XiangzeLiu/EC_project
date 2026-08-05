@@ -122,10 +122,10 @@ class OrderRefreshCoordinator(QObject):
                 success = True
                 orders = session.get_orders(mode, force=force)
                 error = ""
-        except Exception as exc:
+        except Exception:
             success = False
             orders = []
-            error = str(exc) or "订单查询失败"
+            error = "订单查询失败，请稍后刷新"
         self._orders_fetched.emit({
             "success": success,
             "orders": orders,
@@ -184,10 +184,10 @@ class OrderRefreshCoordinator(QObject):
                 success = True
                 positions = session.get_today_activity(force_orders=force_orders)
                 error = str(getattr(session, "_pos_error", "") or "")
-        except Exception as exc:
+        except Exception:
             success = False
             positions = []
-            error = str(exc) or "持仓查询失败"
+            error = "持仓查询失败，请稍后刷新"
         self._positions_fetched.emit({
             "success": success,
             "positions": positions,

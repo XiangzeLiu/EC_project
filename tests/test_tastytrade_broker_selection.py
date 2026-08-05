@@ -51,10 +51,12 @@ class TastytradeBrokerSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options["routes"], ["SMART"])
         self.assertFalse(options["route_editable"])
         self.assertFalse(options["hidden_order"])
+        self.assertIn("IOC", options["supported_tifs"])
         symbol_options = await broker.get_symbol_order_options("aapl")
         self.assertEqual(symbol_options["symbol"], "AAPL")
         self.assertEqual(symbol_options["routes"], ["SMART"])
         self.assertTrue(symbol_options["routes_validated"])
+        self.assertIn("IOC", symbol_options["supported_tifs"])
 
         base_order = {
             "symbol": "AAPL",

@@ -71,6 +71,17 @@ class AccessChainTests(unittest.TestCase):
         sm_main._ib_validation_cache.clear()
         self.temp_dir.cleanup()
 
+    def test_client_login_rejects_removed_json_and_default_credentials(self):
+        for username, password in (
+            ("test_servermanager", "pass_servermanager"),
+            ("admin", "changeme123"),
+        ):
+            response = self.client.post(
+                "/auth/login",
+                json={"username": username, "password": password},
+            )
+            self.assertEqual(response.status_code, 401)
+
     def test_ib_approval_requires_recent_validated_account_and_locks_broker(self):
         imported = self.client.post(
             "/api/domain-pool/import",
@@ -1806,6 +1817,7 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
                     "route_editable": True,
                     "hidden_order": True,
                     "routes_validated": True,
+                    "supported_tifs": ["Day", "IOC"],
                 }
 
         broker = FakeBroker()
@@ -1829,6 +1841,7 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options["routes"], ["SMART", "ARCA"])
         self.assertTrue(options["routes_validated"])
         self.assertTrue(options["hidden_order"])
+        self.assertEqual(options["supported_tifs"], ["Day", "IOC"])
 
     async def test_quote_subscriptions_are_restored_on_reconnected_broker(self):
         restored = []
@@ -2099,10 +2112,25 @@ class AdminManagementTests(unittest.TestCase):
         sm_main._admin_sessions.clear()
         self.temp_dir.cleanup()
 
+    def test_bootstrap_super_admin_is_created_once_without_password_reset(self):
+        initial = database.verify_web_admin("admin", "admin123")
+        self.assertIsNotNone(initial)
+
+        changed, message = database.update_super_admin_password(
+            initial["id"],
+            "admin123",
+            "changed-admin-password",
+        )
+        self.assertTrue(changed, message)
+
+        database.init_db()
+        self.assertIsNone(database.verify_web_admin("admin", "admin123"))
+        self.assertIsNotNone(database.verify_web_admin("admin", "changed-admin-password"))
+
     def test_admin_login_domain_import_and_account_lifecycle(self):
         login = self.client.post(
             "/admin/login",
-            data={"username": "admin", "password": "admin_sc"},
+            data={"username": "admin", "password": "admin123"},
             follow_redirects=False,
         )
         self.assertEqual(login.status_code, 302)
@@ -2180,7 +2208,7 @@ class AdminManagementTests(unittest.TestCase):
     def test_super_admin_can_manage_dns_config_without_secret_leakage(self):
         login = self.client.post(
             "/admin/login",
-            data={"username": "admin", "password": "admin_sc"},
+            data={"username": "admin", "password": "admin123"},
             follow_redirects=False,
         )
         self.assertEqual(login.status_code, 302)
@@ -2238,7 +2266,7 @@ class AdminManagementTests(unittest.TestCase):
     def test_candidate_permission_api_does_not_save_and_does_not_block_save(self):
         login = self.client.post(
             "/admin/login",
-            data={"username": "admin", "password": "admin_sc"},
+            data={"username": "admin", "password": "admin123"},
             follow_redirects=False,
         )
         self.assertEqual(login.status_code, 302)

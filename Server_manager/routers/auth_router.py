@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 
 from models import LoginRequest, LoginResponse, LogoutResponse
-from config import CLIENT_TOKEN_TTL_SECONDS, SERVER_TOKEN, session_store, log, load_users_from_json, active_client_tokens
+from config import CLIENT_TOKEN_TTL_SECONDS, session_store, log, active_client_tokens
 from auth import (
     generate_client_token,
     inspect_client_token,
@@ -20,15 +20,6 @@ from auth import (
 
 
 router = APIRouter(prefix="/auth", tags=["认证管理"])
-
-
-def _verify_user_from_json(username: str, password: str) -> dict | None:
-    """从 users.json 验证用户凭据"""
-    users = load_users_from_json()
-    for u in users:
-        if u.get("username") == username and u.get("password") == password and u.get("status") == "active":
-            return u
-    return None
 
 
 def _handle_duplicate_login(username: str, force: bool) -> None:
@@ -62,42 +53,10 @@ async def login(req: LoginRequest):
 
     """
     用户登录认证
-    验证优先级: JSON文件 > 配置文件凭据 > 数据库
+    账号统一由 SM 数据库管理。
     返回服务 Token，客户端后续请求需携带此 Token
     """
-    account = None
-
-    # 1. 优先从 JSON 文件验证（Demo 模式主要入口）
-    account = _verify_user_from_json(req.username, req.password)
-    if account:
-        _handle_duplicate_login(req.username, req.force)
-
-        log.info(f"Client logged in via JSON credentials: {req.username}")
-
-        token = generate_client_token(req.username)
-        return LoginResponse(
-            success=True,
-            token=token,
-            broker_list=[],
-            expires_in=CLIENT_TOKEN_TTL_SECONDS,
-        )
-
-    # 2. 回退到配置文件中的 SERVER_USERNAME/SERVER_PASSWORD
-    from config import SERVER_USERNAME, SERVER_PASSWORD
-    if req.username == SERVER_USERNAME and req.password == SERVER_PASSWORD:
-        _handle_duplicate_login(req.username, req.force)
-
-        log.info(f"Client logged in via config credentials: {req.username}")
-
-        token = generate_client_token(req.username)
-        return LoginResponse(
-            success=True,
-            token=token,
-            broker_list=[],
-            expires_in=CLIENT_TOKEN_TTL_SECONDS,
-        )
-
-    # 3. 最后尝试数据库账号
+    # Client 登录只接受 SM 数据库中的有效账号。
     try:
         from database import verify_account
         db_account = verify_account(req.username, req.password)
@@ -198,17 +157,6 @@ async def verify_client_token(request: Request):
     client_token = (body.get("token") or "").strip()
     if not client_token:
         return {"ok": False, "valid": False, "reason": "missing_client_token"}
-
-    from config import SERVER_TOKEN
-    if client_token == SERVER_TOKEN:
-        return {
-            "ok": True,
-            "valid": True,
-            "username": "server",
-            "token_type": "server",
-            "server_id": node.get("server_id", ""),
-            "allowed": True,
-        }
 
     if not connection_id:
         return deny("connection_id_required")

@@ -16,8 +16,7 @@
   - 内存 `_admin_sessions`
   - 内存 `active_client_tokens`
   - 内存 `session_store`
-  - `users.json`
-  - `admin.json`
+  - `users.json`、`admin.json` 已从运行时认证链路移除
 
 ### 2.2 表职责混杂
 
@@ -397,7 +396,7 @@ ON audit_log(username, created_at);
 6. 改 `main.py`
 7. 进入双读双写验证
 8. 停止写旧结构
-9. 移除 `users.json` / `admin.json` 运行时依赖
+9. 已移除 `users.json` / `admin.json` 运行时依赖
 10. 最后清理旧字段和旧逻辑
 
 ## 11. 验收标准

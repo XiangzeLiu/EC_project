@@ -2,7 +2,7 @@
 	admin 127.0.0.1:2020
 }
 
-ts-01.ts.scjrdomain.com {
+www.ts01.scjrdomain.com {
 	encode zstd gzip
 
 	@client_ws path /ws

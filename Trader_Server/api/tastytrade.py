@@ -83,6 +83,10 @@ class TastytradeBroker(BaseBrokerAPI):
     def credential_profiles(cls) -> list[tuple[str, ...]]:
         return [("token", "secret")]
 
+    @classmethod
+    def supported_tifs(cls) -> tuple[str, ...]:
+        return ("Day", "GTC", "IOC", "EXT", "GTC_EXT")
+
     @staticmethod
     def _classify_connect_exception(exc: Exception) -> tuple[str, str, bool]:
         message = str(exc or "")[:240]
@@ -277,6 +281,7 @@ class TastytradeBroker(BaseBrokerAPI):
                 "routes": ["SMART"],
                 "route_editable": False,
                 "hidden_order": False,
+                "supported_tifs": list(self.supported_tifs()),
             },
         }
 

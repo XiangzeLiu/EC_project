@@ -4,7 +4,6 @@ Configuration Management
 """
 
 import os
-import hashlib
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
@@ -99,13 +98,6 @@ def _env_csv(name: str, default: str = "") -> list[str]:
     raw = os.environ.get(name, default)
     return [item.strip() for item in raw.split(",") if item.strip()]
 
-# ── 服务器认证凭据（客户端连此服务器用）────────────────────────────────
-SERVER_USERNAME = os.environ.get("SERVER_USERNAME", "admin")
-SERVER_PASSWORD = os.environ.get("SERVER_PASSWORD", "changeme123")
-SERVER_TOKEN = hashlib.sha256(
-    f"{SERVER_USERNAME}:{SERVER_PASSWORD}".encode()
-).hexdigest()
-
 # ── 服务监听地址 ──────────────────────────────────────────────────────────
 SERVER_HOST = os.environ.get("SERVER_HOST", "127.0.0.1")
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8800"))
@@ -125,9 +117,15 @@ SM_CORS_ORIGINS = _env_csv(
 )
 SM_COOKIE_SECURE = _env_bool("SM_COOKIE_SECURE", False)
 SM_COOKIE_SAMESITE = os.environ.get("SM_COOKIE_SAMESITE", "lax").strip().lower() or "lax"
-# Test-stage value for the private-route latency comparison. Change the deployment
-# default to 86400 after acceptance.
-CLIENT_TOKEN_TTL_SECONDS = max(60, int(os.environ.get("CLIENT_TOKEN_TTL_SECONDS", "900")))
+# Production client authentication lifetime. Keep overridable for controlled tests.
+CLIENT_TOKEN_TTL_SECONDS = max(60, int(os.environ.get("CLIENT_TOKEN_TTL_SECONDS", "86400")))
+
+# Used only when a fresh database has no super administrator. Existing accounts
+# are never reset from these values during startup.
+SM_BOOTSTRAP_ADMIN_USERNAME = (
+    os.environ.get("SM_BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
+)
+SM_BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("SM_BOOTSTRAP_ADMIN_PASSWORD", "admin123")
 
 # ── Local Caddy process management ──────────────────────────────────────
 SM_CADDY_AUTO_MANAGE = _env_bool("SM_CADDY_AUTO_MANAGE", True)
@@ -180,17 +178,8 @@ session_store = {
 # 已登录的客户端 Token 集合（用于 verify_token 校验）
 active_client_tokens: dict[str, dict] = {}  # {token: {username, created_at}}
 
+
 def is_configured() -> bool:
     """检查 Tastytrade 凭据是否已配置"""
     return bool(_TASTY_SECRET and _TASTY_TOKEN)
 
-
-def load_users_from_json() -> list[dict]:
-    """从 users.json 加载用户列表"""
-    import json as _json
-    _path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.json")
-    try:
-        with open(_path, "r", encoding="utf-8") as _f:
-            return _json.load(_f)
-    except Exception:
-        return []

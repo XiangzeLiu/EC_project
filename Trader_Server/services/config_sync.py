@@ -105,6 +105,11 @@ def _client_status(status: dict) -> dict:
             "retryable": bool(raw_error.get("retryable", True)),
         }
     order_options = status.get("order_options") if isinstance(status.get("order_options"), dict) else {}
+    supported_tifs = []
+    for item in order_options.get("supported_tifs") or []:
+        value = str(item or "").strip()
+        if value and value not in supported_tifs:
+            supported_tifs.append(value)
     return {
         "connected": bool(status.get("connected")),
         "capabilities": dict(status.get("capabilities") or {}),
@@ -115,6 +120,7 @@ def _client_status(status: dict) -> dict:
             "routes": [str(item).strip().upper() for item in order_options.get("routes") or ["SMART"] if str(item).strip()],
             "route_editable": bool(order_options.get("route_editable", False)),
             "hidden_order": bool(order_options.get("hidden_order", False)),
+            "supported_tifs": supported_tifs,
         },
         "error": error,
     }

@@ -30,6 +30,7 @@ from Client.ui_qt.hotkey_config import (
     OrderHotkeyRule,
     QuantityHotkey,
     RateLimitPolicy,
+    format_hotkey_validation_errors,
     validate_bindings,
     validate_hotkey_config,
 )
@@ -209,6 +210,19 @@ class HotkeyConfigTests(unittest.TestCase):
         errors = validate_bindings(bindings)
         self.assertTrue(any("快捷键冲突" in error for error in errors))
         self.assertTrue(any("invalid quantity" in error for error in errors))
+
+    def test_hotkey_validation_messages_hide_internal_details(self):
+        messages = format_hotkey_validation_errors([
+            "order_rule_1 已启用但没有快捷键",
+            "enabled binding has no key: order_rule_1",
+            "快捷键无效：order_rule_1 = 'Ctrl+Foo'",
+        ])
+        joined = "；".join(messages)
+        self.assertIn("已启用的快捷键不能为空", joined)
+        self.assertIn("快捷键格式无效", joined)
+        self.assertNotIn("order_rule_1", joined)
+        self.assertNotIn("enabled binding", joined)
+        self.assertNotIn("Ctrl+Foo", joined)
 
     def test_route_configuration_rejects_invalid_characters(self):
         config = HotkeyRuntimeConfig(
@@ -453,6 +467,13 @@ class FakeTradingSession:
                 "order_query": True,
             },
             "account": {},
+            "order_options": {
+                "default_route": "SMART",
+                "routes": ["SMART"],
+                "route_editable": False,
+                "hidden_order": False,
+                "supported_tifs": ["Day", "GTC", "IOC", "EXT", "GTC_EXT"],
+            },
         }
 
     def has_broker_capability(self, name):
@@ -1173,6 +1194,20 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(emitted, [])
         self.assertFalse(os.path.exists(os.path.join(self._config_dir.name, "hotkey.json")))
 
+    def test_empty_enabled_hotkey_shows_safe_chinese_message(self):
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        row = overlay._order_rows[0]
+        row["enabled"].setChecked(True)
+        row["key"].clear()
+
+        overlay.save_btn.click()
+
+        message = overlay.error_label.text()
+        self.assertIn("已启用的快捷键不能为空", message)
+        self.assertNotIn("order_rule_1", message)
+        self.assertNotIn("enabled binding", message)
+
     def test_corrupt_runtime_hotkey_config_logs_warning_and_uses_defaults(self):
         with open(os.path.join(self._config_dir.name, "hotkey.json"), "w", encoding="utf-8") as fh:
             fh.write("{bad json")
@@ -1331,7 +1366,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         QTest.keyClick(slot.price, Qt.Key_Left)
         self.assertEqual(slot.price.text(), "10.04")
 
-    def test_configured_limit_uses_side_quote_and_market_requires_enter(self):
+    def test_configured_non_ioc_uses_market_side_and_still_requires_enter(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
@@ -1350,10 +1385,10 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             },
             1,
         )
-        self.assertEqual(self.window.slots[1].price.text(), "185.15")
+        self.assertEqual(self.window.slots[1].price.text(), "185.35")
         self.assertEqual(self.session.orders, [])
         self.window._confirm_pending_order(1)
-        self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.15, "Buy to Open", "limit", "GTC"))
+        self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.35, "Buy to Open", "limit", "GTC"))
 
         self.window._action_limiter.reset()
         self.window._prepare_configured_order(
@@ -1368,12 +1403,106 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             1,
         )
         slot = self.window.slots[1]
-        self.assertEqual(slot.pending_order_type, "market")
-        self.assertTrue(slot.price.isEnabled())
-        QTest.qWait(310)
-        QTest.keyClick(slot.price, Qt.Key_Return)
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 0.0, "Sell to Close", "market", "IOC"))
+        self.assertEqual(slot.pending_action, "")
         self.assertFalse(slot.price.isEnabled())
+
+    def test_configured_limit_ioc_submits_buy_ask_and_sell_bid_immediately(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+            "price_offset": 0.05,
+        }, 1)
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 185.35, "Buy to Open", "limit", "IOC"),
+        )
+        self.assertEqual(self.window.slots[1].pending_action, "")
+
+        self.window._action_limiter.reset()
+        self.window._prepare_configured_order({
+            "side": "sell",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+            "price_offset": -0.05,
+        }, 1)
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 185.05, "Sell to Close", "limit", "IOC"),
+        )
+        self.assertEqual(self.window.slots[1].pending_action, "")
+
+    def test_configured_limit_sell_uses_bid_and_waits_for_confirmation(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+        }
+
+        self.window._prepare_configured_order({
+            "side": "sell",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(self.window.slots[1].price.text(), "185.10")
+        self.assertEqual(self.session.orders, [])
+        self.window._confirm_pending_order(1)
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 185.10, "Sell to Close", "limit", "Day"),
+        )
+
+    def test_ioc_does_not_submit_with_stale_quote(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic() - 1.1,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(self.session.orders, [])
+        self.assertEqual(self.window.slots[1].pending_action, "")
+        self.assertEqual(self.window.slots[1].price.text(), "")
+
+    def test_ioc_does_not_submit_without_declared_tif_support(self):
+        self.session.broker_detail["order_options"]["supported_tifs"] = ["Day", "GTC"]
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "market",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(self.session.orders, [])
+        self.assertEqual(self.window.slots[1].pending_action, "")
+
+    def test_legacy_symbol_options_fall_back_to_global_tif_support(self):
+        self.session.symbol_options["AAPL"] = {
+            "default_route": "SMART",
+            "routes": ["SMART"],
+            "route_editable": False,
+            "hidden_order": False,
+        }
+
+        self.assertTrue(self.window._broker_supports_tif("IOC", "AAPL"))
 
     def test_cancel_market_pending_restores_disabled_price_state(self):
         self.window._prepare_configured_order(

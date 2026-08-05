@@ -165,6 +165,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         app = FakeApp()
         broker = InteractiveBrokersAdapterTests._ready_broker(app)
         self.assertEqual(broker.status_detail()["order_options"]["routes"], ["SMART"])
+        self.assertIn("IOC", broker.status_detail()["order_options"]["supported_tifs"])
 
         await broker.subscribe_quotes(["AAPL"])
         routes = broker.status_detail()["order_options"]["routes"]
@@ -226,6 +227,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mu["routes"], ["SMART", "NYSE"])
         self.assertNotIn("ARCA", mu["routes"])
         self.assertTrue(aapl["routes_validated"])
+        self.assertIn("IOC", aapl["supported_tifs"])
 
     async def test_accounts_summary_and_quotes_use_confirmed_us_stock_contract(self):
         confirmed_contract = SimpleNamespace(
@@ -619,6 +621,7 @@ class InteractiveBrokersClientCompatibilityTests(unittest.TestCase):
                         "route_editable": True,
                         "hidden_order": True,
                         "routes_validated": True,
+                        "supported_tifs": ["Day", "IOC"],
                     }
                 },
             }
@@ -629,6 +632,7 @@ class InteractiveBrokersClientCompatibilityTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(session.symbol_order_options("AAPL")["routes"], ["SMART", "ARCA"])
         self.assertTrue(session.symbol_order_options("AAPL")["routes_validated"])
+        self.assertEqual(session.symbol_order_options("AAPL")["supported_tifs"], ["Day", "IOC"])
         session.bind_se_client(SimpleNamespace(is_connected=True))
         self.assertEqual(session.symbol_order_options("AAPL"), {})
 

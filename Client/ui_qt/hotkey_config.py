@@ -98,6 +98,7 @@ BATCH_CANCEL_POLICY = RateLimitPolicy(cooldown_ms=1000, max_in_flight=1)
 REFRESH_POLICY = RateLimitPolicy(cooldown_ms=1000, max_in_flight=1)
 RATE_LIMIT_NOTICE_MS = 1000
 QUOTE_FRESHNESS_MS = 5000
+IOC_QUOTE_FRESHNESS_MS = 1000
 MAX_ORDER_HOTKEY_RULES = 15
 MAX_QUANTITY_HOTKEY_RULES = 20
 
@@ -373,6 +374,39 @@ def validate_bindings(bindings: Iterable[HotkeyBinding]) -> list[str]:
                 errors.append(f"invalid order mode for {binding.id}")
 
     return errors
+
+
+def format_hotkey_validation_errors(errors: Iterable[str], limit: int = 3) -> list[str]:
+    """Convert internal validation details to safe, user-facing messages."""
+    messages: list[str] = []
+    seen: set[str] = set()
+    for raw_error in errors:
+        error = str(raw_error or "").strip()
+        lowered = error.casefold()
+        if not error:
+            continue
+        if "冲突" in error or "conflict" in lowered:
+            message = "快捷键冲突，请更换按键"
+        elif "没有快捷键" in error or "no key" in lowered:
+            message = "已启用的快捷键不能为空，请填写快捷键或取消启用"
+        elif "快捷键无效" in error or "invalid key" in lowered:
+            message = "快捷键格式无效，请使用单个按键或组合键"
+        elif "quantity" in lowered or "股数" in error:
+            message = "股数快捷键设置无效，请检查股数和按键"
+        elif "order" in lowered or "下单" in error:
+            message = "下单快捷键设置无效，请检查输入内容"
+        elif "route" in lowered or "route" in error.casefold():
+            message = "ROUTE 设置无效，请检查输入内容"
+        elif "tif" in lowered:
+            message = "TIF 设置无效，请检查输入内容"
+        else:
+            message = "快捷键配置无效，请检查输入内容"
+        if message not in seen:
+            messages.append(message)
+            seen.add(message)
+        if len(messages) >= max(1, int(limit)):
+            break
+    return messages
 
 
 def update_quantity(config: HotkeyRuntimeConfig, key: str, quantity: int) -> HotkeyRuntimeConfig:

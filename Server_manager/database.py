@@ -911,7 +911,9 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
 
 
 def ensure_super_admin_account() -> None:
-    """确保系统始终存在且仅存在一个超级管理员账号。"""
+    """Create the bootstrap super admin once and preserve existing credentials."""
+    from config import SM_BOOTSTRAP_ADMIN_PASSWORD, SM_BOOTSTRAP_ADMIN_USERNAME
+
     conn = _get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
@@ -920,7 +922,8 @@ def ensure_super_admin_account() -> None:
             "SELECT id, username, role, status, created_at FROM accounts WHERE role='super_admin' ORDER BY id ASC"
         ).fetchall()
 
-        # 若不存在超级管理员，则初始化默认账号：admin / admin_sc
+        # Fresh installs receive one bootstrap account. Existing credentials are
+        # never reset from configuration during later startups.
         if not rows:
             conn.execute(
                 """
@@ -931,7 +934,13 @@ def ensure_super_admin_account() -> None:
                 )
                 VALUES (?, ?, 'super_admin', 'active', '[]', '', '', '', ?, ?, ?)
                 """,
-                ("admin", _sha256("admin_sc"), "system built-in super admin", now, now),
+                (
+                    SM_BOOTSTRAP_ADMIN_USERNAME,
+                    _sha256(SM_BOOTSTRAP_ADMIN_PASSWORD),
+                    "system bootstrap super admin",
+                    now,
+                    now,
+                ),
             )
             conn.commit()
             return

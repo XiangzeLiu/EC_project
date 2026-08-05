@@ -9,7 +9,7 @@ import logging
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from config import CLIENT_TOKEN_TTL_SECONDS, SERVER_TOKEN, active_client_tokens, log
+from config import CLIENT_TOKEN_TTL_SECONDS, active_client_tokens, log
 
 
 security = HTTPBearer(auto_error=False)
@@ -18,18 +18,12 @@ security = HTTPBearer(auto_error=False)
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> bool:
     """
     FastAPI 依赖注入：验证 Bearer Token
-    支持两种 Token：
-    1. SERVER_TOKEN（内部/配置凭据登录）
-    2. 登录时生成的客户端 Token（存储在 active_client_tokens 中）
+    仅接受登录时生成并保存在 active_client_tokens 中的 Client Token。
     """
     if credentials is None:
         raise HTTPException(status_code=401, detail="Missing token")
 
     token = credentials.credentials
-    # 检查是否为服务器内部 Token
-    if token == SERVER_TOKEN:
-        return True
-    # 检查是否为已登录的客户端 Token
     if get_client_token_info(token):
         return True
     raise HTTPException(status_code=401, detail="Invalid or expired token")

@@ -164,8 +164,8 @@ class QuoteSubscriptionCoordinator(QObject):
             return
         try:
             success, message = session.subscribe_quotes([request["symbol"]], timeout=6.0)
-        except Exception as exc:
-            success, message = False, str(exc) or "\u884c\u60c5\u8ba2\u9605\u5931\u8d25"
+        except Exception:
+            success, message = False, "行情订阅失败，请稍后重试"
         self._finish_confirm(request, bool(success), str(message or ""))
 
     def _finish_confirm(self, request: dict[str, Any], success: bool, message: str) -> None:
@@ -214,8 +214,8 @@ class QuoteSubscriptionCoordinator(QObject):
         if to_unsubscribe:
             try:
                 success, message = session.unsubscribe_quotes(to_unsubscribe, timeout=6.0)
-            except Exception as exc:
-                success, message = False, str(exc)
+            except Exception:
+                success, message = False, "行情取消订阅失败，请稍后重试"
             if success:
                 with self._lock:
                     if self._operation_is_current(operation):
@@ -226,8 +226,8 @@ class QuoteSubscriptionCoordinator(QObject):
         if to_subscribe:
             try:
                 success, message = session.subscribe_quotes(to_subscribe, timeout=6.0)
-            except Exception as exc:
-                success, message = False, str(exc)
+            except Exception:
+                success, message = False, "行情订阅同步失败，请稍后重试"
             if success:
                 with self._lock:
                     if self._operation_is_current(operation):

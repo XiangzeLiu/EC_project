@@ -832,6 +832,10 @@ class IBBroker(BaseBrokerAPI):
         return [("host", "port", "client_id")]
 
     @classmethod
+    def supported_tifs(cls) -> tuple[str, ...]:
+        return ("Day", "GTC", "IOC", "EXT", "GTC_EXT")
+
+    @classmethod
     def capabilities(cls) -> dict[str, bool]:
         return {
             "quotes": True,
@@ -1133,6 +1137,7 @@ class IBBroker(BaseBrokerAPI):
                 "routes": self._default_routes(),
                 "route_editable": True,
                 "hidden_order": True,
+                "supported_tifs": list(self.supported_tifs()),
             },
         }
 
@@ -1154,6 +1159,7 @@ class IBBroker(BaseBrokerAPI):
             "route_editable": True,
             "hidden_order": True,
             "routes_validated": True,
+            "supported_tifs": list(self.supported_tifs()),
         }
 
     def _require_app(self, require_account: bool = False) -> Any:
