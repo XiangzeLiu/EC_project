@@ -130,6 +130,7 @@ class QuoteDispatchCoalescingTests(unittest.TestCase):
         self.assertEqual(routed_messages, [])
         self.assertEqual(len(updates), 1)
         self.assertEqual(updates[0]["bid"], 99)
+        self.assertEqual(updates[0]["_client_connection_generation"], coordinator.generation)
         self.assertEqual(coordinator.drain_quote_updates(), [])
 
 

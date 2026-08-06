@@ -3,8 +3,9 @@ from __future__ import annotations
 import unittest
 import asyncio
 import time
+from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from Trader_Server.api import tastytrade as tt_module
 from Trader_Server.api.tastytrade import TastytradeBroker
@@ -70,6 +71,80 @@ class TastytradeBrokerSelectionTests(unittest.IsolatedAsyncioTestCase):
             await broker.place_order(dict(base_order, route="ARCA"))
         with self.assertRaisesRegex(ValueError, "hidden"):
             await broker.place_order(dict(base_order, route="SMART", hidden=True))
+
+    async def test_limit_ioc_builds_tastytrade_limit_order_with_supplied_price(self):
+        broker = TastytradeBroker()
+        session = object()
+        account = SimpleNamespace(
+            place_order=AsyncMock(
+                return_value=SimpleNamespace(
+                    order=SimpleNamespace(id="TT-IOC-1", status="Received", reject_reason="")
+                )
+            )
+        )
+        leg = object()
+        equity = SimpleNamespace(build_leg=Mock(return_value=leg))
+        broker._get_fresh = AsyncMock(return_value=(session, account))
+        broker._get_equity = AsyncMock(return_value=equity)
+
+        built_order = SimpleNamespace()
+        with patch.object(tt_module, "NewOrder", return_value=built_order) as new_order:
+            result = await broker.place_order(
+                {
+                    "symbol": "AAPL",
+                    "qty": 2,
+                    "price": 190.25,
+                    "action": "Buy to Open",
+                    "order_type": "limit",
+                    "tif": "IOC",
+                }
+            )
+
+        self.assertTrue(result["success"])
+        equity.build_leg.assert_called_once_with(Decimal("2"), tt_module.OrderAction.BUY_TO_OPEN)
+        new_order.assert_called_once_with(
+            time_in_force=tt_module.OrderTimeInForce.IOC,
+            order_type=tt_module.OrderType.LIMIT,
+            legs=[leg],
+            price=Decimal("-190.25"),
+        )
+        account.place_order.assert_awaited_once_with(session, built_order, dry_run=False)
+
+    async def test_market_ioc_builds_tastytrade_order_without_limit_price(self):
+        broker = TastytradeBroker()
+        session = object()
+        account = SimpleNamespace(
+            place_order=AsyncMock(
+                return_value=SimpleNamespace(
+                    order=SimpleNamespace(id="TT-IOC-2", status="Received", reject_reason="")
+                )
+            )
+        )
+        leg = object()
+        equity = SimpleNamespace(build_leg=Mock(return_value=leg))
+        broker._get_fresh = AsyncMock(return_value=(session, account))
+        broker._get_equity = AsyncMock(return_value=equity)
+
+        built_order = SimpleNamespace()
+        with patch.object(tt_module, "NewOrder", return_value=built_order) as new_order:
+            result = await broker.place_order(
+                {
+                    "symbol": "AAPL",
+                    "qty": 2,
+                    "price": 0,
+                    "action": "Sell to Close",
+                    "order_type": "market",
+                    "tif": "IOC",
+                }
+            )
+
+        self.assertTrue(result["success"])
+        new_order.assert_called_once_with(
+            time_in_force=tt_module.OrderTimeInForce.IOC,
+            order_type=tt_module.OrderType.MARKET,
+            legs=[leg],
+        )
+        account.place_order.assert_awaited_once_with(session, built_order, dry_run=False)
 
     async def test_explicit_missing_account_fails_without_fallback(self):
         broker = TastytradeBroker()

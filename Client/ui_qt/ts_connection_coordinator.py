@@ -139,7 +139,7 @@ class TSConnectionCoordinator(QObject):
             }
             self._dirty_quote_symbols.intersection_update(keep)
 
-    def _cache_quote_message(self, message: dict) -> None:
+    def _cache_quote_message(self, message: dict, generation: int | None = None) -> None:
         payload = message.get("payload", {}) if isinstance(message.get("payload", {}), dict) else {}
         symbol = str(payload.get("symbol") or "").strip().upper()
         if not symbol:
@@ -147,6 +147,9 @@ class TSConnectionCoordinator(QObject):
         quote = dict(payload)
         quote["symbol"] = symbol
         quote["_client_received_monotonic"] = time.monotonic()
+        quote["_client_connection_generation"] = int(
+            self.generation if generation is None else generation
+        )
         with self._quote_lock:
             self._latest_quotes[symbol] = quote
             self._dirty_quote_symbols.add(symbol)
@@ -307,7 +310,7 @@ class TSConnectionCoordinator(QObject):
         def handler(message: dict) -> None:
             if self._is_current(generation):
                 if str((message or {}).get("type") or "") == "QUOTE_DATA":
-                    self._cache_quote_message(message)
+                    self._cache_quote_message(message, generation)
                     return
                 self.message_received.emit(generation, dict(message or {}))
 

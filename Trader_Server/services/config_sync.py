@@ -45,6 +45,7 @@ _auto_retry_paused: bool = False
 _auto_retry_pause_reason: str = ""
 _last_connect_error: dict[str, object] = {"code": "", "message": "", "retryable": True}
 _runtime_loop: asyncio.AbstractEventLoop | None = None
+_broker_lifecycle_lock = asyncio.Lock()
 
 
 # ── 公共接口 ────────────────────────────────────────────────────
@@ -288,45 +289,59 @@ async def init_broker() -> bool:
     """
     global _current_broker, _current_broker_type, _local_config_version
 
-    if not state.token or not state.server_id:
-        log.warning("init_broker: no token/server_id, skip")
-        return False
-
-    cfg = await _pull_config_from_sm()
-    if not cfg:
-        log.error("init_broker: failed to pull config from SM")
-        return False
-
-    broker_type = cfg.get("broker_type", "")
-    credentials = cfg.get("credentials", {})
-    _local_config_version = cfg.get("config_version", 0)
-
-    try:
-        broker = BrokerFactory.create(broker_type)
-        _current_broker_type = broker_type
-        normalized = broker.normalize_credentials(credentials)
-        ok = await broker.connect(normalized)
-        if not ok:
-            err = _record_connect_failure(broker, "init")
-            log.error(f"init_broker: {broker_type} connect failed [{err.get('code')}]: {err.get('message')}")
-            _broadcast_status(broker_type, "connect_failed")
+    async with _broker_lifecycle_lock:
+        if not state.token or not state.server_id:
+            log.warning("init_broker: no token/server_id, skip")
             return False
 
-        _current_broker = broker
-        _current_broker_type = broker_type
-        await _bind_broker_events(broker)
-        await _restore_quote_subscriptions(broker)
-        _reset_connect_retry_state()
-        _start_auto_reconnect()
+        cfg = await _pull_config_from_sm()
+        if not cfg:
+            log.error("init_broker: failed to pull config from SM")
+            return False
 
-        log.info(f"init_broker: {broker_type} initialized successfully (version={_local_config_version})")
-        _broadcast_status(broker_type, "connected")
-        return True
+        broker_type = cfg.get("broker_type", "")
+        credentials = cfg.get("credentials", {})
+        config_version = cfg.get("config_version", 0)
 
-    except Exception as e:
-        log.error(f"init_broker: exception: {e}")
-        _broadcast_status(broker_type or broker_type, "error")
-        return False
+        if _current_broker:
+            try:
+                if _current_broker_type == broker_type and await _current_broker.is_connected():
+                    _local_config_version = config_version
+                    log.info("init_broker: broker already connected, skip duplicate initialization")
+                    return True
+            except Exception:
+                pass
+            await _destroy_broker_locked()
+
+        try:
+            broker = BrokerFactory.create(broker_type)
+            normalized = broker.normalize_credentials(credentials)
+            ok = await broker.connect(normalized)
+            if not ok:
+                err = _record_connect_failure(broker, "init")
+                log.error(f"init_broker: {broker_type} connect failed [{err.get('code')}]: {err.get('message')}")
+                _broadcast_status(broker_type, "connect_failed")
+                return False
+
+            # Publish the version before releasing the lifecycle lock. A
+            # heartbeat waiting behind this initialization will then skip the
+            # same configuration instead of creating a second broker.
+            _local_config_version = config_version
+            _current_broker = broker
+            _current_broker_type = broker_type
+            await _bind_broker_events(broker)
+            await _restore_quote_subscriptions(broker)
+            _reset_connect_retry_state()
+            _start_auto_reconnect()
+
+            log.info(f"init_broker: {broker_type} initialized successfully (version={_local_config_version})")
+            _broadcast_status(broker_type, "connected")
+            return True
+
+        except Exception as e:
+            log.error(f"init_broker: exception: {e}")
+            _broadcast_status(broker_type, "error")
+            return False
 
 
 async def check_and_reload(remote_version: int, source: str = "heartbeat") -> bool:
@@ -355,7 +370,7 @@ async def check_and_reload(remote_version: int, source: str = "heartbeat") -> bo
         f"{_local_config_version} → {remote_version}, pulling new config..."
     )
 
-    return await _do_hot_reload(trigger="config_change")
+    return await _do_hot_reload(trigger="config_change", expected_version=remote_version)
 
 
 async def force_reload() -> bool:
@@ -474,7 +489,14 @@ async def _pull_config_from_sm() -> dict | None:
         return None
 
 
-async def _do_hot_reload(trigger: str = "auto") -> bool:
+async def _do_hot_reload(trigger: str = "auto", expected_version: int | None = None) -> bool:
+    async with _broker_lifecycle_lock:
+        if expected_version is not None and expected_version <= _local_config_version:
+            return False
+        return await _do_hot_reload_locked(trigger)
+
+
+async def _do_hot_reload_locked(trigger: str = "auto") -> bool:
     """
     执行热更新：拉取新配置 → 断开旧连接 → 创建新实例 → 连接
     """
@@ -500,7 +522,7 @@ async def _do_hot_reload(trigger: str = "auto") -> bool:
 
     if old_type and old_type != new_type:
         log.info(f"_do_hot_reload: broker type changing {old_type} → {new_type}, full recreate")
-        await _destroy_broker()
+        await _destroy_broker_locked()
     elif _current_broker:
         log.info(f"_do_hot_reload: reconnecting {new_type} with latest credentials...")
         try:
@@ -544,15 +566,21 @@ async def _do_hot_reload(trigger: str = "auto") -> bool:
 
 
 async def _destroy_broker():
+    async with _broker_lifecycle_lock:
+        await _destroy_broker_locked()
+
+
+async def _destroy_broker_locked():
     """销毁当前 Broker 实例"""
     global _current_broker, _current_broker_type
     
     if _current_broker:
+        broker = _current_broker
+        _current_broker = None
         try:
-            await _current_broker.disconnect()
+            await broker.disconnect()
         except Exception as e:
             log.warning(f"_destroy_broker disconnect error: {e}")
-        _current_broker = None
     _current_broker_type = ""
 
 

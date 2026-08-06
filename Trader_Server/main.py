@@ -97,6 +97,7 @@ app.add_middleware(
 
 # 全局心跳实例
 _heartbeat: HeartbeatSender | None = None
+_approval_broker_task: asyncio.Task | None = None
 _STARTED_AT = time.time()
 
 
@@ -316,24 +317,34 @@ async def api_await_approval(request_id: str = Query(...)):
                         if TS_CADDY_REQUIRED:
                             raise
                         log.warning("[Await Approval] Caddy setup failed: %s", caddy_exc)
-                global _heartbeat
-                if not _heartbeat:
-                    from .services.heartbeat import HeartbeatSender
-                    _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
-                if not _heartbeat.stats.get("running", False):
-                    await _heartbeat.start()
-                state.status = "running"
+                global _approval_broker_task
 
-                from .services.config_sync import init_broker, start_config_event_listener
-                try:
-                    broker_ok = await init_broker()
-                    if broker_ok:
-                        log.info("[Await Approval] Broker initialized OK")
-                    else:
-                        log.warning("[Await Approval] Broker init failed (will retry via heartbeat)")
+                async def _initialize_approved_broker() -> None:
+                    global _heartbeat
+                    from .services.config_sync import init_broker, start_config_event_listener
+
+                    try:
+                        broker_ok = await init_broker()
+                        if broker_ok:
+                            log.info("[Await Approval] Broker initialized OK")
+                        else:
+                            log.warning("[Await Approval] Broker init failed (will retry via heartbeat)")
+                    except Exception as be:
+                        log.error(f"[Await Approval] Broker init exception: {be}")
+
+                    if not _heartbeat:
+                        from .services.heartbeat import HeartbeatSender
+                        _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
+                    if not _heartbeat.stats.get("running", False):
+                        await _heartbeat.start()
+                    state.status = "running"
                     start_config_event_listener()
-                except Exception as be:
-                    log.error(f"[Await Approval] Broker init exception: {be}")
+
+                if not _approval_broker_task or _approval_broker_task.done():
+                    _approval_broker_task = asyncio.create_task(
+                        _initialize_approved_broker(),
+                        name="ts-approved-broker-initialization",
+                    )
                 return True
 
             reason = result.get("reason", "")
@@ -411,7 +422,11 @@ async def api_register_clear():
     from .config import clear_register_state as _clr, CONFIG_FILE
 
     await force_disconnect_all_clients(reason="ts_credentials_cleared")
-    global _heartbeat
+    global _heartbeat, _approval_broker_task
+    if _approval_broker_task and not _approval_broker_task.done():
+        _approval_broker_task.cancel()
+        await asyncio.gather(_approval_broker_task, return_exceptions=True)
+    _approval_broker_task = None
     if _heartbeat:
         _heartbeat.stop()
         await _heartbeat.wait_stopped()
@@ -751,7 +766,11 @@ async def on_shutdown():
 
     state.request_shutdown()
 
-    global _heartbeat
+    global _heartbeat, _approval_broker_task
+    if _approval_broker_task and not _approval_broker_task.done():
+        _approval_broker_task.cancel()
+        await asyncio.gather(_approval_broker_task, return_exceptions=True)
+    _approval_broker_task = None
     if _heartbeat:
         _heartbeat.stop()
         await _heartbeat.wait_stopped()

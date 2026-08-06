@@ -70,7 +70,7 @@ from Client.ui_qt.hotkey_config import (
     ENTER_INPUT_GUARD_MS,
     HOTKEY_BINDINGS,
     IDENTICAL_ORDER_COOLDOWN_MS,
-    IOC_QUOTE_FRESHNESS_MS,
+    LIMIT_IOC_QUOTE_FRESHNESS_MS,
     ORDER_CANCEL_POLICY,
     ORDER_SUBMIT_POLICY,
     QUOTE_FRESHNESS_MS,
@@ -2523,6 +2523,11 @@ class TradingTerminalQt(QMainWindow):
                     or payload.get("received_monotonic")
                     or time.monotonic()
                 ),
+                "connection_generation": int(
+                    payload.get("_client_connection_generation")
+                    if payload.get("_client_connection_generation") is not None
+                    else payload.get("connection_generation", -1)
+                ),
             }
         except Exception:
             return {}
@@ -2817,9 +2822,19 @@ class TradingTerminalQt(QMainWindow):
         if normalized_type == "limit":
             quote = self._latest_quote_snapshot(symbol)
             received_at = float(quote.get("received_monotonic", 0) or 0)
-            freshness_ms = IOC_QUOTE_FRESHNESS_MS if submit_immediately else QUOTE_FRESHNESS_MS
-            fresh = received_at > 0 and (time.monotonic() - received_at) * 1000 <= freshness_ms
-            source = "ask" if side == "buy" else "bid"
+            freshness_ms = LIMIT_IOC_QUOTE_FRESHNESS_MS if submit_immediately else QUOTE_FRESHNESS_MS
+            generation_matches = (
+                not submit_immediately
+                or int(quote.get("connection_generation", -1)) == self._se_generation
+            )
+            fresh = (
+                received_at > 0
+                and generation_matches
+                and (time.monotonic() - received_at) * 1000 <= freshness_ms
+            )
+            # Regular limit hotkeys use BID as the default displayed price;
+            # IOC remains aggressive and uses ASK for buys.
+            source = "ask" if submit_immediately and side == "buy" else "bid"
             quote_price = float(quote.get(source, 0) or 0) if fresh else 0.0
             if quote_price > 0:
                 adjusted = Decimal(str(quote_price)) + Decimal(str(price_offset or 0.0))

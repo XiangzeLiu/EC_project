@@ -400,9 +400,20 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "tif": "IOC",
             }
         )
+        limit_ioc_result = await broker.place_order(
+            {
+                "symbol": "AAPL",
+                "qty": 4,
+                "price": 190.75,
+                "action": "Buy to Open",
+                "order_type": "limit",
+                "tif": "IOC",
+            }
+        )
 
         self.assertEqual(limit_result["order_id"], "700")
         self.assertEqual(market_result["order_id"], "701")
+        self.assertEqual(limit_ioc_result["order_id"], "702")
         limit_order = app.submissions[0][2]
         self.assertEqual(limit_order.__class__.__module__, "ibapi.order")
         self.assertEqual(limit_order.action, "SELL")
@@ -421,6 +432,15 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(market_order.tif, "IOC")
         self.assertFalse(market_order.outsideRth)
         self.assertEqual(market_order.orderRef, "EC:BTO")
+
+        limit_ioc_order = app.submissions[2][2]
+        self.assertEqual(limit_ioc_order.action, "BUY")
+        self.assertEqual(limit_ioc_order.totalQuantity, 4)
+        self.assertEqual(limit_ioc_order.orderType, "LMT")
+        self.assertEqual(limit_ioc_order.lmtPrice, 190.75)
+        self.assertEqual(limit_ioc_order.tif, "IOC")
+        self.assertFalse(limit_ioc_order.outsideRth)
+        self.assertEqual(limit_ioc_order.orderRef, "EC:BTO")
 
     async def test_order_query_merges_sources_and_filters_unowned_orders(self):
         stock = SimpleNamespace(symbol="AAPL", secType="STK", currency="USD")

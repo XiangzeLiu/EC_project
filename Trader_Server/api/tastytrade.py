@@ -120,12 +120,20 @@ class TastytradeBroker(BaseBrokerAPI):
         self._quote_streamer: Any | None = None
         self._quote_streamer_cm: Any | None = None
         self._quote_task: asyncio.Task | None = None
+        self._quote_owner_task: asyncio.Task | None = None
+        self._quote_stop_event = asyncio.Event()
+        self._quote_ready_event = asyncio.Event()
+        self._quote_stream_error: Exception | None = None
         self._subscribed_symbols: set[str] = set()
         self._quote_lock = asyncio.Lock()
         self._quote_stream_started_at = 0.0
         self._account_streamer: Any | None = None
         self._account_streamer_cm: Any | None = None
         self._account_event_tasks: list[asyncio.Task] = []
+        self._account_stream_owner_task: asyncio.Task | None = None
+        self._account_stream_stop_event = asyncio.Event()
+        self._account_stream_ready_event = asyncio.Event()
+        self._account_stream_error: Exception | None = None
         self._account_event_restart_task: asyncio.Task | None = None
         self._account_event_lock = asyncio.Lock()
         self._last_connect_detail: dict[str, Any] = {}
@@ -154,6 +162,12 @@ class TastytradeBroker(BaseBrokerAPI):
 
     async def connect(self, credentials: dict) -> bool:
         """Create the TS-managed tastytrade OAuth session."""
+        # Reconnect can be requested by a normal broker operation when the
+        # cached session expires. Stop old streams before replacing the
+        # session so their owner tasks can close their contexts cleanly.
+        if self._account_stream_owner_task or self._quote_owner_task:
+            await self.stop_account_events()
+            await self._stop_quote_stream()
         self._connected = False
         self._session = None
         self._account = None
@@ -309,28 +323,64 @@ class TastytradeBroker(BaseBrokerAPI):
         if not self._connected or not self._session or not self._account:
             return
         async with self._account_event_lock:
-            if self._account_event_tasks and any(not task.done() for task in self._account_event_tasks):
+            if self._account_stream_owner_task and not self._account_stream_owner_task.done():
                 return
             await self._stop_account_events_locked()
+            self._account_stream_stop_event = asyncio.Event()
+            self._account_stream_ready_event = asyncio.Event()
+            self._account_stream_error = None
+            self._account_stream_owner_task = asyncio.create_task(
+                self._account_stream_owner(),
+                name="tt-account-stream-owner",
+            )
+            try:
+                await asyncio.wait_for(self._account_stream_ready_event.wait(), timeout=15)
+            except Exception:
+                owner = self._account_stream_owner_task
+                if owner and not owner.done():
+                    owner.cancel()
+                raise
+            owner = self._account_stream_owner_task
+            if owner and owner.done() and not owner.cancelled():
+                owner.result()
+
+    async def _account_stream_owner(self) -> None:
+        """Own the TT account context from enter through exit in one task."""
+        try:
             streamer = AlertStreamer(self._session)
-            self._account_streamer_cm = streamer if hasattr(streamer, "__aenter__") else None
-            if self._account_streamer_cm is not None:
-                entered = await self._maybe_await(streamer.__aenter__())
+            async with streamer as entered:
+                self._account_streamer_cm = streamer
                 self._account_streamer = entered if entered is not None else streamer
-            else:
-                self._account_streamer = streamer
-            await self._account_streamer.subscribe_accounts([self._account])
-            self._account_event_tasks = [
-                asyncio.create_task(
-                    self._consume_account_alerts(PlacedOrder, self._handle_order_alert),
-                    name="tt-order-alerts",
-                ),
-                asyncio.create_task(
-                    self._consume_account_alerts(CurrentPosition, self._handle_position_alert),
-                    name="tt-position-alerts",
-                ),
-            ]
-            log.info("TT account event stream started")
+                await self._account_streamer.subscribe_accounts([self._account])
+                self._account_event_tasks = [
+                    asyncio.create_task(
+                        self._consume_account_alerts(PlacedOrder, self._handle_order_alert),
+                        name="tt-order-alerts",
+                    ),
+                    asyncio.create_task(
+                        self._consume_account_alerts(CurrentPosition, self._handle_position_alert),
+                        name="tt-position-alerts",
+                    ),
+                ]
+                self._account_stream_ready_event.set()
+                log.info("TT account event stream started")
+                await self._account_stream_stop_event.wait()
+        except Exception as exc:
+            self._account_stream_error = exc
+            raise
+        finally:
+            current = asyncio.current_task()
+            tasks = list(self._account_event_tasks)
+            self._account_event_tasks = []
+            for task in tasks:
+                if task is not current and not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*[task for task in tasks if task is not current], return_exceptions=True)
+            self._account_streamer = None
+            self._account_streamer_cm = None
+            if not self._account_stream_ready_event.is_set():
+                self._account_stream_ready_event.set()
 
     async def stop_account_events(self) -> None:
         restart_task = self._account_event_restart_task
@@ -341,33 +391,21 @@ class TastytradeBroker(BaseBrokerAPI):
             await self._stop_account_events_locked()
 
     async def _stop_account_events_locked(self) -> None:
-        current = asyncio.current_task()
-        tasks = list(self._account_event_tasks)
-        self._account_event_tasks = []
-        for task in tasks:
-            if task is not current and not task.done():
-                task.cancel()
-        for task in tasks:
-            if task is current:
-                continue
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
-        if self._account_streamer_cm is not None:
-            try:
-                await self._maybe_await(self._account_streamer_cm.__aexit__(None, None, None))
-            except Exception as exc:
-                log.warning("TT account streamer close failed: %s", exc)
-        else:
-            close_fn = getattr(self._account_streamer, "close", None)
-            if close_fn:
+        owner = self._account_stream_owner_task
+        if owner and not owner.done():
+            self._account_stream_stop_event.set()
+            if owner is not asyncio.current_task():
                 try:
-                    await self._maybe_await(close_fn())
+                    await owner
+                except asyncio.CancelledError:
+                    pass
                 except Exception as exc:
                     log.warning("TT account streamer close failed: %s", exc)
+        self._account_stream_owner_task = None
+        self._account_event_tasks = []
         self._account_streamer = None
         self._account_streamer_cm = None
+        self._account_stream_error = None
 
     async def _consume_account_alerts(self, alert_type: Any, handler: Any) -> None:
         try:
@@ -655,12 +693,74 @@ class TastytradeBroker(BaseBrokerAPI):
             log.info(f"TT quote unsubscribed: {remove_syms}")
 
     async def _ensure_quote_streamer_locked(self, start_consumer: bool = True) -> None:
-        if self._quote_streamer is None:
-            self._quote_streamer = await self._create_quote_streamer()
-            self._quote_stream_started_at = time.monotonic()
+        if self._quote_owner_task is None or self._quote_owner_task.done():
+            self._quote_stop_event = asyncio.Event()
+            self._quote_ready_event = asyncio.Event()
+            self._quote_stream_error = None
+            self._quote_owner_task = asyncio.create_task(
+                self._quote_stream_owner(),
+                name="tt-quote-stream-owner",
+            )
+            try:
+                await asyncio.wait_for(self._quote_ready_event.wait(), timeout=15)
+            except Exception:
+                owner = self._quote_owner_task
+                if owner and not owner.done():
+                    owner.cancel()
+                raise
+            owner = self._quote_owner_task
+            if owner and owner.done() and not owner.cancelled():
+                owner.result()
 
-        if start_consumer and (self._quote_task is None or self._quote_task.done()):
-            self._quote_task = asyncio.create_task(self._quote_consume_loop())
+        if self._quote_streamer is None:
+            raise RuntimeError("Tastytrade quote stream failed to start")
+
+    async def _quote_stream_owner(self) -> None:
+        """Own the TT quote context from enter through exit in one task."""
+        streamer = None
+        cm = None
+        try:
+            streamer = await self._create_quote_streamer()
+            cm = streamer if hasattr(streamer, "__aenter__") else None
+            if cm is None:
+                self._quote_streamer = streamer
+                self._quote_streamer_cm = None
+                self._quote_stream_started_at = time.monotonic()
+                self._quote_ready_event.set()
+                self._quote_task = asyncio.create_task(
+                    self._quote_consume_loop(),
+                    name="tt-quote-consumer",
+                )
+                await self._quote_stop_event.wait()
+                close_fn = getattr(streamer, "close", None)
+                if close_fn:
+                    await self._maybe_await(close_fn())
+                return
+
+            async with cm as entered:
+                self._quote_streamer_cm = cm
+                self._quote_streamer = entered if entered is not None else cm
+                self._quote_stream_started_at = time.monotonic()
+                self._quote_ready_event.set()
+                self._quote_task = asyncio.create_task(
+                    self._quote_consume_loop(),
+                    name="tt-quote-consumer",
+                )
+                await self._quote_stop_event.wait()
+        except Exception as exc:
+            self._quote_stream_error = exc
+            raise
+        finally:
+            task = self._quote_task
+            self._quote_task = None
+            if task and task is not asyncio.current_task() and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            self._quote_streamer = None
+            self._quote_streamer_cm = None
+            self._quote_stream_started_at = 0.0
+            if not self._quote_ready_event.is_set():
+                self._quote_ready_event.set()
 
     def _quote_stream_needs_rebuild_locked(self) -> bool:
         if self._quote_streamer is None:
@@ -676,12 +776,6 @@ class TastytradeBroker(BaseBrokerAPI):
         else:
             streamer = await self._maybe_await(DXLinkStreamer(self._session))
 
-        if hasattr(streamer, "__aenter__") and hasattr(streamer, "__aexit__"):
-            self._quote_streamer_cm = streamer
-            entered = await self._maybe_await(streamer.__aenter__())
-            return entered if entered is not None else streamer
-
-        self._quote_streamer_cm = None
         return streamer
 
     async def _stop_quote_stream(self) -> None:
@@ -690,49 +784,32 @@ class TastytradeBroker(BaseBrokerAPI):
             await self._stop_quote_stream_locked()
 
     async def _stop_quote_stream_locked(self) -> None:
-        task = self._quote_task
-        current = asyncio.current_task()
-        if task and not task.done() and task is not current:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                pass
+        owner = self._quote_owner_task
+        if owner and not owner.done():
+            self._quote_stop_event.set()
+            if owner is not asyncio.current_task():
+                try:
+                    await owner
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    log.warning(f"TT quote streamer close failed: {e}")
 
-        if task is current:
-            self._quote_task = None
-        else:
-            self._quote_task = None
-
-        if self._quote_streamer_cm is not None:
-            try:
-                await self._maybe_await(self._quote_streamer_cm.__aexit__(None, None, None))
-            except Exception as e:
-                log.warning(f"TT quote streamer context close failed: {e}")
-            self._quote_streamer_cm = None
-        elif self._quote_streamer is not None:
-            try:
-                close_fn = getattr(self._quote_streamer, "close", None)
-                if close_fn:
-                    await self._maybe_await(close_fn())
-            except Exception as e:
-                log.warning(f"TT quote streamer close failed: {e}")
-
+        self._quote_owner_task = None
+        self._quote_task = None
         self._quote_streamer = None
+        self._quote_streamer_cm = None
         self._quote_stream_started_at = 0.0
+        self._quote_stream_error = None
 
     async def _rebuild_quote_stream_locked(self, symbols: set[str] | list[str] | tuple[str, ...]) -> None:
         wanted = sorted({str(sym).strip().upper() for sym in symbols if str(sym).strip()})
         await self._stop_quote_stream_locked()
-        self._quote_streamer = await self._create_quote_streamer()
-        self._quote_stream_started_at = time.monotonic()
         self._subscribed_symbols = set()
+        await self._ensure_quote_streamer_locked(start_consumer=True)
         if wanted:
             await self._streamer_subscribe(wanted)
             self._subscribed_symbols.update(wanted)
-            self._quote_task = asyncio.create_task(self._quote_consume_loop())
 
     async def _restart_quote_stream_after_consume_error(self, reason: str) -> None:
         async with self._quote_lock:
@@ -776,11 +853,17 @@ class TastytradeBroker(BaseBrokerAPI):
                 break
             except asyncio.TimeoutError:
                 log.warning("TT quote stream idle for %ss; restarting", QUOTE_STREAM_IDLE_SECONDS)
-                await self._restart_quote_stream_after_consume_error("idle timeout")
+                asyncio.create_task(
+                    self._restart_quote_stream_after_consume_error("idle timeout"),
+                    name="tt-quote-stream-restart",
+                )
                 return
             except Exception as e:
                 log.warning(f"TT quote consume loop error: {e}")
-                await self._restart_quote_stream_after_consume_error(type(e).__name__)
+                asyncio.create_task(
+                    self._restart_quote_stream_after_consume_error(type(e).__name__),
+                    name="tt-quote-stream-restart",
+                )
                 return
 
     async def _streamer_subscribe(self, symbols: list[str]) -> None:

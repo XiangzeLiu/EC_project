@@ -571,6 +571,39 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.25, "Buy to Open", "limit", "Day"))
         self.assertEqual(len(self.session.orders), 2)
 
+    def test_limit_hotkey_default_price_uses_bid_but_ioc_buy_keeps_ask(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "last": 185.20,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order(
+            {
+                "side": "buy",
+                "order_type": "limit",
+                "tif": "Day",
+                "route": "DEFAULT",
+            },
+            1,
+        )
+        self.assertEqual(self.window.slots[1].price.text(), "185.10")
+
+        self.window._cancel_pending_order(1)
+        self.window._prepare_configured_order(
+            {
+                "side": "buy",
+                "order_type": "limit",
+                "tif": "IOC",
+                "route": "DEFAULT",
+            },
+            1,
+        )
+        self.assertEqual(self.session.orders[-1][2], 185.30)
+
     def test_trade_panels_use_quantity_input_without_step_buttons(self):
         for slot in self.window.slots.values():
             self.assertIsNotNone(slot.qty_label)
@@ -1248,6 +1281,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "bid": 185.10,
             "ask": 185.30,
             "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
         }
 
         self.window._prepare_limit_order("buy", 1, "ask")
@@ -1280,7 +1314,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.window._prepare_limit_order("buy", 1, "ask")
 
-        self.assertEqual(self.window.slots[1].price.text(), "190.30")
+        self.assertEqual(self.window.slots[1].price.text(), "190.20")
 
     def test_stale_quote_is_not_used_for_limit_preparation(self):
         self.window.current_quote["AAPL"] = {
@@ -1366,7 +1400,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         QTest.keyClick(slot.price, Qt.Key_Left)
         self.assertEqual(slot.price.text(), "10.04")
 
-    def test_configured_non_ioc_uses_market_side_and_still_requires_enter(self):
+    def test_configured_non_ioc_uses_bid_and_still_requires_enter(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
@@ -1385,10 +1419,10 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             },
             1,
         )
-        self.assertEqual(self.window.slots[1].price.text(), "185.35")
+        self.assertEqual(self.window.slots[1].price.text(), "185.15")
         self.assertEqual(self.session.orders, [])
         self.window._confirm_pending_order(1)
-        self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.35, "Buy to Open", "limit", "GTC"))
+        self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.15, "Buy to Open", "limit", "GTC"))
 
         self.window._action_limiter.reset()
         self.window._prepare_configured_order(
@@ -1413,6 +1447,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "bid": 185.10,
             "ask": 185.30,
             "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
         }
 
         self.window._prepare_configured_order({
@@ -1464,12 +1499,33 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             ("AAPL", 100, 185.10, "Sell to Close", "limit", "Day"),
         )
 
-    def test_ioc_does_not_submit_with_stale_quote(self):
+    def test_limit_ioc_accepts_quote_within_five_seconds(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
             "ask": 185.30,
-            "received_monotonic": time.monotonic() - 1.1,
+            "received_monotonic": time.monotonic() - 4.0,
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 185.30, "Buy to Open", "limit", "IOC"),
+        )
+
+    def test_limit_ioc_does_not_submit_with_quote_older_than_five_seconds(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic() - 5.1,
+            "connection_generation": self.window._se_generation,
         }
 
         self.window._prepare_configured_order({
@@ -1481,6 +1537,37 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders, [])
         self.assertEqual(self.window.slots[1].pending_action, "")
         self.assertEqual(self.window.slots[1].price.text(), "")
+
+    def test_limit_ioc_does_not_submit_quote_from_previous_connection(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation - 1,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(self.session.orders, [])
+
+    def test_market_ioc_does_not_require_quote_cache(self):
+        self.window.current_quote.clear()
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "market",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 0.0, "Buy to Open", "market", "IOC"),
+        )
 
     def test_ioc_does_not_submit_without_declared_tif_support(self):
         self.session.broker_detail["order_options"]["supported_tifs"] = ["Day", "GTC"]
