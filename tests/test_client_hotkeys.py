@@ -95,6 +95,30 @@ class ActionRateLimiterTests(unittest.TestCase):
 
 
 class HotkeyConfigTests(unittest.TestCase):
+    def test_default_order_hotkeys_match_confirmed_table(self):
+        rules = DEFAULT_HOTKEY_CONFIG.order_hotkeys
+        self.assertEqual(len(rules), 12)
+        self.assertEqual(
+            [
+                (rule.key, rule.side, rule.order_type, rule.tif, rule.route, rule.price_offset, rule.hidden, rule.enabled)
+                for rule in rules
+            ],
+            [
+                ("Shift+F1", "buy", "limit", "Day", "DEFAULT", 0.0, False, False),
+                ("Shift+F2", "sell", "limit", "Day", "DEFAULT", 0.0, False, False),
+                ("Shift+F3", "buy", "limit", "GTC", "DEFAULT", 0.0, False, False),
+                ("Shift+F4", "sell", "limit", "GTC", "DEFAULT", 0.0, False, False),
+                ("Shift+F5", "buy", "limit", "EXT", "DEFAULT", 0.0, False, False),
+                ("Shift+F6", "sell", "limit", "EXT", "DEFAULT", 0.0, False, False),
+                ("Shift+F7", "buy", "limit", "GTC_EXT", "DEFAULT", 0.0, False, False),
+                ("Shift+F8", "sell", "limit", "GTC_EXT", "DEFAULT", 0.0, False, False),
+                ("Shift+F9", "buy", "limit", "IOC", "DEFAULT", 0.0, False, False),
+                ("Shift+F10", "sell", "limit", "IOC", "DEFAULT", 0.0, False, False),
+                ("Shift+F11", "buy", "market", "Day", "DEFAULT", 0.0, False, False),
+                ("Shift+F12", "sell", "market", "Day", "DEFAULT", 0.0, False, False),
+            ],
+        )
+
     def test_quantity_defaults_are_fixed_and_custom_rules_round_trip(self):
         default_quantities = DEFAULT_HOTKEY_CONFIG.quantity_hotkeys
         self.assertEqual(

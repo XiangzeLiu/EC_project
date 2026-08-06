@@ -170,9 +170,33 @@ def _default_quantity_hotkeys() -> tuple[QuantityHotkey, ...]:
 
 
 def _default_order_hotkeys() -> tuple[OrderHotkeyRule, ...]:
+    defaults = (
+        ("buy", "limit", "Day", 0.0, False),
+        ("sell", "limit", "Day", 0.0, False),
+        ("buy", "limit", "GTC", 0.0, False),
+        ("sell", "limit", "GTC", 0.0, False),
+        ("buy", "limit", "EXT", 0.0, False),
+        ("sell", "limit", "EXT", 0.0, False),
+        ("buy", "limit", "GTC_EXT", 0.0, False),
+        ("sell", "limit", "GTC_EXT", 0.0, False),
+        ("buy", "limit", "IOC", 0.0, False),
+        ("sell", "limit", "IOC", 0.0, False),
+        ("buy", "market", "Day", 0.0, False),
+        ("sell", "market", "Day", 0.0, False),
+    )
     return tuple(
-        OrderHotkeyRule(id=f"order_rule_{index}", key=f"Shift+F{index}")
-        for index in range(1, 13)
+        OrderHotkeyRule(
+            id=f"order_rule_{index}",
+            key=f"Shift+F{index}",
+            enabled=False,
+            side=side,
+            order_type=order_type,
+            tif=tif,
+            route="DEFAULT",
+            price_offset=price_offset,
+            hidden=hidden,
+        )
+        for index, (side, order_type, tif, price_offset, hidden) in enumerate(defaults, start=1)
     )
 
 
