@@ -44,7 +44,7 @@ except ImportError:
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -304,6 +304,53 @@ async def admin_dashboard(request: Request):
         "sdk_status": sdk_status,
         "public_base_url": SM_PUBLIC_BASE_URL,
     })
+
+
+@app.get("/admin/product-docs")
+async def admin_product_docs(request: Request):
+    """Keep old bookmarks working while the docs live inside the dashboard."""
+    if not _is_admin_logged_in(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return RedirectResponse(url="/admin/dashboard#docs", status_code=302)
+
+
+@app.get("/admin/product-docs/content")
+async def admin_product_docs_content(request: Request):
+    """Return the prebuilt documentation fragment for lazy dashboard loading."""
+    if not _is_admin_logged_in(request):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "code": "ADMIN_AUTH_REQUIRED",
+                "redirect": "/admin/login",
+            },
+        )
+    return templates.TemplateResponse(request, "product_docs_fragment.html", {})
+
+
+@app.get("/admin/product-docs/download")
+async def admin_product_docs_download(request: Request):
+    """Download the prebuilt product maintenance PDF for administrators."""
+    if not _is_admin_logged_in(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    pdf_path = os.path.join(
+        _SCRIPT_DIR,
+        "resources",
+        "product_docs",
+        "SC_Product_Maintenance_Document.pdf",
+    )
+    if not os.path.isfile(pdf_path):
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "产品文档暂不可下载，请联系管理员"},
+        )
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="SC_Product_Maintenance_Document.pdf",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 

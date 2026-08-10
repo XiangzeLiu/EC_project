@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>三端结构图样式对比</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --ink: #17211b;
+      --muted: #69756e;
+      --quiet: #8c9891;
+      --page: #f2f5f3;
+      --paper: #ffffff;
+      --line: #dce4df;
+      --line-dark: #bec9c2;
+      --green: #087a4a;
+      --green-soft: #e8f4ed;
+      --yellow: #9a6709;
+      --yellow-soft: #fff5d9;
+      --blue: #286b93;
+      --blue-soft: #edf5fa;
+      --red: #aa443d;
+      --red-soft: #fff0ed;
+      --dark: #101513;
+      font-family: Inter, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      overflow-x: hidden;
+      color: var(--ink);
+      background: var(--page);
+      letter-spacing: 0;
+    }
+
+    a { color: var(--green); }
+
+    .topbar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      display: flex;
+      height: 62px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      background: rgba(255, 255, 255, 0.97);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      color: #8fe0b6;
+      background: var(--dark);
+      border-radius: 5px;
+      font-size: 14px;
+    }
+
+    .topbar a {
+      padding: 7px 10px;
+      color: #45524b;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      text-decoration: none;
+      font-size: 12px;
+    }
+
+    .page {
+      width: min(1320px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 42px 0 84px;
+    }
+
+    .page-head {
+      display: grid;
+      grid-template-columns: minmax(0, 760px) minmax(260px, 1fr);
+      align-items: end;
+      gap: 44px;
+      margin-bottom: 34px;
+    }
+
+    .eyebrow {
+      margin-bottom: 10px;
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, p { margin-top: 0; }
+    h1 { margin-bottom: 13px; font-size: 34px; line-height: 1.2; }
+    .lead { margin-bottom: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+    .flow-legend {
+      display: grid;
+      gap: 6px;
+      padding: 14px 16px;
+      color: #59665f;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--green);
+      border-radius: 6px;
+      font-size: 12px;
+    }
+
+    .flow-legend b { color: var(--ink); }
+
+    .sample-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .sample {
+      min-width: 0;
+      overflow: hidden;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 7px 22px rgba(20, 31, 25, 0.04);
+    }
+
+    .sample-head {
+      display: flex;
+      min-height: 70px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 13px 17px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .sample-title { display: flex; align-items: center; gap: 10px; }
+    .sample-index { color: var(--green); font-family: Consolas, monospace; font-size: 11px; font-weight: 800; }
+    .sample h2 { margin-bottom: 0; font-size: 16px; }
+    .sample-note { color: var(--quiet); text-align: right; font-size: 11px; }
+
+    .diagram-scroll {
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    .diagram-canvas {
+      width: 100%;
+      min-width: 610px;
+      min-height: 340px;
+    }
+
+    .node-role {
+      color: var(--quiet);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .node-name { font-size: 17px; font-weight: 800; }
+    .node-desc { color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    /* 01 CSS card flow */
+    .card-flow {
+      display: grid;
+      grid-template-columns: 190px 94px 1fr;
+      grid-template-rows: 1fr 1fr;
+      align-items: stretch;
+      gap: 14px 0;
+      padding: 31px 27px;
+      background: #fbfcfb;
+    }
+
+    .flow-card {
+      display: flex;
+      min-height: 126px;
+      flex-direction: column;
+      justify-content: center;
+      padding: 18px;
+      background: #ffffff;
+      border: 1px solid var(--line-dark);
+      border-top: 4px solid var(--green);
+      border-radius: 7px;
+    }
+
+    .flow-card.client { grid-row: 1 / 3; align-self: center; min-height: 190px; }
+    .flow-card.sm { border-top-color: var(--yellow); }
+    .flow-card.ts { border-top-color: var(--blue); }
+    .flow-card .node-name { margin: 8px 0 5px; }
+
+    .css-arrow {
+      position: relative;
+      align-self: center;
+      height: 2px;
+      margin: 0 12px;
+      background: #8e9c94;
+    }
+
+    .css-arrow::after {
+      position: absolute;
+      top: -4px;
+      right: 0;
+      width: 8px;
+      height: 8px;
+      content: "";
+      border-top: 2px solid #68756d;
+      border-right: 2px solid #68756d;
+      transform: rotate(45deg);
+    }
+
+    .css-arrow span {
+      position: absolute;
+      right: -10px;
+      bottom: 8px;
+      left: -10px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .flow-card.sm::after {
+      display: block;
+      margin-top: 9px;
+      color: var(--yellow);
+      content: "向 TS 下发配置";
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    /* 02 swimlane */
+    .swimlane {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 24px 22px 28px;
+      background: #fafcfb;
+    }
+
+    .lane {
+      min-height: 286px;
+      border-left: 1px solid var(--line);
+    }
+
+    .lane:last-child { border-right: 1px solid var(--line); }
+
+    .lane-title {
+      padding: 10px 12px;
+      color: #ffffff;
+      background: var(--green-dark, #075536);
+      text-align: center;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .lane:nth-child(2) .lane-title { background: #8b610f; }
+    .lane:nth-child(3) .lane-title { background: #315f79; }
+
+    .lane-body { position: relative; height: 238px; padding: 12px 10px; }
+
+    .lane-event {
+      position: absolute;
+      right: 10px;
+      left: 10px;
+      padding: 7px 8px;
+      color: #3e4a43;
+      background: #ffffff;
+      border: 1px solid var(--line-dark);
+      border-radius: 4px;
+      text-align: center;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .event-1 { top: 16px; }
+    .event-2 { top: 76px; }
+    .event-3 { top: 136px; }
+    .event-4 { top: 196px; }
+
+    .lane-event.send-right::after,
+    .lane-event.send-left::after {
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      width: calc(100% + 22px);
+      height: 1px;
+      content: "";
+      background: #708078;
+    }
+
+    .lane-event.send-right::after { left: calc(100% + 1px); }
+    .lane-event.send-left::after { right: calc(100% + 1px); }
+
+    /* SVG common */
+    .svg-canvas {
+      display: block;
+      width: 100%;
+      min-width: 610px;
+      height: 340px;
+      background: #fbfcfb;
+    }
+
+    .svg-label { font-family: Inter, "Microsoft YaHei UI", sans-serif; }
+    .svg-small { font-size: 11px; fill: #738078; }
+    .svg-name { font-size: 20px; font-weight: 800; fill: #17211b; }
+    .svg-desc { font-size: 12px; fill: #59665f; }
+    .svg-edge { font-size: 11px; fill: #536159; }
+
+    /* D2-like */
+    .d2-board { background: #f7f8f7; }
+
+    /* Graphviz-like */
+    .graph-board { background: #ffffff; }
+
+    /* hand drawn */
+    .rough-board { background: #fffdf7; }
+    .rough-text { font-family: "Segoe Print", "Microsoft YaHei UI", cursive; }
+
+    .sample-foot {
+      min-height: 42px;
+      padding: 10px 16px;
+      color: var(--muted);
+      background: #fafcfb;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1040px) {
+      .sample-grid { grid-template-columns: 1fr; }
+      .page-head { grid-template-columns: 1fr; gap: 18px; }
+    }
+
+    @media (max-width: 680px) {
+      .topbar { padding: 0 14px; }
+      .page { width: 100%; padding: 30px 12px 60px; }
+      h1 { font-size: 27px; }
+      .sample-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+      .sample-note { text-align: left; }
+      .diagram-canvas, .svg-canvas { min-width: 590px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">SC</span><span>三端结构图样式对比</span></div>
+    <a href="./index.html">返回文档预览</a>
+  </header>
+
+  <main class="page">
+    <header class="page-head">
+      <div>
+        <div class="eyebrow">Static Diagram Style Samples</div>
+        <h1>同一个三端结构，六种静态画法</h1>
+        <p class="lead">所有样例表达相同关系，不使用 Mermaid。这里只比较视觉风格、结构清晰度和文字容纳能力。</p>
+      </div>
+      <div class="flow-legend">
+        <span><b>Client → SM：</b>HTTPS 登录并取得 TS 地址</span>
+        <span><b>Client → TS：</b>WSS 行情与交易</span>
+        <span><b>SM ↔ TS：</b>注册审批、配置同步和心跳</span>
+      </div>
+    </header>
+
+    <div class="sample-grid">
+      <section class="sample">
+        <header class="sample-head">
+          <div class="sample-title"><span class="sample-index">01</span><h2>简洁架构卡片</h2></div>
+          <span class="sample-note">HTML + CSS Grid</span>
+        </header>
+        <div class="diagram-scroll">
+          <div class="diagram-canvas card-flow">
+            <article class="flow-card client">
+              <span class="node-role">操作端</span><span class="node-name">Client</span>
+              <span class="node-desc">登录、行情、持仓、下单与撤单</span>
+            </article>
+            <div class="css-arrow"><span>HTTPS 登录</span></div>
+            <article class="flow-card sm">
+              <span class="node-role">管理端</span><span class="node-name">SM</span>
+              <span class="node-desc">账号、审批、域名和配置</span>
+            </article>
+            <div class="css-arrow"><span>WSS 行情与交易</span></div>
+            <article class="flow-card ts">
+              <span class="node-role">执行端</span><span class="node-name">TS</span>
+              <span class="node-desc">券商连接与统一交易服务</span>
+            </article>
+          </div>
+        </div>
+        <footer class="sample-foot">文字容量最大，位置固定，最容易适配文档和移动端。</footer>
+      </section>
+
+      <section class="sample">
+        <header class="sample-head">
+          <div class="sample-title"><span class="sample-index">02</span><h2>角色泳道图</h2></div>
+          <span class="sample-note">HTML + CSS Swimlane</span>
+        </header>
+        <div class="diagram-scroll">
+          <div class="diagram-canvas swimlane">
+            <div class="lane">
+              <div class="lane-title">Client</div>
+              <div class="lane-body">
+                <div class="lane-event event-1 send-right">输入交易员账号</div>
+                <div class="lane-event event-2">取得 Token 与 TS 地址</div>
+                <div class="lane-event event-3 send-right">建立 WSS 连接</div>
+                <div class="lane-event event-4">展示行情与订单状态</div>
+              </div>
+            </div>
+            <div class="lane">
+              <div class="lane-title">SM</div>
+              <div class="lane-body">
+                <div class="lane-event event-1">验证账号</div>
+                <div class="lane-event event-2 send-left">返回绑定节点</div>
+                <div class="lane-event event-4">接收 TS 心跳</div>
+              </div>
+            </div>
+            <div class="lane">
+              <div class="lane-title">TS</div>
+              <div class="lane-body">
+                <div class="lane-event event-2">同步券商配置</div>
+                <div class="lane-event event-3">验证并接受连接</div>
+                <div class="lane-event event-4 send-left">上报状态与心跳</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="sample-foot">最适合解释“谁在什么时候做什么”，比拓扑图更贴近操作流程。</footer>
+      </section>
+
+      <section class="sample">
+        <header class="sample-head">
+          <div class="sample-title"><span class="sample-index">03</span><h2>扁平 SVG 架构图</h2></div>
+          <span class="sample-note">原生 SVG，位置完全固定</span>
+        </header>
+        <div class="diagram-scroll">
+          <svg class="svg-canvas" viewBox="0 0 660 340" role="img" aria-label="Client、SM、TS 三端关系">
+            <defs>
+              <marker id="flat-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#718078"/></marker>
+            </defs>
+            <rect x="38" y="105" width="180" height="130" rx="7" fill="#ffffff" stroke="#90bba2" stroke-width="2"/>
+            <rect x="442" y="30" width="180" height="120" rx="7" fill="#fffaf0" stroke="#c3a052" stroke-width="2"/>
+            <rect x="442" y="195" width="180" height="120" rx="7" fill="#f2f8fb" stroke="#6c9bb5" stroke-width="2"/>
+            <text class="svg-label svg-small" x="58" y="132">操作端</text><text class="svg-label svg-name" x="58" y="164">Client</text><text class="svg-label svg-desc" x="58" y="191">交易员操作与界面</text>
+            <text class="svg-label svg-small" x="462" y="56">管理端</text><text class="svg-label svg-name" x="462" y="88">SM</text><text class="svg-label svg-desc" x="462" y="115">账号、审批和配置</text>
+            <text class="svg-label svg-small" x="462" y="221">执行端</text><text class="svg-label svg-name" x="462" y="253">TS</text><text class="svg-label svg-desc" x="462" y="280">行情、持仓和订单</text>
+            <path d="M218 142 C300 142 338 86 442 86" fill="none" stroke="#718078" stroke-width="2" marker-end="url(#flat-arrow)"/>
+            <path d="M218 198 C300 198 338 251 442 251" fill="none" stroke="#718078" stroke-width="2" marker-end="url(#flat-arrow)"/>
+            <path d="M532 150 L532 195" fill="none" stroke="#718078" stroke-width="2" marker-start="url(#flat-arrow)" marker-end="url(#flat-arrow)"/>
+            <text class="svg-label svg-edge" x="278" y="106">HTTPS 登录</text>
+            <text class="svg-label svg-edge" x="276" y="235">WSS 交易</text>
+            <text class="svg-label svg-edge" x="542" y="178">配置 / 心跳</text>
+          </svg>
+        </div>
+        <footer class="sample-foot">结构最精确，箭头和文字位置可逐像素调整，不存在自动布局重叠。</footer>
+      </section>
+
+      <section class="sample">
+        <header class="sample-head">
+          <div class="sample-title"><span class="sample-index">04</span><h2>D2 现代架构风</h2></div>
+          <span class="sample-note">预生成 SVG 的视觉参考</span>
+        </header>
+        <div class="diagram-scroll">
+          <svg class="svg-canvas d2-board" viewBox="0 0 660 340" role="img" aria-label="D2 风格三端关系">
+            <defs><marker id="d2-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10" fill="none" stroke="#4d5b54" stroke-width="1.5"/></marker></defs>
+            <rect x="34" y="78" width="190" height="184" rx="4" fill="#ffffff" stroke="#171f1b" stroke-width="1.4"/>
+            <rect x="433" y="36" width="194" height="116" rx="4" fill="#fff3cb" stroke="#8b650f" stroke-width="1.4"/>
+            <rect x="433" y="198" width="194" height="116" rx="4" fill="#e5f3f9" stroke="#2f6f93" stroke-width="1.4"/>
+            <rect x="50" y="95" width="52" height="22" rx="3" fill="#dff2e7"/><text class="svg-label" x="63" y="110" font-size="10" fill="#075536">APP</text>
+            <text class="svg-label svg-name" x="50" y="153">Client</text><text class="svg-label svg-desc" x="50" y="179">Windows 桌面交易端</text><text class="svg-label svg-desc" x="50" y="203">只发送统一消息</text>
+            <rect x="449" y="53" width="67" height="22" rx="3" fill="#f1d98f"/><text class="svg-label" x="459" y="68" font-size="10" fill="#694b09">CONTROL</text>
+            <text class="svg-label svg-name" x="449" y="108">SM</text><text class="svg-label svg-desc" x="449" y="132">管理与审批</text>
+            <rect x="449" y="215" width="71" height="22" rx="3" fill="#b9dbea"/><text class="svg-label" x="459" y="230" font-size="10" fill="#245d7d">TRADING</text>
+            <text class="svg-label svg-name" x="449" y="270">TS</text><text class="svg-label svg-desc" x="449" y="294">交易执行服务</text>
+            <path d="M224 120 H325 V91 H433" fill="none" stroke="#4d5b54" stroke-width="1.6" marker-end="url(#d2-arrow)"/>
+            <path d="M224 219 H325 V256 H433" fill="none" stroke="#4d5b54" stroke-width="1.6" marker-end="url(#d2-arrow)"/>
+            <path d="M530 152 V198" fill="none" stroke="#4d5b54" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#d2-arrow)"/>
+            <text class="svg-label svg-edge" x="278" y="82">login</text><text class="svg-label svg-edge" x="270" y="247">wss /ws</text><text class="svg-label svg-edge" x="540" y="178">sync</text>
+          </svg>
+        </div>
+        <footer class="sample-foot">现代、规整、技术感适中，适合正式架构文档，但需要生成步骤。</footer>
+      </section>
+
+      <section class="sample">
+        <header class="sample-head">
+          <div class="sample-title"><span class="sample-index">05</span><h2>Graphviz 拓扑风</h2></div>
+          <span class="sample-note">自动拓扑布局的视觉参考</span>
+        </header>
+        <div class="diagram-scroll">
+          <svg class="svg-canvas graph-board" viewBox="0 0 660 340" role="img" aria-label="Graphviz 风格三端拓扑">
+            <defs><marker id="graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#37423c"/></marker></defs>
+            <ellipse cx="126" cy="170" rx="91" ry="61" fill="#f7fbf8" stroke="#34433b" stroke-width="1.5"/>
+            <rect x="430" y="35" width="172" height="96" rx="2" fill="#fffdf7" stroke="#594d2e" stroke-width="1.5"/>
+            <rect x="430" y="209" width="172" height="96" rx="2" fill="#f7fbfd" stroke="#345d73" stroke-width="1.5"/>
+            <text class="svg-label svg-name" x="91" y="167">Client</text><text class="svg-label svg-desc" x="72" y="190">Windows / PySide6</text>
+            <text class="svg-label svg-name" x="497" y="78">SM</text><text class="svg-label svg-desc" x="468" y="103">Control Plane</text>
+            <text class="svg-label svg-name" x="497" y="252">TS</text><text class="svg-label svg-desc" x="464" y="277">Trading Service</text>
+            <path d="M202 136 C289 92 340 82 430 82" fill="none" stroke="#37423c" stroke-width="1.5" marker-end="url(#graph-arrow)"/>
+            <path d="M206 199 C290 237 340 257 430 257" fill="none" stroke="#37423c" stroke-width="1.5" marker-end="url(#graph-arrow)"/>
+            <path d="M516 131 V209" fill="none" stroke="#37423c" stroke-width="1.5" marker-start="url(#graph-arrow)" marker-end="url(#graph-arrow)"/>
+            <rect x="272" y="88" width="88" height="23" fill="#ffffff"/><text class="svg-label svg-edge" x="281" y="104">HTTPS login</text>
+            <rect x="278" y="226" width="76" height="23" fill="#ffffff"/><text class="svg-label svg-edge" x="287" y="242">WSS /ws</text>
+            <rect x="525" y="160" width="84" height="23" fill="#ffffff"/><text class="svg-label svg-edge" x="533" y="176">config / hb</text>
+          </svg>
+        </div>
+        <footer class="sample-foot">适合服务拓扑和端口关系，风格正式，但对非技术人员略显工程化。</footer>
+      </section>
+
+      <section class="sample">
+        <header class="sample-head">
+          <div class="sample-title"><span class="sample-index">06</span><h2>手绘白板风</h2></div>
+          <span class="sample-note">Rough.js / Excalidraw 风格参考</span>
+        </header>
+        <div class="diagram-scroll">
+          <svg class="svg-canvas rough-board" viewBox="0 0 660 340" role="img" aria-label="手绘风格三端关系">
+            <defs><marker id="rough-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#37413b" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+            <path d="M37 104 Q39 91 53 93 L213 96 Q225 96 223 109 L221 235 Q220 247 207 246 L52 244 Q38 244 40 230 Z" fill="#f2fbf5" stroke="#2f6f4c" stroke-width="2" stroke-linecap="round"/>
+            <path d="M434 31 Q447 27 461 30 L609 34 Q623 34 620 48 L618 139 Q616 151 604 149 L450 146 Q436 146 438 132 Z" fill="#fff7dc" stroke="#8d6815" stroke-width="2" stroke-linecap="round"/>
+            <path d="M431 198 Q443 192 457 196 L610 200 Q624 200 621 214 L618 304 Q616 317 602 314 L448 312 Q435 311 437 298 Z" fill="#edf7fb" stroke="#316b8a" stroke-width="2" stroke-linecap="round"/>
+            <text class="rough-text" x="70" y="151" font-size="23" font-weight="700" fill="#17211b">Client</text><text class="rough-text" x="69" y="181" font-size="12" fill="#59665f">交易员操作</text><text class="rough-text" x="69" y="204" font-size="12" fill="#59665f">不接触券商凭据</text>
+            <text class="rough-text" x="469" y="77" font-size="23" font-weight="700" fill="#17211b">SM</text><text class="rough-text" x="469" y="106" font-size="12" fill="#59665f">管理与审批</text>
+            <text class="rough-text" x="469" y="245" font-size="23" font-weight="700" fill="#17211b">TS</text><text class="rough-text" x="469" y="274" font-size="12" fill="#59665f">真实交易执行</text>
+            <path d="M223 128 C287 94 351 78 437 80" fill="none" stroke="#37413b" stroke-width="2" stroke-linecap="round" marker-end="url(#rough-arrow)"/>
+            <path d="M222 213 C291 238 348 258 436 260" fill="none" stroke="#37413b" stroke-width="2" stroke-linecap="round" marker-end="url(#rough-arrow)"/>
+            <path d="M535 148 C538 165 534 179 535 197" fill="none" stroke="#37413b" stroke-width="2" stroke-linecap="round" stroke-dasharray="7 5" marker-end="url(#rough-arrow)"/>
+            <text class="rough-text" x="286" y="89" font-size="12" fill="#4d5952">登录</text><text class="rough-text" x="286" y="254" font-size="12" fill="#4d5952">WSS 交易</text><text class="rough-text" x="546" y="177" font-size="11" fill="#4d5952">配置</text>
+          </svg>
+        </div>
+        <footer class="sample-foot">亲和、容易理解，适合培训和概念说明，但正式生产手册可能不够严肃。</footer>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -159,6 +159,13 @@
     /* Section spacing */
     .section { padding: 24px; display: none; }
     .section.active { display: block; }
+    .section.docs-section { padding: 0; min-height: 100%; }
+    .product-docs-host { min-height: calc(100vh - 64px); background: #f8faf9; }
+    .product-docs-loading, .product-docs-load-error { display:flex; min-height:calc(100vh - 64px); align-items:center; justify-content:center; padding:40px; color:#7c879f; text-align:center; }
+    .product-docs-load-error-inner { max-width:420px; }
+    .product-docs-load-error i { display:block; margin-bottom:12px; color:#ef4444; font-size:36px; }
+    .product-docs-load-error p { margin-bottom:14px; }
+    body.sm-dark .product-docs-host { background:#17211d; }
 
     /* ═══ Badge / Tag ═══ */
     .badge {
@@ -621,7 +628,7 @@
         <i class="ri-history-line"></i><span>日志信息</span>
       </button>
       <button data-module="docs" class="nav-item" type="button">
-        <i class="ri-file-text-line"></i><span>产品文档（待补充）</span>
+        <i class="ri-file-text-line"></i><span>产品文档</span>
       </button>
     </nav>
 
@@ -887,7 +894,7 @@
         </div>
       </section>
 
-      <!-- ════ 产品文档（待补充） ════ -->
+      <!-- ════ 日志信息 ════ -->
       <section id="mod-audit" class="section">
         <div class="panel">
           <div class="panel-header">
@@ -905,19 +912,10 @@
         </div>
       </section>
 
-      <!-- Docs placeholder -->
-      <section id="mod-docs" class="section">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-header-left">
-              <div class="tile-icon ti-blue"><i class="ri-file-text-line"></i></div>
-              <h2 class="panel-title">产品文档</h2>
-            </div>
-          </div>
-          <div style="padding:60px 24px;text-align:center;color:#b9c0d2;">
-            <i class="ri-file-text-line" style="font-size:64px;opacity:0.3;"></i>
-            <p style="margin-top:16px;font-size:14px;">内容开发中，敬请期待...</p>
-          </div>
+      <!-- ════ 产品文档 ════ -->
+      <section id="mod-docs" class="section docs-section">
+        <div id="product-docs-host" class="product-docs-host">
+          <div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>首次打开时加载产品文档</div></div>
         </div>
       </section>
 
@@ -1068,6 +1066,9 @@ var _domainOptions=[];
 var _domainItemCount=0;
 var _domainDnsMode='';
 var _dnsConfig=null;
+var _productDocsLoaded=false;
+var _productDocsLoading=null;
+var _productDocsObserver=null;
 document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
   item.addEventListener('click',function(e){
     e.preventDefault();
@@ -1082,8 +1083,122 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
     if(el) el.classList.add('active');
     if(target==='audit' && !_auditFullLoaded){ refreshAuditLogs({full:true,page:_auditPage}); }
     if(target==='domain-pool'){ refreshDomainPool(_domainPage); }
+    if(target==='docs'){
+      loadProductDocs();
+      if(location.hash.indexOf('#docs')!==0) history.replaceState(null,'','#docs');
+    }
   });
 });
+
+function _productDocsSetLoading(message){
+  var host=document.getElementById('product-docs-host');
+  if(host){host.innerHTML='<div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>'+escapeHtml(message||'正在加载产品文档')+'</div></div>';}
+}
+
+function _productDocsSetError(){
+  var host=document.getElementById('product-docs-host');
+  if(!host) return;
+  host.innerHTML='<div class="product-docs-load-error"><div class="product-docs-load-error-inner"><i class="ri-file-warning-line"></i><strong>产品文档加载失败</strong><p>请检查管理服务连接后重试。</p><button class="btn-xs btn-pri" type="button" onclick="loadProductDocs(true)"><i class="ri-refresh-line"></i> 重试</button></div></div>';
+}
+
+function _productDocsApplyTheme(){
+  var root=document.getElementById('product-docs-root');
+  if(root) root.classList.toggle('product-docs-dark', document.body.classList.contains('sm-dark'));
+}
+
+function _productDocsInit(){
+  var root=document.getElementById('product-docs-root');
+  if(!root || root.dataset.initialized==='1') return;
+  root.dataset.initialized='1';
+  var content=root.querySelector('[data-product-docs-content]');
+  var articles=Array.prototype.slice.call(root.querySelectorAll('.product-docs-article'));
+  var navLinks=Array.prototype.slice.call(root.querySelectorAll('[data-doc-target]'));
+  var toc=root.querySelector('[data-product-docs-toc]');
+  var title=root.querySelector('[data-product-docs-title]');
+  var search=root.querySelector('[data-product-docs-search]');
+  var results=root.querySelector('[data-product-docs-search-results]');
+  var activeDoc='';
+
+  function setActiveDoc(id){
+    if(!id || id===activeDoc) return;
+    activeDoc=id;
+    navLinks.forEach(function(link){link.classList.toggle('active',link.getAttribute('data-doc-target')===id);});
+    var article=root.querySelector('[data-doc-id="'+CSS.escape(id)+'"]');
+    if(!article) return;
+    if(title) title.textContent=article.getAttribute('data-doc-title')||'产品维护文档';
+    if(toc){
+      toc.innerHTML=Array.prototype.slice.call(article.querySelectorAll('h2,h3')).map(function(heading){
+        return '<a class="product-docs-toc-link level-'+heading.tagName.slice(1)+'" href="#'+heading.id+'">'+escapeHtml(heading.getAttribute('data-toc-label')||heading.textContent)+'</a>';
+      }).join('');
+    }
+  }
+
+  navLinks.forEach(function(link){
+    link.addEventListener('click',function(event){
+      event.preventDefault();
+      var target=link.getAttribute('data-doc-target');
+      var article=root.querySelector('[data-doc-id="'+CSS.escape(target)+'"]');
+      if(article){
+        article.scrollIntoView({behavior:'smooth',block:'start'});
+        setActiveDoc(target);
+        history.replaceState(null,'','#docs/'+target);
+      }
+    });
+  });
+
+  if(window.IntersectionObserver){
+    _productDocsObserver=new IntersectionObserver(function(entries){
+      var visible=entries.filter(function(entry){return entry.isIntersecting;}).sort(function(a,b){return a.boundingClientRect.top-b.boundingClientRect.top;});
+      if(visible[0]) setActiveDoc(visible[0].target.getAttribute('data-doc-id'));
+    },{root:document.querySelector('.content'),rootMargin:'-18px 0px -65% 0px',threshold:0});
+    articles.forEach(function(article){_productDocsObserver.observe(article);});
+  }
+  setActiveDoc((location.hash.match(/^#docs\/([a-z]+)/)||[])[1]||'home');
+
+  var searchable=Array.prototype.slice.call(root.querySelectorAll('.product-docs-article h1,.product-docs-article h2,.product-docs-article h3,.product-docs-article p'));
+  if(search){
+    search.addEventListener('input',function(){
+      var query=search.value.trim().toLocaleLowerCase();
+      if(query.length<2){results.classList.remove('open');results.innerHTML='';return;}
+      var found=searchable.filter(function(node){return node.textContent.toLocaleLowerCase().indexOf(query)>=0;}).slice(0,12);
+      results.innerHTML=found.length?found.map(function(node){
+        var article=node.closest('.product-docs-article');
+        var heading=node.matches('h1,h2,h3')?node:node.previousElementSibling;
+        var target=heading&&heading.id?heading.id:article.id;
+        return '<a class="product-docs-search-result" href="#'+target+'"><strong>'+escapeHtml(article.getAttribute('data-doc-title'))+'</strong><small>'+escapeHtml(node.textContent.trim().slice(0,90))+'</small></a>';
+      }).join(''):'<div class="product-docs-search-result"><small>没有匹配内容</small></div>';
+      results.classList.add('open');
+    });
+    results.addEventListener('click',function(){results.classList.remove('open');search.value='';});
+    document.addEventListener('click',function(event){if(!event.target.closest('#product-docs-root .product-docs-search-wrap')) results.classList.remove('open');});
+  }
+  var printButton=root.querySelector('[data-product-docs-print]');
+  if(printButton) printButton.addEventListener('click',function(){window.print();});
+  _productDocsApplyTheme();
+}
+
+function loadProductDocs(force){
+  var host=document.getElementById('product-docs-host');
+  if(!host || (_productDocsLoaded && !force)) return _productDocsLoading;
+  if(_productDocsLoading) return _productDocsLoading;
+  _productDocsSetLoading(force?'正在重新加载产品文档':'正在加载产品文档');
+  _productDocsLoading=fetch('/admin/product-docs/content',{credentials:'same-origin',cache:'no-store'}).then(function(response){
+    if(response.status===401){window.location.href='/admin/login';return '';}
+    if(!response.ok) throw new Error('docs content request failed');
+    return response.text();
+  }).then(function(html){
+    if(!html) return;
+    host.innerHTML=html;
+    _productDocsLoaded=true;
+    _productDocsInit();
+  }).catch(function(){_productDocsSetError();}).finally(function(){_productDocsLoading=null;});
+  return _productDocsLoading;
+}
+
+if(location.hash==='#docs' || location.hash.indexOf('#docs/')===0){
+  var docsNav=document.querySelector('.nav-item[data-module="docs"]');
+  if(docsNav) docsNav.click();
+}
 
 // ═══════════════════════════════════════════════════
 //  渲染待审核节点
@@ -2670,6 +2785,7 @@ function applyThemeMode(mode){
   document.body.classList.toggle('sm-dark', dark);
   var state=document.getElementById('theme-toggle-state');
   if(state) state.textContent=dark?'开启':'关闭';
+  _productDocsApplyTheme();
 }
 function toggleThemeMode(){
   var next=document.body.classList.contains('sm-dark')?'light':'dark';

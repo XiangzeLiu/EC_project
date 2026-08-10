@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>SC 系统维护文档</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="reading-progress" id="readingProgress" aria-hidden="true"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="文档导航">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">SC</div>
+        <div>
+          <strong>系统维护文档</strong>
+          <span>Operations Handbook</span>
+        </div>
+      </div>
+
+      <nav class="primary-nav" id="primaryNav">
+        <button class="nav-item" data-doc="readme" type="button">
+          <span class="nav-index">00</span>
+          <span><strong>文档导航</strong><small>阅读顺序与使用边界</small></span>
+        </button>
+        <button class="nav-item active" data-doc="overview" type="button">
+          <span class="nav-index">01</span>
+          <span><strong>系统总览</strong><small>架构、数据流与网络</small></span>
+        </button>
+        <button class="nav-item" data-doc="components" type="button">
+          <span class="nav-index">02</span>
+          <span><strong>三端功能</strong><small>Client、SM 与 TS</small></span>
+        </button>
+        <button class="nav-item" data-doc="brokers" type="button">
+          <span class="nav-index">03</span>
+          <span><strong>券商接入</strong><small>TT、IB 与 Gateway</small></span>
+        </button>
+        <button class="nav-item" data-doc="operations" type="button">
+          <span class="nav-index">04</span>
+          <span><strong>维护排障</strong><small>部署、错误码与恢复</small></span>
+        </button>
+      </nav>
+
+      <div class="sidebar-scope">
+        <span class="scope-light" aria-hidden="true"></span>
+        <span>维护者内部资料</span>
+      </div>
+    </aside>
+
+    <button class="sidebar-scrim" id="sidebarScrim" aria-label="关闭导航" type="button"></button>
+
+    <section class="workspace">
+      <header class="topbar">
+        <button class="icon-button mobile-menu" id="menuButton" type="button" aria-label="打开文档导航" title="文档导航">☰</button>
+        <div class="breadcrumb">
+          <span>SC Docs</span>
+          <span aria-hidden="true">/</span>
+          <strong id="currentSection">系统总览</strong>
+        </div>
+
+        <div class="topbar-actions">
+          <label class="search-field" for="searchInput">
+            <span aria-hidden="true">⌕</span>
+            <input id="searchInput" type="search" autocomplete="off" placeholder="搜索标题或正文">
+          </label>
+          <button class="command-button" id="printButton" type="button" title="打印当前文档">
+            <span aria-hidden="true">⎙</span>
+            <span>打印</span>
+          </button>
+        </div>
+
+        <div class="search-results" id="searchResults" hidden></div>
+      </header>
+
+      <div class="content-grid">
+        <main class="document-pane" id="documentPane">
+          <article class="markdown-body" id="documentContent" aria-live="polite">
+            <div class="loading-state">
+              <span class="loading-line"></span>
+              <span class="loading-line short"></span>
+              <span class="loading-block"></span>
+            </div>
+          </article>
+        </main>
+
+        <aside class="page-toc" aria-label="页内目录">
+          <div class="toc-heading">本页目录</div>
+          <nav id="pageToc"></nav>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <script src="./vendor/marked.umd.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

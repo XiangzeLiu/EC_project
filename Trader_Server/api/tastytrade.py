@@ -579,12 +579,28 @@ class TastytradeBroker(BaseBrokerAPI):
 
         if order_type_str == "market":
             order = NewOrder(time_in_force=tif_enum, order_type=OrderType.MARKET, legs=[leg])
+            sdk_price = "MKT"
         else:
             signed = Decimal(str(price)) * (-1 if is_buy else 1)
             order = NewOrder(
                 time_in_force=tif_enum, order_type=OrderType.LIMIT,
                 legs=[leg], price=signed,
             )
+            sdk_price = str(signed)
+
+        log.info(
+            "[ORDER_DIAG][TT_SUBMIT] symbol=%s action=%s qty=%s client_price=%s sdk_price=%s order_type=%s tif=%s route=%s hidden=%s is_buy=%s",
+            symbol,
+            action_str,
+            qty,
+            price,
+            sdk_price,
+            order_type_str,
+            tif_str,
+            route,
+            hidden,
+            is_buy,
+        )
 
         resp = await a.place_order(s, order, dry_run=False)
         result = self._normalize_place_order_response(resp)
@@ -596,6 +612,21 @@ class TastytradeBroker(BaseBrokerAPI):
                 symbol,
                 price,
                 result["status_message"] or "unknown",
+            )
+            log.warning(
+                "[ORDER_DIAG][TT_REJECT] symbol=%s action=%s qty=%s client_price=%s sdk_price=%s order_type=%s tif=%s route=%s hidden=%s code=%s status=%s reason=%s",
+                symbol,
+                action_str,
+                qty,
+                price,
+                sdk_price,
+                order_type_str,
+                tif_str,
+                route,
+                hidden,
+                result.get("code", ""),
+                result.get("status", ""),
+                result.get("status_message", ""),
             )
             return result
         log.info(f"Order placed: {action_str} {qty} {symbol} @ {price}")

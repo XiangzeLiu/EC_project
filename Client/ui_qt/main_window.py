@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 import sys
 import threading
@@ -56,6 +57,8 @@ from Client.constants import (
     LIVE_STATUSES,
     TS_RECONNECT_MAX_ATTEMPTS,
 )
+
+log = logging.getLogger("client.ui.main_window")
 from Client.network.http_client import HttpClient
 from Client.services.trading_session import TradingSession, safe_user_message, sanitize
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
@@ -3011,6 +3014,26 @@ class TradingTerminalQt(QMainWindow):
         route_label = f" | {route}" if route else ""
         hidden_label = " | HIDE" if hidden else ""
         self._append_log(f"{prefix}{action_label} {qty} \u80a1 {sym} @ {price_str} | {tif_label}{route_label}{hidden_label}", "inf")
+        quote = self._latest_quote_snapshot(sym)
+        log.info(
+            "[ORDER_DIAG][CLIENT_SUBMIT] source=%s panel=%s symbol=%s action=%s qty=%s price=%s order_type=%s tif=%s route=%s hidden=%s bid=%s ask=%s last=%s quote_age_ms=%s quote_generation=%s current_generation=%s",
+            source,
+            pid,
+            sym,
+            action,
+            qty,
+            f"{price:.4f}" if order_type != "market" else "MKT",
+            order_type,
+            tif,
+            route,
+            hidden,
+            quote.get("bid", ""),
+            quote.get("ask", ""),
+            quote.get("last", ""),
+            round((time.monotonic() - float(quote.get("received_monotonic", 0) or 0)) * 1000) if quote.get("received_monotonic") else "",
+            quote.get("connection_generation", ""),
+            self._se_generation,
+        )
         generation = self._se_generation
         session = self.session
         self._run_bg(

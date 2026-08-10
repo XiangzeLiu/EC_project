@@ -1,0 +1,1851 @@
+<div id="product-docs-root" class="product-docs-root" data-product-docs-version="1">
+  <style>
+  #product-docs-root { --doc-green:#267a50; --doc-blue:#356fad; --doc-ink:#17212b; --doc-muted:#65717d; --doc-line:#dfe5e1; --doc-page:#f8faf9; color:var(--doc-ink); font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Segoe UI",sans-serif; font-size:14px; line-height:1.75; }
+  #product-docs-root *, #product-docs-root *::before, #product-docs-root *::after { box-sizing:border-box; }
+  #product-docs-root a { color:var(--doc-blue); }
+  #product-docs-root .product-docs-toolbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:12px; min-height:58px; padding:8px 16px; background:rgba(255,255,255,.96); border-bottom:1px solid var(--doc-line); backdrop-filter:blur(10px); }
+  #product-docs-root .product-docs-title { min-width:180px; color:var(--doc-ink); font-size:15px; font-weight:700; }
+  #product-docs-root .product-docs-search-wrap { position:relative; flex:1; max-width:580px; margin-left:auto; }
+  #product-docs-root .product-docs-search { width:100%; height:36px; padding:0 12px; color:var(--doc-ink); background:#f8faf9; border:1px solid #d8dfdb; border-radius:6px; outline:none; }
+  #product-docs-root .product-docs-search:focus { border-color:#64a984; box-shadow:0 0 0 3px rgba(69,166,111,.12); }
+  #product-docs-root .product-docs-search-results { position:absolute; top:42px; right:0; left:0; display:none; max-height:300px; overflow:auto; padding:5px; background:#fff; border:1px solid var(--doc-line); border-radius:6px; box-shadow:0 14px 30px rgba(29,44,35,.14); }
+  #product-docs-root .product-docs-search-results.open { display:block; }
+  #product-docs-root .product-docs-search-result { display:block; padding:8px 9px; color:var(--doc-ink); text-decoration:none; border-radius:5px; }
+  #product-docs-root .product-docs-search-result:hover { background:#f0f6f2; }
+  #product-docs-root .product-docs-search-result small { display:block; color:var(--doc-muted); }
+  #product-docs-root .product-docs-action { display:inline-flex; height:36px; align-items:center; gap:6px; padding:0 12px; color:#36443c; background:#fff; border:1px solid var(--doc-line); border-radius:6px; cursor:pointer; text-decoration:none; white-space:nowrap; }
+  #product-docs-root .product-docs-action:hover { color:#267a50; background:#f4f8f5; border-color:#b9c8bf; }
+  #product-docs-root .product-docs-action:active { transform:translateY(1px); }
+  #product-docs-root .product-docs-layout { display:grid; grid-template-columns:190px minmax(0,1fr) 190px; gap:22px; padding:20px 18px 44px; }
+  #product-docs-root .product-docs-nav { position:sticky; top:78px; align-self:start; max-height:calc(100vh - 112px); overflow:auto; padding-right:10px; }
+  #product-docs-root .product-docs-nav-label, #product-docs-root .product-docs-toc-label { margin-bottom:8px; color:#87928c; font-size:11px; font-weight:700; }
+  #product-docs-root .product-docs-nav-item { display:grid; grid-template-columns:26px 1fr; gap:5px; align-items:center; min-height:38px; padding:6px 8px; color:#68736d; text-decoration:none; border:1px solid transparent; border-radius:5px; font-size:12px; }
+  #product-docs-root .product-docs-nav-item:hover { color:var(--doc-green); background:#f0f6f2; }
+  #product-docs-root .product-docs-nav-item.active { color:var(--doc-green); background:#eaf8f0; border-color:#c9e5d3; box-shadow:inset 3px 0 #45a66f; }
+  #product-docs-root .product-docs-nav-index { color:#9aa69e; font:700 10px "Segoe UI",sans-serif; }
+  #product-docs-root .product-docs-content { min-width:0; }
+  #product-docs-root .product-docs-article { padding:2px 0 42px; border-bottom:1px solid var(--doc-line); }
+  #product-docs-root .product-docs-article:last-child { border-bottom:0; }
+  #product-docs-root .product-docs-article h1 { margin:0 0 18px; font-size:27px; line-height:1.35; letter-spacing:0; }
+  #product-docs-root .product-docs-article h2 { margin:35px 0 13px; padding-top:4px; font-size:21px; line-height:1.4; letter-spacing:0; }
+  #product-docs-root .product-docs-article h3 { margin:25px 0 10px; font-size:17px; line-height:1.45; letter-spacing:0; }
+  #product-docs-root .product-docs-heading-link { margin-left:7px; color:#b7c0bb; text-decoration:none; font-size:.72em; opacity:0; }
+  #product-docs-root .product-docs-article h1:hover .product-docs-heading-link, #product-docs-root .product-docs-article h2:hover .product-docs-heading-link, #product-docs-root .product-docs-article h3:hover .product-docs-heading-link { opacity:1; }
+  #product-docs-root .product-docs-article p { margin:9px 0 14px; }
+  #product-docs-root .product-docs-article ul, #product-docs-root .product-docs-article ol { padding-left:23px; }
+  #product-docs-root .product-docs-article li { margin:4px 0; }
+  #product-docs-root .product-docs-article li { break-inside:avoid; }
+  #product-docs-root .product-docs-article blockquote { margin:14px 0 20px; padding:10px 14px; color:#526059; background:#edf6f0; border-left:4px solid #45a66f; }
+  #product-docs-root .product-docs-article blockquote p { margin:0 0 5px; }
+  #product-docs-root .product-docs-article blockquote p:last-child { margin-bottom:0; }
+  #product-docs-root .product-docs-article code { padding:2px 5px; color:#234b37; background:#e9f0ec; border-radius:4px; font:12px Consolas,"Courier New",monospace; }
+  #product-docs-root .product-docs-article pre { overflow:auto; margin:16px 0 22px; padding:15px 16px; color:#e7eee9; background:#141b17; border:1px solid #29342e; border-radius:6px; }
+  #product-docs-root .product-docs-article pre code { padding:0; color:inherit; background:transparent; }
+  #product-docs-root .product-docs-table-wrap { overflow:auto; margin:16px 0 23px; border:1px solid #d8dfdb; border-radius:6px; }
+  #product-docs-root .product-docs-article table { width:100%; min-width:580px; border-collapse:collapse; background:#fff; }
+  #product-docs-root .product-docs-article th, #product-docs-root .product-docs-article td { padding:9px 11px; text-align:left; vertical-align:top; border-bottom:1px solid #e7ebe8; }
+  #product-docs-root .product-docs-article th { color:#3d4a43; background:#eef3f0; font-size:12px; }
+  #product-docs-root .product-docs-article tr:last-child td { border-bottom:0; }
+  #product-docs-root .product-docs-flat-diagram { margin:19px 0 24px; padding:10px; overflow:auto; background:#fff; border:1px solid #d8dfdb; border-radius:7px; }
+  #product-docs-root .product-docs-flat-diagram svg { display:block; width:100%; min-width:620px; height:auto; }
+  #product-docs-root .product-docs-toc { position:sticky; top:78px; align-self:start; max-height:calc(100vh - 112px); overflow:auto; padding-left:14px; border-left:1px solid var(--doc-line); }
+  #product-docs-root .product-docs-toc-link { display:block; padding:4px 0; color:#6b766f; text-decoration:none; font-size:11px; line-height:1.45; }
+  #product-docs-root .product-docs-toc-link.level-3 { padding-left:11px; }
+  #product-docs-root .product-docs-toc-link:hover, #product-docs-root .product-docs-toc-link.active { color:var(--doc-green); }
+  #product-docs-root.product-docs-dark { --doc-ink:#e5e7eb; --doc-muted:#a9b4ae; --doc-line:rgba(148,163,184,.22); background:#17211d; }
+  #product-docs-root.product-docs-dark .product-docs-toolbar, #product-docs-root.product-docs-dark .product-docs-search-results, #product-docs-root.product-docs-dark .product-docs-article table, #product-docs-root.product-docs-dark .product-docs-flat-diagram { background:#1f2937; }
+  #product-docs-root.product-docs-dark .product-docs-search { color:#e5e7eb; background:#0f172a; border-color:rgba(148,163,184,.24); }
+  #product-docs-root.product-docs-dark .product-docs-nav-item:hover { background:rgba(69,166,111,.12); }
+  #product-docs-root.product-docs-dark .product-docs-nav-item.active { background:rgba(69,166,111,.18); border-color:rgba(69,166,111,.35); }
+  #product-docs-root.product-docs-dark .product-docs-article th { color:#d1d5db; background:#0f172a; }
+  @media (max-width:1180px) { #product-docs-root .product-docs-layout { grid-template-columns:170px minmax(0,1fr); } #product-docs-root .product-docs-toc { display:none; } }
+  @media (max-width:760px) { #product-docs-root .product-docs-toolbar { min-height:54px; padding:8px 10px; } #product-docs-root .product-docs-title { display:none; } #product-docs-root .product-docs-action span { display:none; } #product-docs-root .product-docs-action { width:36px; justify-content:center; padding:0; } #product-docs-root .product-docs-layout { display:block; padding:14px 11px 35px; } #product-docs-root .product-docs-nav { position:static; display:flex; gap:5px; max-height:none; overflow:auto; padding:0 0 12px; border-bottom:1px solid var(--doc-line); } #product-docs-root .product-docs-nav-label { display:none; } #product-docs-root .product-docs-nav-item { min-width:max-content; } #product-docs-root .product-docs-article h1 { font-size:24px; } #product-docs-root .product-docs-article h2 { font-size:19px; } #product-docs-root .product-docs-flat-diagram svg { min-width:620px; } }
+  @media print { #product-docs-root .product-docs-toolbar, #product-docs-root .product-docs-nav, #product-docs-root .product-docs-toc { display:none; } #product-docs-root .product-docs-layout { display:block; padding:0; } #product-docs-root .product-docs-article { break-before:page; border:0; } #product-docs-root .product-docs-article:first-child { break-before:auto; } #product-docs-root .product-docs-article h2, #product-docs-root .product-docs-article h3 { break-after:avoid; } #product-docs-root .product-docs-flat-diagram, #product-docs-root .product-docs-table-wrap, #product-docs-root .product-docs-article pre, #product-docs-root .product-docs-article ul { break-inside:avoid; } }
+</style>
+  <div class="product-docs-toolbar">
+    <div class="product-docs-title" data-product-docs-title>产品维护文档</div>
+    <div class="product-docs-search-wrap">
+      <input class="product-docs-search" data-product-docs-search type="search" placeholder="搜索标题或内容" autocomplete="off" />
+      <div class="product-docs-search-results" data-product-docs-search-results></div>
+    </div>
+    <button class="product-docs-action" type="button" data-product-docs-print><i class="ri-printer-line" aria-hidden="true"></i><span>打印</span></button>
+    <a class="product-docs-action" href="/admin/product-docs/download" data-product-docs-download><i class="ri-download-2-line" aria-hidden="true"></i><span>下载 PDF</span></a>
+  </div>
+  <div class="product-docs-layout">
+    <nav class="product-docs-nav" aria-label="产品文档目录"><div class="product-docs-nav-label">文档目录</div>
+  <a class="product-docs-nav-item active" href="#product-doc-home" data-doc-target="home">
+    <span class="product-docs-nav-index">01</span>
+    <span>文档导航</span>
+  </a>
+  <a class="product-docs-nav-item" href="#product-doc-overview" data-doc-target="overview">
+    <span class="product-docs-nav-index">02</span>
+    <span>系统总览与数据流</span>
+  </a>
+  <a class="product-docs-nav-item" href="#product-doc-components" data-doc-target="components">
+    <span class="product-docs-nav-index">03</span>
+    <span>三端功能说明</span>
+  </a>
+  <a class="product-docs-nav-item" href="#product-doc-brokers" data-doc-target="brokers">
+    <span class="product-docs-nav-index">04</span>
+    <span>券商接入说明</span>
+  </a>
+  <a class="product-docs-nav-item" href="#product-doc-operations" data-doc-target="operations">
+    <span class="product-docs-nav-index">05</span>
+    <span>维护与故障排查</span>
+  </a></nav>
+    <main class="product-docs-content" data-product-docs-content><article id="product-doc-home" class="product-docs-article" data-doc-id="home" data-doc-title="文档导航"><h1 id="home-section-1" data-toc-label="SC 证券股票交易系统维护文档">SC 证券股票交易系统维护文档<a class="product-docs-heading-link" href="#home-section-1" aria-label="链接到本节">#</a></h1>
+<p>本目录面向系统维护者、部署人员、后端开发人员和券商接入维护人员。文档依据当前 Client、Server Manager（SM）、Trader Server（TS）代码及生产部署示例整理。</p>
+<h2 id="home-section-2" data-toc-label="文档导航">文档导航<a class="product-docs-heading-link" href="#home-section-2" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>文档</th>
+<th>主要内容</th>
+<th>建议阅读场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="#product-doc-overview">01_系统总览与数据流</a></td>
+<td>三端边界、登录/WSS/交易数据流、注册审批、网络端口、硬件建议</td>
+<td>首次了解系统、评审架构、规划部署</td>
+</tr>
+<tr>
+<td><a href="#product-doc-components">02_三端功能说明</a></td>
+<td>Client、SM、TS 的功能入口、操作流、快捷键与界面截图占位</td>
+<td>熟悉各端功能、培训维护人员、准备界面截图</td>
+</tr>
+<tr>
+<td><a href="#product-doc-brokers">03_券商接入说明</a></td>
+<td>Broker Adapter、TT、IB、Gateway 生命周期、能力与限制</td>
+<td>券商审批、Gateway 配置、券商故障定位</td>
+</tr>
+<tr>
+<td><a href="#product-doc-operations">04_维护与故障排查</a></td>
+<td>部署、重装、Caddy、域名池、日志、错误码、分层排障</td>
+<td>日常维护、故障响应、生产交接</td>
+</tr>
+</tbody></table></div>
+<h2 id="home-section-3" data-toc-label="推荐阅读顺序">推荐阅读顺序<a class="product-docs-heading-link" href="#home-section-3" aria-label="链接到本节">#</a></h2>
+<ol>
+<li>新维护者先阅读系统总览，确认 Client、SM、TS 和券商之间的职责边界。</li>
+<li>按负责范围阅读三端功能说明，了解实际界面和操作入口。</li>
+<li>负责交易链路或审批时阅读券商接入说明。</li>
+<li>部署、重装或处理故障时以维护与故障排查文档为操作入口。</li>
+</ol>
+<h2 id="home-section-4" data-toc-label="使用原则">使用原则<a class="product-docs-heading-link" href="#home-section-4" aria-label="链接到本节">#</a></h2>
+<ul>
+<li>Client 不直接连接券商，SM 不直接连接 IB Gateway；券商真实 API 调用位于 TS。</li>
+<li>交易员界面只显示安全、券商无关的提示，不展示券商名称、TS 地址、SDK 异常或后台堆栈。</li>
+<li>维护者日志可以保留诊断码和必要上下文，但必须脱敏后再交接。</li>
+<li>文档中的截图位置暂以占位符表示，正式补图时必须遮盖账号、域名、IP、订单号和凭据。</li>
+<li>文档中的硬件规格是工程建议，不是经过压测后的 SLA。</li>
+<li>自动化测试不得提交真实实盘订单；实盘验收必须由授权人员人工确认。</li>
+</ul>
+<h2 id="home-section-5" data-toc-label="文档边界">文档边界<a class="product-docs-heading-link" href="#home-section-5" aria-label="链接到本节">#</a></h2>
+<p>本目录不保存实际账号、密码、token、券商凭据、DNSPod 密钥或 Caddy 证书。生产配置以受控运行环境和 SM/TS 实际状态为准，文档不作为敏感配置载体。</p>
+</article>
+<article id="product-doc-overview" class="product-docs-article" data-doc-id="overview" data-doc-title="系统总览与数据流"><h1 id="overview-section-1" data-toc-label="SC 证券股票交易系统：系统总览与数据流">SC 证券股票交易系统：系统总览与数据流<a class="product-docs-heading-link" href="#overview-section-1" aria-label="链接到本节">#</a></h1>
+<blockquote>
+<p>生产维护版：2026-08-10</p>
+<p>适用对象：系统维护者、部署人员、后端开发人员和券商接入维护人员。</p>
+<p>本文基于当前仓库代码和部署示例整理。文中标注“工程建议”的内容不是压测结论，正式上线前仍需用生产规格设备和真实网络完成验收。</p>
+</blockquote>
+<h2 id="overview-section-2" data-toc-label="1. 文档目的">1. 文档目的<a class="product-docs-heading-link" href="#overview-section-2" aria-label="链接到本节">#</a></h2>
+<p>本文说明系统的边界、三端职责、主要数据流、网络入口、认证关系和当前容量边界。它不替代各端操作说明、券商配置说明和故障排查手册；后三者分别见：</p>
+<ul>
+<li><a href="#product-doc-components">02_三端功能说明</a></li>
+<li><a href="#product-doc-brokers">03_券商接入说明</a></li>
+<li><a href="#product-doc-operations">04_维护与故障排查</a></li>
+</ul>
+<h2 id="overview-section-3" data-toc-label="2. 术语和边界">2. 术语和边界<a class="product-docs-heading-link" href="#overview-section-3" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>名称</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Client</td>
+<td>Windows 桌面交易客户端，PySide6。负责登录、界面展示、用户输入和向 TS 发送统一交易消息。</td>
+</tr>
+<tr>
+<td>SM</td>
+<td>Server Manager，FastAPI 管理端和 Web 管理后台。负责交易员账号、TS 节点、审批、域名池、配置保存和 Client 登录认证。</td>
+</tr>
+<tr>
+<td>TS</td>
+<td>Trader Server，FastAPI + WebSocket 交易服务端。负责 Client WSS、券商适配器、行情、持仓、订单和撤单。</td>
+</tr>
+<tr>
+<td>TT</td>
+<td>Tastytrade 接入。由 TS 管理券商 Session；SM 在审批阶段验证凭据和账户。</td>
+</tr>
+<tr>
+<td>IB</td>
+<td>Interactive Brokers 接入。TS 使用官方 <code>ibapi</code> 连接同机 IB Gateway；SM 不安装或直接 import <code>ibapi</code>。</td>
+</tr>
+<tr>
+<td>节点</td>
+<td>一台已注册的 TS。当前一个节点固定绑定一个券商账户和一个 Client 会话。</td>
+</tr>
+<tr>
+<td>统一消息</td>
+<td>Client 与 TS 之间的消息协议，例如 <code>QUOTE_SUBSCRIBE</code>、<code>POSITION_QUERY</code>、<code>ORDER_SUBMIT</code>。Client 不直接调用券商 SDK。</td>
+</tr>
+</tbody></table></div>
+<p>系统边界必须保持如下关系：Client 不直连券商，SM 不直连 IB Gateway，券商真实 API 调用只发生在 TS。</p>
+<h2 id="overview-section-4" data-toc-label="3. 总体架构">3. 总体架构<a class="product-docs-heading-link" href="#overview-section-4" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-flat-diagram" role="img" aria-label="Client、SM、TS 与券商的生产架构图">
+<svg viewBox="0 0 1120 560" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker>
+    <style>
+      .n{stroke-width:2}.t{font:700 18px 'Microsoft YaHei',sans-serif;fill:#17212b}.s{font:14px 'Microsoft YaHei',sans-serif;fill:#5d6875}.l{font:13px 'Microsoft YaHei',sans-serif;fill:#46515e}.a{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#a1)}
+    </style>
+  </defs>
+  <rect x="36" y="220" width="190" height="96" rx="7" fill="#eaf8f0" stroke="#45a66f" class="n"/>
+  <text x="131" y="258" text-anchor="middle" class="t">Client</text><text x="131" y="285" text-anchor="middle" class="s">Windows / PySide6</text>
+  <rect x="320" y="68" width="190" height="88" rx="7" fill="#fff8dc" stroke="#d5a928" class="n"/>
+  <text x="415" y="103" text-anchor="middle" class="t">SM Caddy</text><text x="415" y="130" text-anchor="middle" class="s">HTTPS :443</text>
+  <rect x="610" y="68" width="210" height="88" rx="7" fill="#fff8dc" stroke="#d5a928" class="n"/>
+  <text x="715" y="103" text-anchor="middle" class="t">SM</text><text x="715" y="130" text-anchor="middle" class="s">FastAPI / 管理后台</text>
+  <rect x="890" y="68" width="190" height="88" rx="7" fill="#f4f5f7" stroke="#98a2b3" class="n"/>
+  <text x="985" y="103" text-anchor="middle" class="t">DNSPod</text><text x="985" y="130" text-anchor="middle" class="s">域名池 A 记录</text>
+  <rect x="320" y="388" width="190" height="88" rx="7" fill="#eaf2ff" stroke="#4d83d1" class="n"/>
+  <text x="415" y="423" text-anchor="middle" class="t">TS Caddy</text><text x="415" y="450" text-anchor="middle" class="s">HTTPS / WSS :443</text>
+  <rect x="610" y="388" width="210" height="88" rx="7" fill="#eaf2ff" stroke="#4d83d1" class="n"/>
+  <text x="715" y="423" text-anchor="middle" class="t">TS</text><text x="715" y="450" text-anchor="middle" class="s">WSS / Broker Adapter</text>
+  <rect x="890" y="320" width="190" height="72" rx="7" fill="#f4f5f7" stroke="#98a2b3" class="n"/>
+  <text x="985" y="350" text-anchor="middle" class="t">TT API</text><text x="985" y="375" text-anchor="middle" class="s">公网 HTTPS</text>
+  <rect x="890" y="438" width="190" height="72" rx="7" fill="#f4f5f7" stroke="#98a2b3" class="n"/>
+  <text x="985" y="468" text-anchor="middle" class="t">IB Gateway</text><text x="985" y="493" text-anchor="middle" class="s">同机 127.0.0.1:4001</text>
+  <path d="M226 246 C265 220 280 145 320 118" class="a"/><text x="250" y="174" class="l">HTTPS 登录</text>
+  <path d="M510 112 H610" class="a"/><text x="560" y="98" text-anchor="middle" class="l">:8800</text>
+  <path d="M226 292 C265 320 280 405 320 430" class="a"/><text x="250" y="365" class="l">WSS /ws</text>
+  <path d="M510 432 H610" class="a"/><text x="560" y="418" text-anchor="middle" class="l">:8900</text>
+  <path d="M720 388 V156" class="a"/><text x="735" y="274" class="l">心跳 / 配置 / Token 复验</text>
+  <path d="M820 112 H890" class="a"/><text x="855" y="98" text-anchor="middle" class="l">DNS 更新</text>
+  <path d="M820 420 C850 405 860 375 890 360" class="a"/><text x="842" y="391" class="l">HTTPS</text>
+  <path d="M820 448 C850 456 860 468 890 474" class="a"/><text x="844" y="475" class="l">Socket</text>
+</svg>
+</div>
+
+<p>生产目标是公网只暴露 80/443。SM 的 8800、TS 的 8900、Caddy 管理端口 2019/2020 均应只监听回环地址或由防火墙阻断公网访问。</p>
+<h2 id="overview-section-5" data-toc-label="4. Client 登录数据流">4. Client 登录数据流<a class="product-docs-heading-link" href="#overview-section-5" aria-label="链接到本节">#</a></h2>
+<p>Client 的登录是系统登录，不是券商登录。当前 Client 登录请求由 <code>Client/services/trading_session.py</code> 发往 SM 的 <code>/auth/login</code>。</p>
+<div class="product-docs-flat-diagram" role="img" aria-label="Client 登录数据流">
+<svg viewBox="0 0 980 390" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 18px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:14px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.k{font:700 13px 'Microsoft YaHei',sans-serif;fill:#fff}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#a2)}</style></defs>
+  <rect x="50" y="36" width="190" height="70" rx="7" fill="#eaf8f0" stroke="#45a66f" stroke-width="2"/><text x="145" y="78" text-anchor="middle" class="h">Client</text>
+  <rect x="395" y="36" width="190" height="70" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="490" y="78" text-anchor="middle" class="h">SM 认证服务</text>
+  <rect x="740" y="36" width="190" height="70" rx="7" fill="#f4f5f7" stroke="#98a2b3" stroke-width="2"/><text x="835" y="78" text-anchor="middle" class="h">SM 数据库</text>
+  <line x1="145" y1="106" x2="145" y2="354" stroke="#d0d5dd" stroke-width="2"/><line x1="490" y1="106" x2="490" y2="354" stroke="#d0d5dd" stroke-width="2"/><line x1="835" y1="106" x2="835" y2="354" stroke="#d0d5dd" stroke-width="2"/>
+  <circle cx="276" cy="146" r="15" fill="#45a66f"/><text x="276" y="151" text-anchor="middle" class="k">1</text><path d="M160 146 H475" class="ar"/><text x="318" y="133" text-anchor="middle" class="p">POST /auth/login</text>
+  <circle cx="650" cy="205" r="15" fill="#d5a928"/><text x="650" y="210" text-anchor="middle" class="k">2</text><path d="M505 205 H820" class="ar"/><text x="662" y="192" text-anchor="middle" class="p">校验账号、状态与绑定节点</text>
+  <circle cx="650" cy="264" r="15" fill="#98a2b3"/><text x="650" y="269" text-anchor="middle" class="k">3</text><path d="M820 264 H505" class="ar"/><text x="662" y="251" text-anchor="middle" class="p">返回账号与 TS 地址</text>
+  <circle cx="276" cy="323" r="15" fill="#4d83d1"/><text x="276" y="328" text-anchor="middle" class="k">4</text><path d="M475 323 H160" class="ar"/><text x="318" y="310" text-anchor="middle" class="p">token / 24h / WSS 地址</text>
+</svg>
+</div>
+
+<p>当前约束：</p>
+<ol>
+<li>Client 不接收 TT OAuth secret/token、IBKR username/password、IB Gateway 2FA 信息。</li>
+<li>Client token 默认有效期为 <code>CLIENT_TOKEN_TTL_SECONDS=86400</code>，即 24 小时；服务端内存 token 过期后会返回认证失效原因。</li>
+<li>登录失败、认证过期和账号未激活由 Client 显示为面向交易员的可读提示，不应把 Python traceback、内部 URL 或券商 SDK 异常直接显示给交易员。</li>
+<li>Client 登录拿到的 <code>se_address</code> 是绑定 TS 的入口地址。生产环境通常是 <code>wss://</code> 域名入口，而不是直接暴露 TS 内网或应用端口。</li>
+</ol>
+<h2 id="overview-section-6" data-toc-label="5. Client WSS 连接和占用">5. Client WSS 连接和占用<a class="product-docs-heading-link" href="#overview-section-6" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-flat-diagram" role="img" aria-label="Client WSS 连接与认证流程">
+<svg viewBox="0 0 1000 450" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 18px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:14px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#a3)}</style></defs>
+  <rect x="55" y="34" width="190" height="70" rx="7" fill="#eaf8f0" stroke="#45a66f" stroke-width="2"/><text x="150" y="76" text-anchor="middle" class="h">Client</text>
+  <rect x="405" y="34" width="190" height="70" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="500" y="76" text-anchor="middle" class="h">TS WSS</text>
+  <rect x="755" y="34" width="190" height="70" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="850" y="76" text-anchor="middle" class="h">SM</text>
+  <line x1="150" y1="104" x2="150" y2="414" stroke="#d0d5dd" stroke-width="2"/><line x1="500" y1="104" x2="500" y2="414" stroke="#d0d5dd" stroke-width="2"/><line x1="850" y1="104" x2="850" y2="414" stroke="#d0d5dd" stroke-width="2"/>
+  <path d="M165 142 H485" class="ar"/><text x="325" y="129" text-anchor="middle" class="p">WSS /ws + CONNECT 首包</text>
+  <path d="M515 202 H835" class="ar"/><text x="675" y="189" text-anchor="middle" class="p">Token、节点绑定、connection_id 复验</text>
+  <path d="M835 258 H515" class="ar"/><text x="675" y="245" text-anchor="middle" class="p">认证与占用结果</text>
+  <path d="M485 314 H165" class="ar"/><text x="325" y="301" text-anchor="middle" class="p">CONNECT_ACK / session_id</text>
+  <rect x="115" y="350" width="770" height="58" rx="7" fill="#f8fafc" stroke="#cbd5e1"/><text x="500" y="374" text-anchor="middle" class="h" style="font-size:15px">连接建立后</text><text x="500" y="396" text-anchor="middle" class="p">Client PING/PONG 与业务消息持续；TS 向 SM 发送心跳并周期复验 Token</text>
+</svg>
+</div>
+
+<p>TS 当前采用单节点单 Client 的占用模型。新的 Client 连接会按节点占用规则处理旧连接；Client 异常断开后，TS 有短暂释放宽限，避免普通网络抖动立即释放占用。管理员可通过 TS 的受保护管理接口强制断开当前 Client。</p>
+<p>Client 断线重连只复用已取得的 Client token；它不会重新让交易员输入券商凭据，也不会触发 TT 登出。认证过期或 SM 重启导致 Token 无法复验时，Client 应回到登录页重新认证。</p>
+<h3 id="overview-section-7" data-toc-label="5.1 WSS 消息目录">5.1 WSS 消息目录<a class="product-docs-heading-link" href="#overview-section-7" aria-label="链接到本节">#</a></h3>
+<p>以下是当前 TS WebSocket 服务支持的主要消息。Client 只使用统一消息，不需要了解券商 SDK 的回调名称。</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>方向</th>
+<th>消息</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Client -&gt; TS</td>
+<td><code>CONNECT</code></td>
+<td>首包提交 Client token、connection_id，完成节点和会话认证</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>PING</code></td>
+<td>应用层保活</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>STATUS_QUERY</code></td>
+<td>查询 TS 节点、连接和订阅状态</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>BROKER_STATUS_QUERY</code></td>
+<td>查询券商连接状态、账户摘要和 capability</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>QUOTE_SUBSCRIBE</code></td>
+<td>添加或取消 symbol 行情订阅</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>POSITION_QUERY</code></td>
+<td>查询绑定账户持仓</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>ORDER_QUERY</code></td>
+<td>查询 <code>live</code> 或 <code>all</code> 订单；Client 再按状态归类四个页签</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>ORDER_SUBMIT</code></td>
+<td>提交统一订单参数</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>ORDER_CANCEL</code></td>
+<td>按订单 ID 请求撤单</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>ECONOMIC_DATA_QUERY</code></td>
+<td>查询 TS 提供的经济数据</td>
+</tr>
+<tr>
+<td>Client -&gt; TS</td>
+<td><code>SUMMARY_REPORT</code></td>
+<td>请求 TS 摘要报告</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>CONNECT_ACK</code></td>
+<td>返回 session_id、节点信息和初始交易状态</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>PONG</code></td>
+<td><code>PING</code> 的保活响应</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>STATUS_RESPONSE</code></td>
+<td>返回 TS 状态和行情订阅信息</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>BROKER_STATUS_RESPONSE</code></td>
+<td>返回券商状态和 capability</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>BROKER_STATUS_CHANGE</code></td>
+<td>券商连接、配置重载或恢复时主动广播状态变化</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>QUOTE_ACK</code> / <code>QUOTE_DATA</code></td>
+<td>订阅结果和实时行情事件</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>POSITION_RESPONSE</code></td>
+<td>持仓查询结果或稳定错误码</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>ORDER_LIST_RESPONSE</code></td>
+<td>订单查询结果或稳定错误码</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>ORDER_RESPONSE</code></td>
+<td>下单结果或稳定错误码</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>ORDER_CANCEL_RESPONSE</code></td>
+<td>撤单结果或稳定错误码</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>ECONOMIC_DATA_RESPONSE</code></td>
+<td>经济数据查询结果</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>SUMMARY_REPORT</code></td>
+<td>摘要报告结果</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>FORCE_DISCONNECT</code></td>
+<td>管理员强制释放节点时通知 Client</td>
+</tr>
+<tr>
+<td>TS -&gt; Client</td>
+<td><code>ERROR</code></td>
+<td>未知消息、参数错误或处理失败</td>
+</tr>
+</tbody></table></div>
+<p>维护者排查时应先确认消息是否到达正确一层：认证问题看 <code>CONNECT</code> 和 SM Token 复验；连接问题看 <code>PING/PONG</code>；行情问题看 <code>QUOTE_SUBSCRIBE/QUOTE_ACK/QUOTE_DATA</code>；交易问题看 <code>ORDER_SUBMIT/ORDER_RESPONSE</code>；订单状态变化看 <code>BROKER_STATUS_CHANGE</code> 和订单事件刷新。</p>
+<h2 id="overview-section-8" data-toc-label="6. 行情数据流">6. 行情数据流<a class="product-docs-heading-link" href="#overview-section-8" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-flat-diagram" role="img" aria-label="行情订阅数据流">
+<svg viewBox="0 0 1080 300" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 17px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:13px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#a4)}</style></defs>
+  <rect x="35" y="88" width="180" height="78" rx="7" fill="#eaf8f0" stroke="#45a66f" stroke-width="2"/><text x="125" y="134" text-anchor="middle" class="h">Client</text>
+  <rect x="300" y="88" width="180" height="78" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="390" y="134" text-anchor="middle" class="h">TS 行情服务</text>
+  <rect x="565" y="88" width="200" height="78" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="665" y="134" text-anchor="middle" class="h">Broker Adapter</text>
+  <rect x="850" y="88" width="195" height="78" rx="7" fill="#f4f5f7" stroke="#98a2b3" stroke-width="2"/><text x="947" y="122" text-anchor="middle" class="h">券商行情源</text><text x="947" y="146" text-anchor="middle" class="p">API / Gateway</text>
+  <path d="M215 112 H300" class="ar"/><text x="258" y="96" text-anchor="middle" class="p">订阅</text><path d="M480 112 H565" class="ar"/><text x="523" y="96" text-anchor="middle" class="p">统一调用</text><path d="M765 112 H850" class="ar"/><text x="808" y="96" text-anchor="middle" class="p">建立订阅</text>
+  <path d="M850 151 H765" class="ar"/><text x="808" y="181" text-anchor="middle" class="p">行情事件</text><path d="M565 151 H480" class="ar"/><text x="523" y="181" text-anchor="middle" class="p">标准报价</text><path d="M300 151 H215" class="ar"/><text x="258" y="181" text-anchor="middle" class="p">QUOTE_DATA</text>
+  <text x="540" y="242" text-anchor="middle" class="p">Client 主界面显示 BID / ASK；权限、合约解析与通道状态由 TS 分层诊断</text>
+</svg>
+</div>
+
+<p>行情是否成功是条件性的：TS 与 Gateway 或 TT Session 连接成功，只代表通道可用，不代表账户有某个市场的数据权限。美股标的还需要合法合约/标的解析；IB 第一版只针对美股 <code>STK/SMART/USD</code>。</p>
+<p>Client 的报价展示和下单价格使用是两个层次：报价由 TS 推送；下单参数由 Client 按当前交易栏、价格框、订单类型和 TIF 组装，再由 TS 和券商适配器校验。排查行情时应记录 symbol、订阅结果、券商连接状态和错误码，不应只看 Client 是否连接到 TS。</p>
+<h2 id="overview-section-9" data-toc-label="7. 持仓、订单、下单和撤单数据流">7. 持仓、订单、下单和撤单数据流<a class="product-docs-heading-link" href="#overview-section-9" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-flat-diagram" role="img" aria-label="持仓、订单、下单与撤单数据流">
+<svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="a5" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 17px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:13px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#a5)}</style></defs>
+  <rect x="60" y="54" width="220" height="88" rx="7" fill="#eaf8f0" stroke="#45a66f" stroke-width="2"/><text x="170" y="91" text-anchor="middle" class="h">Client 操作</text><text x="170" y="118" text-anchor="middle" class="p">查询 / 下单 / 撤单</text>
+  <rect x="390" y="54" width="220" height="88" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="500" y="91" text-anchor="middle" class="h">TS Trading Service</text><text x="500" y="118" text-anchor="middle" class="p">认证、参数与能力校验</text>
+  <rect x="720" y="54" width="220" height="88" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="830" y="91" text-anchor="middle" class="h">Broker Adapter</text><text x="830" y="118" text-anchor="middle" class="p">统一券商接口</text>
+  <rect x="720" y="238" width="220" height="88" rx="7" fill="#f4f5f7" stroke="#98a2b3" stroke-width="2"/><text x="830" y="275" text-anchor="middle" class="h">券商 Session</text><text x="830" y="302" text-anchor="middle" class="p">TT API / IB Gateway</text>
+  <rect x="390" y="388" width="220" height="78" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="500" y="421" text-anchor="middle" class="h">事件与状态缓存</text><text x="500" y="446" text-anchor="middle" class="p">成交 / 拒绝 / 取消 / 持仓</text>
+  <path d="M280 98 H390" class="ar"/><text x="335" y="83" text-anchor="middle" class="p">统一 WSS</text><path d="M610 98 H720" class="ar"/><text x="665" y="83" text-anchor="middle" class="p">适配调用</text>
+  <path d="M830 142 V238" class="ar"/><text x="846" y="194" class="p">提交</text><path d="M720 282 H650 C620 282 620 427 610 427" class="ar"/><text x="655" y="307" class="p">响应 / 回调</text>
+  <path d="M390 427 H170 V142" class="ar"/><text x="188" y="353" class="p">标准响应与刷新事件</text>
+</svg>
+</div>
+
+<p>统一消息和当前界面行为：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>Client 消息</th>
+<th>TS 行为</th>
+<th>Client 展示</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>POSITION_QUERY</code></td>
+<td>调用适配器持仓查询，按绑定账户返回</td>
+<td>持仓栏</td>
+</tr>
+<tr>
+<td><code>ORDER_QUERY</code></td>
+<td>接收 <code>live</code> 或 <code>all</code> 查询，返回统一订单后由 Client 按状态过滤</td>
+<td>进行中、成交、失效、ALL 四页签</td>
+</tr>
+<tr>
+<td><code>ORDER_SUBMIT</code></td>
+<td>校验 symbol、数量、价格、方向、类型、TIF 和 capability 后下单</td>
+<td>成功、拒绝或错误弱提示，订单列表刷新</td>
+</tr>
+<tr>
+<td><code>ORDER_CANCEL</code></td>
+<td>只对当前 Client 可识别且仍可撤销的订单调用适配器</td>
+<td>撤单结果和状态更新</td>
+</tr>
+<tr>
+<td>订单事件</td>
+<td>TS 适配器回调更新运行状态，并通知 Client</td>
+<td>订单/持仓按需刷新</td>
+</tr>
+</tbody></table></div>
+<p>订单范围需要按券商适配：TT 展示当前账户范围内的订单；IB 第一版展示当前 TS 创建和维护的订单范围。活动、成交、失效和 all 不是简单把一个券商接口当成完整历史来源：IB 的活动订单、成交和已完成订单来自不同回调/查询能力，适配器负责归一化后再给 Client。</p>
+<h2 id="overview-section-10" data-toc-label="8. TS 注册、SM 审批和域名池">8. TS 注册、SM 审批和域名池<a class="product-docs-heading-link" href="#overview-section-10" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-flat-diagram" role="img" aria-label="TS 注册、SM 审批和域名分配流程">
+<svg viewBox="0 0 1080 570" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="a6" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 17px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:13px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.num{font:700 14px 'Microsoft YaHei',sans-serif;fill:#fff}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#a6)}</style></defs>
+  <rect x="44" y="42" width="180" height="70" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="134" y="84" text-anchor="middle" class="h">TS</text>
+  <rect x="450" y="42" width="180" height="70" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="540" y="84" text-anchor="middle" class="h">SM</text>
+  <rect x="856" y="42" width="180" height="70" rx="7" fill="#f4f5f7" stroke="#98a2b3" stroke-width="2"/><text x="946" y="84" text-anchor="middle" class="h">管理员 / DNSPod</text>
+  <rect x="70" y="165" width="940" height="64" rx="7" fill="#f8fafc" stroke="#cbd5e1"/><circle cx="105" cy="197" r="18" fill="#4d83d1"/><text x="105" y="202" text-anchor="middle" class="num">1</text><text x="145" y="193" class="h">注册申请</text><text x="145" y="216" class="p">TS 检查 /ping，提交节点信息、公网 IPv4 和固定 broker type</text>
+  <path d="M224 78 H450" class="ar"/>
+  <rect x="70" y="252" width="940" height="98" rx="7" fill="#fffdf2" stroke="#d5a928"/><circle cx="105" cy="284" r="18" fill="#d5a928"/><text x="105" y="289" text-anchor="middle" class="num">2</text><text x="145" y="280" class="h">管理员验证账户</text><text x="145" y="305" class="p">TT：SM 验证公网凭据与账户</text><text x="145" y="330" class="p">IB：SM 调用待审批 TS；TS 连接本机 127.0.0.1:4001 并返回 managedAccounts，管理员选择一个 account_id</text>
+  <path d="M946 112 V252" class="ar"/>
+  <rect x="70" y="373" width="940" height="64" rx="7" fill="#f8fafc" stroke="#cbd5e1"/><circle cx="105" cy="405" r="18" fill="#45a66f"/><text x="105" y="410" text-anchor="middle" class="num">3</text><text x="145" y="401" class="h">审批与域名</text><text x="145" y="424" class="p">SM 保存 broker_config，分配域名，并把 DNSPod A 记录更新到 TS 公网 IPv4</text>
+  <rect x="70" y="460" width="940" height="64" rx="7" fill="#edf7ff" stroke="#4d83d1"/><circle cx="105" cy="492" r="18" fill="#4d83d1"/><text x="105" y="497" text-anchor="middle" class="num">4</text><text x="145" y="488" class="h">节点就绪</text><text x="145" y="511" class="p">SM 通过 SSE 返回审批结果；TS 保存节点配置、启动心跳、拉取券商配置并初始化 Caddy</text>
+  <path d="M540 350 V373" class="ar"/><path d="M540 437 V460" class="ar"/>
+</svg>
+</div>
+
+<p>域名池由 SM 管理。导入时使用完整 FQDN，例如 <code>www.ts01.scjrdomain.com</code>；审批成功后，SM 从未占用池中分配域名，并将 A 记录指向 TS 上报的公网 IPv4。域名分配和 DNS 更新失败时，SM 不应把节点当成完整可用节点；维护时要同时核对域名池状态、DNS 记录和 TS 实际公网 IP。</p>
+<h2 id="overview-section-11" data-toc-label="9. 网络和端口">9. 网络和端口<a class="product-docs-heading-link" href="#overview-section-11" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th align="right">应用监听</th>
+<th align="right">生产公网入口</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SM FastAPI</td>
+<td align="right"><code>127.0.0.1:8800</code></td>
+<td align="right"><code>https://scjrdomain.com</code> / 443</td>
+<td>由 SM Caddy 反向代理</td>
+</tr>
+<tr>
+<td>TS FastAPI/WSS</td>
+<td align="right"><code>127.0.0.1:8900</code></td>
+<td align="right"><code>wss://&lt;assigned-ts-domain&gt;/ws</code> / 443</td>
+<td>由 TS Caddy 反向代理</td>
+</tr>
+<tr>
+<td>SM Caddy Admin</td>
+<td align="right"><code>127.0.0.1:2019</code></td>
+<td align="right">不开放</td>
+<td>仅本机管理</td>
+</tr>
+<tr>
+<td>TS Caddy Admin</td>
+<td align="right"><code>127.0.0.1:2020</code></td>
+<td align="right">不开放</td>
+<td>仅本机管理</td>
+</tr>
+<tr>
+<td>IB Gateway</td>
+<td align="right"><code>127.0.0.1:4001</code></td>
+<td align="right">不开放</td>
+<td>当前生产实现固定由同机 TS 连接；不提供实盘/模拟盘切换</td>
+</tr>
+<tr>
+<td>DNSPod API</td>
+<td align="right">出站 HTTPS</td>
+<td align="right">不适用</td>
+<td>SM 更新 TS 域名池 A 记录</td>
+</tr>
+</tbody></table></div>
+<h3 id="overview-section-12" data-toc-label="9.1 生产配置基线">9.1 生产配置基线<a class="product-docs-heading-link" href="#overview-section-12" aria-label="链接到本节">#</a></h3>
+<p>以下字段来自当前生产部署模板。凭据字段必须由部署者在服务器本地注入，不在本文展示实际值。</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>端</th>
+<th>字段</th>
+<th>生产值/规则</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SM</td>
+<td><code>SERVER_HOST</code> / <code>SERVER_PORT</code></td>
+<td><code>127.0.0.1</code> / <code>8800</code></td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_PUBLIC_BASE_URL</code></td>
+<td><code>https://scjrdomain.com</code></td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_ALLOWED_HOSTS</code> / <code>SM_CORS_ORIGINS</code></td>
+<td>只包含生产域名和必要的本机地址</td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_COOKIE_SECURE</code></td>
+<td><code>1</code>，管理员 Cookie 只通过 HTTPS 发送</td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>CLIENT_TOKEN_TTL_SECONDS</code></td>
+<td><code>86400</code>，固定 24 小时，不做滑动续期</td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_DOMAIN_POOL_REQUIRED</code> / <code>SM_DNSPOD_MODE</code></td>
+<td><code>1</code> / <code>real</code></td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_DNS_TTL</code> / <code>SM_DOMAIN_COOLDOWN_SECONDS</code></td>
+<td><code>600</code> / <code>300</code> 秒</td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_CADDY_AUTO_MANAGE</code> / <code>SM_CADDY_REQUIRED</code></td>
+<td><code>1</code> / <code>1</code>，管理端口 <code>127.0.0.1:2019</code></td>
+</tr>
+<tr>
+<td>TS</td>
+<td><code>TS_MANAGER_URL</code></td>
+<td><code>https://scjrdomain.com</code></td>
+</tr>
+<tr>
+<td>TS</td>
+<td><code>TS_BIND_HOST</code> / <code>TS_WS_PORT</code></td>
+<td><code>127.0.0.1</code> / <code>8900</code></td>
+</tr>
+<tr>
+<td>TS</td>
+<td><code>TS_CADDY_AUTO_MANAGE</code> / <code>TS_CADDY_REQUIRED</code></td>
+<td><code>1</code> / <code>1</code>，管理端口 <code>127.0.0.1:2020</code></td>
+</tr>
+</tbody></table></div>
+<p><code>SM_DNSPOD_SECRET_ID</code>、<code>SM_DNSPOD_SECRET_KEY</code>、券商凭据、节点 token 和管理员初始密码属于敏感配置，不得写入文档正文、截图或 Git。管理员首次部署参数应由生产环境变量提供，首次登录后应改为唯一强密码。</p>
+<h2 id="overview-section-13" data-toc-label="10. 性能和硬件建议">10. 性能和硬件建议<a class="product-docs-heading-link" href="#overview-section-13" aria-label="链接到本节">#</a></h2>
+<p>以下是第一版部署的工程建议，不是经过压测后的 SLA 或吞吐承诺。系统当前一个 TS 绑定一个 Client 和一个券商账户，扩展交易员数量时优先增加 TS 节点，而不是让单个 TS 无限承载连接。</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>端</th>
+<th>最低建议</th>
+<th>推荐起点</th>
+<th>性能关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Client Windows</td>
+<td>2 核、4 GB RAM、SSD、稳定网络</td>
+<td>4 核、8 GB RAM、SSD</td>
+<td>PySide6 UI 响应、WSS 延迟、行情刷新、显示器分辨率</td>
+</tr>
+<tr>
+<td>SM</td>
+<td>2 vCPU、2 GB RAM、SSD</td>
+<td>2-4 vCPU、4 GB+ RAM、SSD</td>
+<td>登录/审批/配置/域名管理；不承载实时行情</td>
+</tr>
+<tr>
+<td>TS + TT</td>
+<td>2 vCPU、4 GB RAM、SSD</td>
+<td>4 vCPU、8 GB RAM、SSD</td>
+<td>长连接、行情回调、订单事件和日志；出站网络稳定</td>
+</tr>
+<tr>
+<td>TS + IB Gateway</td>
+<td>2 vCPU、4 GB RAM、SSD</td>
+<td>4 vCPU、8 GB+ RAM、SSD</td>
+<td>Python <code>ibapi</code>、Gateway GUI/进程、行情权限、事件回调</td>
+</tr>
+<tr>
+<td>Caddy</td>
+<td>与所属端共机</td>
+<td>与所属端共机</td>
+<td>证书状态、HTTPS/WSS 反代；不与应用端口混用</td>
+</tr>
+</tbody></table></div>
+<p>维护者应关注：CPU 利用率、内存持续增长、事件循环阻塞、行情回调积压、WSS 重连次数、券商 Session 状态和磁盘日志增长。当前仓库没有提供大规模压测报告，因此不能根据上述硬件直接承诺固定并发量或固定延迟。</p>
+<h2 id="overview-section-14" data-toc-label="11. 当前规模边界">11. 当前规模边界<a class="product-docs-heading-link" href="#overview-section-14" aria-label="链接到本节">#</a></h2>
+<ul>
+<li>一个 TS 当前只绑定一个券商账户。</li>
+<li>一个 TS 当前只服务一个 Client 会话。</li>
+<li>TT 和 IB 不能在同一 TS 上运行时切换；审批后节点券商类型固定。</li>
+<li>IB 第一版固定同机 Gateway 和单一 <code>account_id</code>；多账户返回时由 SM 审批选择一个。</li>
+<li>Client 只依赖统一 TS 消息，不依赖 <code>ibapi</code> 或 TT SDK。</li>
+<li>真实实盘下单不属于自动化测试范围，必须人工确认并使用最小风险订单完成验收。</li>
+</ul>
+</article>
+<article id="product-doc-components" class="product-docs-article" data-doc-id="components" data-doc-title="三端功能说明"><h1 id="components-section-1" data-toc-label="SC 证券股票交易系统：三端功能说明">SC 证券股票交易系统：三端功能说明<a class="product-docs-heading-link" href="#components-section-1" aria-label="链接到本节">#</a></h1>
+<blockquote>
+<p>生产维护版：2026-08-10</p>
+<p>本文从维护者角度说明 Client、SM、TS 的功能入口、职责和典型操作流。界面截图使用占位符，正式发布前应替换为脱敏后的生产界面截图。</p>
+</blockquote>
+<h2 id="components-section-2" data-toc-label="1. Client 功能">1. Client 功能<a class="product-docs-heading-link" href="#components-section-2" aria-label="链接到本节">#</a></h2>
+<h3 id="components-section-3" data-toc-label="1.1 登录和连接">1.1 登录和连接<a class="product-docs-heading-link" href="#components-section-3" aria-label="链接到本节">#</a></h3>
+<p>Client 登录页只负责系统账号登录。输入交易员账号和密码后，Client 请求 SM <code>/auth/login</code>，取得 Client token、有效期和绑定 TS 地址；随后通过绑定地址建立 WSS。Client 不提供券商登录框，也不保存 TT 或 IB 凭据。</p>
+<p>典型流程：</p>
+<ol>
+<li>启动 Client。</li>
+<li>输入由 SM 管理的交易员账号和密码。</li>
+<li>SM 返回绑定 TS 地址和 24 小时 Client token。</li>
+<li>Client 连接 TS WSS，并完成 Token、节点绑定和连接会话校验。</li>
+<li>收到 <code>CONNECT_ACK</code> 后进入主界面。</li>
+</ol>
+<p>认证失效时，Client 应在密码输入区域下方显示居中的弱提示，并回到登录页。提示内容面向交易员，例如“认证已过期，请重新登录”，不显示 traceback、TS IP 或券商 SDK 异常。</p>
+<h3 id="components-section-4" data-toc-label="1.2 主界面交易栏">1.2 主界面交易栏<a class="product-docs-heading-link" href="#components-section-4" aria-label="链接到本节">#</a></h3>
+<p>主界面包含左右两个独立交易栏。当前选中的交易栏是后续输入、报价、快捷下单和持仓双击加载的目标栏。</p>
+<p>交易栏的核心工作流：</p>
+<ol>
+<li>在 <code>SYMBOL</code> 输入框输入美股代码。</li>
+<li>点击查询按钮或按回车，触发行情订阅/查询。</li>
+<li>报价返回后显示 <code>BID</code> 和 <code>ASK</code>；主界面不显示 <code>LAST</code>。</li>
+<li>用户在当前选中交易栏设置方向、股数、价格、订单类型、TIF、Route 和 Hide。</li>
+<li>点击 <code>BUY</code> 或 <code>SELL</code>，或使用已启用的下单快捷键提交订单。</li>
+</ol>
+<p>输入代码不再因为等待 350ms 自动加载报价；查询动作是显式点击或回车。持仓条目需要双击才加载到当前选中的交易栏，右侧交易栏选中时也必须加载到右侧。快捷下单同样以当前选中交易栏为目标。</p>
+<p>界面字段职责：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SYMBOL</code></td>
+<td>当前交易标的；报价和后续订单围绕已确认的标的执行</td>
+</tr>
+<tr>
+<td><code>BID</code> / <code>ASK</code></td>
+<td>当前报价；下单价格策略由订单类型、方向和 TIF 决定</td>
+</tr>
+<tr>
+<td><code>QTY</code></td>
+<td>订单数量；保留手动输入，股数快捷键可填充数量</td>
+</tr>
+<tr>
+<td><code>TYPE</code></td>
+<td><code>LMT</code> 或 <code>MKT</code></td>
+</tr>
+<tr>
+<td><code>TIF</code></td>
+<td><code>DAY</code>、<code>GTC</code>、<code>IOC</code>、<code>EXT</code>、<code>GTC_EXT</code></td>
+</tr>
+<tr>
+<td><code>ROUTE</code></td>
+<td>主交易栏按券商能力处理；TT 固定 SMART 且主界面禁止修改，IB 可按 capability 选择</td>
+</tr>
+<tr>
+<td><code>HIDE</code></td>
+<td>隐藏订单参数；不支持该参数的券商允许保存配置但执行时按普通订单处理，界面以能力状态置灰或说明</td>
+</tr>
+</tbody></table></div>
+<h3 id="components-section-5" data-toc-label="1.3 订单类型和 TIF">1.3 订单类型和 TIF<a class="product-docs-heading-link" href="#components-section-5" aria-label="链接到本节">#</a></h3>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>Client 选项</th>
+<th>统一含义</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DAY</code></td>
+<td>当日有效，常规时段使用</td>
+<td>价格确认后挂单</td>
+</tr>
+<tr>
+<td><code>GTC</code></td>
+<td>撤销前持续有效，具体期限受券商规则约束</td>
+<td>不要求当日结束失效的限价单</td>
+</tr>
+<tr>
+<td><code>IOC</code></td>
+<td>立即成交或取消，未立即成交部分取消</td>
+<td>强时效提交；应减少本地等待</td>
+</tr>
+<tr>
+<td><code>EXT</code></td>
+<td>映射为 DAY + 盘前盘后标记</td>
+<td>扩展时段限价单</td>
+</tr>
+<tr>
+<td><code>GTC_EXT</code></td>
+<td>映射为 GTC + 盘前盘后标记</td>
+<td>允许时延续到后续时段</td>
+</tr>
+</tbody></table></div>
+<p>方向映射统一为：Buy to Open/Close -&gt; <code>BUY</code>，Sell to Open/Close -&gt; <code>SELL</code>。普通限价买入和卖出使用当前界面价格策略；IOC 应优先让券商在提交时执行其即时性规则，仍需满足券商对行情、价格精度和时段的限制。</p>
+<h3 id="components-section-6" data-toc-label="1.4 持仓栏">1.4 持仓栏<a class="product-docs-heading-link" href="#components-section-6" aria-label="链接到本节">#</a></h3>
+<p>持仓栏通过 <code>POSITION_QUERY</code> 从 TS 请求绑定账户的持仓。维护者排查时应区分：</p>
+<ul>
+<li>TS WSS 已连接但券商 Session 离线。</li>
+<li>账户没有持仓。</li>
+<li>账户有持仓但当前券商权限或接口不支持查询。</li>
+<li>返回成功但界面数据尚未刷新。</li>
+</ul>
+<p>持仓条目双击加载代码和报价，不改变用户当前选中的交易栏目标。</p>
+<h3 id="components-section-7" data-toc-label="1.5 订单栏">1.5 订单栏<a class="product-docs-heading-link" href="#components-section-7" aria-label="链接到本节">#</a></h3>
+<p>订单栏包含四个页签：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>页签</th>
+<th>第一版含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>进行中</code></td>
+<td>当前仍可被市场接受、等待交易或正在处理的订单；至少覆盖 live/received/routing 等活动状态</td>
+</tr>
+<tr>
+<td><code>成交</code></td>
+<td>已成功成交的订单或成交记录</td>
+</tr>
+<tr>
+<td><code>失效</code></td>
+<td>已取消、拒绝或已无法继续交易的订单</td>
+</tr>
+<tr>
+<td><code>ALL</code></td>
+<td>当前适配器可提供的全部订单范围</td>
+</tr>
+</tbody></table></div>
+<p>订单状态最终由券商适配器归一化。订单发生提交、成交、取消或拒绝时，TS 可以通过订单事件回调触发刷新；Client 仍保留显式刷新入口作为恢复手段。TT 和 IB 的“全部订单”范围不同：TT 按当前账户范围展示，IB 第一版以当前 TS 创建/维护的订单范围为准。</p>
+<p>撤单规则：已成交、已取消、已拒绝等不可撤销状态不可调用撤单接口。<code>Esc</code> 是当前选中交易栏股票的批量活动订单撤销，不是全局撤单；后续控制台和订单成功/失败提示会接入统一弱提示区域。</p>
+<h3 id="components-section-8" data-toc-label="1.6 美股交易日和时区">1.6 美股交易日和时区<a class="product-docs-heading-link" href="#components-section-8" aria-label="链接到本节">#</a></h3>
+<p>Client 的“当日活动”统计使用 <code>America/New_York</code> 时区，不使用 Windows 本地时区，也不以北京时间 00:00 作为交易日边界。当前代码按美东时间 04:00 至 20:00 作为美股活动窗口，并将订单时间、成交时间转换到美东时间后再判断是否属于当日。</p>
+<p>因此，美股一个交易日可能跨越北京时间的 21:30 到次日 03:30，跨过中国零点不会自动把它拆成两个交易日。夏令时切换时，北京时间对应的开盘和收盘时刻会变化，维护者应以美东时间和券商返回的带时区时间为准。</p>
+<p>这里需要区分两个概念：</p>
+<ul>
+<li>订单栏的 <code>进行中</code>、<code>成交</code>、<code>失效</code>、<code>ALL</code> 由订单查询和订单状态归类决定，不等同于持仓栏“当日活动”统计。</li>
+<li>持仓栏中的成交数量和当日盈亏会使用上述美东时间窗口筛选成交记录；如果券商返回的时间没有时区，系统会按统一规则补齐后再转换。</li>
+</ul>
+<h3 id="components-section-9" data-toc-label="1.7 快捷键和本地配置">1.7 快捷键和本地配置<a class="product-docs-heading-link" href="#components-section-9" aria-label="链接到本节">#</a></h3>
+<p>快捷键设置内部分为三个页签：</p>
+<ol>
+<li>股数快捷键：默认保留小键盘 <code>Num+1</code> 到 <code>Num+9</code>，按键固定、数值可改；允许新增规则，最多 20 条，新增规则可修改按键。每条有 <code>启用</code>。</li>
+<li>下单快捷键：最多 15 条，自由新增和修改；支持方向、类型、TIF、Route、价格偏移、Hide 和启用状态。配置页允许保存当前券商不支持的 Route/Hide；执行时由能力门控回落到默认 Route 或普通订单。</li>
+<li>固定快捷键：只读，包含面板切换、当前股票活动订单撤销、价格调整和 Enter 查询/确认等固定行为。</li>
+</ol>
+<p>默认股数快捷键 <code>Num+1</code> 到 <code>Num+9</code> 启用，默认下单快捷键 <code>Shift+F1</code> 到 <code>Shift+F12</code> 禁用。配置保存前执行字段校验、启用规则空按键检查和冲突检测；保存失败时应使用安全、简短的用户文案，不暴露内部异常文本。</p>
+<p>运行时默认配置在代码中的 <code>Client/ui_qt/hotkey_config.py</code>，用户配置使用生产用户数据目录的 <code>hotkey.json</code>。当前实现优先读取本地配置；文件不存在、解析失败或校验失败时回退默认配置，并保留后续需要补充的用户提示/日志策略。</p>
+<h3 id="components-section-10" data-toc-label="1.8 Client 截图占位">1.8 Client 截图占位<a class="product-docs-heading-link" href="#components-section-10" aria-label="链接到本节">#</a></h3>
+<p>以下占位符只用于后续补图，截图必须遮盖账号、域名、IP、订单号和任何券商敏感信息：</p>
+<ul>
+<li><code>[截图占位：Client 登录页，展示登录输入和认证过期弱提示]</code></li>
+<li><code>[截图占位：Client 主界面，展示左右交易栏、报价、持仓和订单四页签]</code></li>
+<li><code>[截图占位：快捷键设置-股数快捷键]</code></li>
+<li><code>[截图占位：快捷键设置-下单快捷键]</code></li>
+<li><code>[截图占位：快捷键设置-固定快捷键]</code></li>
+</ul>
+<h2 id="components-section-11" data-toc-label="2. SM 功能">2. SM 功能<a class="product-docs-heading-link" href="#components-section-11" aria-label="链接到本节">#</a></h2>
+<h3 id="components-section-12" data-toc-label="2.1 管理员登录和权限">2.1 管理员登录和权限<a class="product-docs-heading-link" href="#components-section-12" aria-label="链接到本节">#</a></h3>
+<p>SM Web 管理后台使用管理员会话 Cookie。会话存储在 SM 内存中，SM 重启后会失效，需要重新登录。当前代码区分普通管理员和 <code>super_admin</code>；高权限操作应通过服务端会话权限校验，不能只依赖前端按钮隐藏。</p>
+<p>生产部署时通过环境变量注入 bootstrap 管理员配置，不应把实际生产密码写入文档、Git 或截图。首次进入后台后应按照组织安全规范设置并保存唯一的强密码。</p>
+<h3 id="components-section-13" data-toc-label="2.2 交易员账号">2.2 交易员账号<a class="product-docs-heading-link" href="#components-section-13" aria-label="链接到本节">#</a></h3>
+<p>SM 负责创建、激活、停用和绑定交易员账号。Client 登录只验证 SM 数据库账号；账号的 TS 绑定决定 Client 后续可连接的节点。SM 还负责节点占用关系、Token 复验和异常释放。</p>
+<h3 id="components-section-14" data-toc-label="2.3 TS 节点注册审批">2.3 TS 节点注册审批<a class="product-docs-heading-link" href="#components-section-14" aria-label="链接到本节">#</a></h3>
+<p>SM 待审批列表显示 TS 注册请求。管理员打开审批弹窗后：</p>
+<ul>
+<li>TT：SM 直接验证 TT 凭据和账户信息。</li>
+<li>IB：SM 调用待审批 TS 的验证接口，由 TS 在本机连接 Gateway 获取 <code>managedAccounts</code>；SM 展示列表，管理员必须选择一个 <code>account_id</code>。</li>
+</ul>
+<p>审批通过后，SM 保存节点的 broker config、绑定账户和节点 token，并返回配置给 TS。一个 TS 不同时绑定多个 IB 账户，也不提供同一节点 TT/IB 运行时切换。</p>
+<h3 id="components-section-15" data-toc-label="2.4 域名池和 DNSPod">2.4 域名池和 DNSPod<a class="product-docs-heading-link" href="#components-section-15" aria-label="链接到本节">#</a></h3>
+<p>域名池导入完整 FQDN；审批成功时分配未占用域名，调用 DNSPod upsert A 记录指向 TS 上报的公网 IP。SM 保存域名占用、DNS record id、DNS 状态和节点关系。IP 变化时，后续应通过节点刷新/更新流程修改 A 记录；真实生产环境上线前仍需人工核对 DNS 结果。</p>
+<h3 id="components-section-16" data-toc-label="2.5 节点状态和心跳">2.5 节点状态和心跳<a class="product-docs-heading-link" href="#components-section-16" aria-label="链接到本节">#</a></h3>
+<p>SM 通过 TS 的 <code>POST /nodes/heartbeat</code> 接收节点心跳，并在内存中维护实时状态。心跳不仅用于展示在线状态，也用于清理失效节点占用，避免 Client 异常断开后节点永久锁定。</p>
+<p>当前关键参数：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>心跳/检查行为</th>
+<th>维护含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>空闲节点</td>
+<td>TS 默认约每 20 秒发送一次心跳</td>
+<td>节点正常但没有 Client 占用</td>
+</tr>
+<tr>
+<td>Client 占用节点</td>
+<td>SM 返回约 5 秒下一次心跳</td>
+<td>加快交易会话掉线检测</td>
+</tr>
+<tr>
+<td>空闲节点超时</td>
+<td>60 秒没有新鲜心跳</td>
+<td>SM 可标记 offline</td>
+</tr>
+<tr>
+<td>占用节点超时</td>
+<td>15 秒没有新鲜心跳</td>
+<td>SM 标记 offline 并释放占用</td>
+</tr>
+<tr>
+<td>占用切换窗口</td>
+<td>占用后的前 30 秒允许 TS 切换到快速心跳</td>
+<td>避免刚占用时因旧心跳间隔误释放</td>
+</tr>
+<tr>
+<td>WSS 鉴权确认窗口</td>
+<td>Client 占用后约 30 秒内需完成连接确认</td>
+<td>只完成 SM 占用、不完成 WSS 鉴权时会释放预占用</td>
+</tr>
+<tr>
+<td>SM 巡检</td>
+<td>约每 5 秒检查节点</td>
+<td>必要时主动探活接近超时的占用节点</td>
+</tr>
+</tbody></table></div>
+<p>节点展示状态优先级为：<code>suspended</code> &gt; <code>offline</code> &gt; <code>occupied</code> &gt; <code>online/approved</code>。其中 <code>occupied</code> 只有节点实际在线时才成立。Client 占用属于进程内易失状态，SM 重启后不会恢复旧的 Client 占用快照；维护者重启 SM 后应让 Client 重新登录并重新建立占用。</p>
+<p>节点被标记 offline 或 suspended 时，Client 可能无法新建 WSS；管理员强制释放节点时，TS 会向当前 Client 发送 <code>FORCE_DISCONNECT</code>。处理占用问题时，先确认节点心跳时间、real status、occupied_by 和 connection_id，再决定是否释放，不要直接删除数据库记录。</p>
+<h3 id="components-section-17" data-toc-label="2.6 SM 截图占位">2.6 SM 截图占位<a class="product-docs-heading-link" href="#components-section-17" aria-label="链接到本节">#</a></h3>
+<ul>
+<li><code>[截图占位：SM 管理后台总览]</code></li>
+<li><code>[截图占位：交易员账号管理]</code></li>
+<li><code>[截图占位：TS 待审批列表和 IB 账户选择弹窗]</code></li>
+<li><code>[截图占位：TS 域名池和 DNS 状态]</code></li>
+</ul>
+<h2 id="components-section-18" data-toc-label="3. TS 功能">3. TS 功能<a class="product-docs-heading-link" href="#components-section-18" aria-label="链接到本节">#</a></h2>
+<h3 id="components-section-19" data-toc-label="3.1 注册和配置同步">3.1 注册和配置同步<a class="product-docs-heading-link" href="#components-section-19" aria-label="链接到本节">#</a></h3>
+<p>TS 启动后可通过注册 API 检查 SM、提交注册请求、等待 SSE 审批结果。<code>.register_state.json</code> 用于恢复等待中的注册状态；审批成功后，TS 保存节点配置并从 SM 拉取 broker config。已批准节点在后续启动中按配置初始化券商适配器和 Caddy。</p>
+<h3 id="components-section-20" data-toc-label="3.2 WSS 网关">3.2 WSS 网关<a class="product-docs-heading-link" href="#components-section-20" aria-label="链接到本节">#</a></h3>
+<p>TS 的 WebSocket 首包完成 Client 认证；每条业务消息由 TS 根据当前 session、节点占用、券商连接状态和 capability 决定是否执行。Client 与券商 SDK 解耦，TS 是唯一的交易 API 适配边界。</p>
+<h3 id="components-section-21" data-toc-label="3.3 配置同步和券商热重载">3.3 配置同步和券商热重载<a class="product-docs-heading-link" href="#components-section-21" aria-label="链接到本节">#</a></h3>
+<p>TS 的券商配置同步有三个触发来源：</p>
+<ol>
+<li>审批通过后的初始配置加载。</li>
+<li>TS 心跳发现 SM 返回的 <code>config_version</code> 变更。</li>
+<li>SM 的配置事件 SSE <code>CONFIG_CHANGED</code> 立即通知 TS。</li>
+</ol>
+<p>热重载流程为：TS 拉取新配置、停止旧券商 Session、创建新的 Broker Adapter、连接新配置、重新绑定订单/持仓事件，并恢复已有行情订阅。TS 同时向 Client 广播 <code>BROKER_STATUS_CHANGE</code>，因此热重载期间 Client 可能短暂显示交易服务不可用或行情需要重新建立；Client WSS 本身不等同于券商 Session。</p>
+<p>维护者修改 SM 券商配置后，应按以下顺序确认：</p>
+<ol>
+<li>SM 配置保存成功并生成新的 <code>config_version</code>。</li>
+<li>TS 日志出现拉取新版本和热重载记录。</li>
+<li>TS broker status 恢复 connected，账户和 capability 正确。</li>
+<li>Client 收到状态变化，行情订阅恢复。</li>
+<li>再执行持仓、订单查询和授权的人工交易验收。</li>
+</ol>
+<p>如果热重载连接失败，TS 会保留失败状态并按适配器重连策略尝试恢复；维护者不应只看配置版本已经变化就判断券商已可用。应以 <code>broker_detail.connected</code>、错误码和实际行情/查询结果为准。</p>
+<h3 id="components-section-22" data-toc-label="3.4 券商和事件流">3.4 券商和事件流<a class="product-docs-heading-link" href="#components-section-22" aria-label="链接到本节">#</a></h3>
+<p>TS 使用 <code>BrokerFactory</code> 创建适配器，当前注册类型包括 TT、IB 和本地测试适配器。适配器提供连接生命周期、行情、持仓、下单、撤单、订单查询和可选账户事件回调。TS 收到券商回调后向 Client 发送统一订单/持仓/行情结果。</p>
+<h3 id="components-section-23" data-toc-label="3.5 TS 运行状态和日志">3.5 TS 运行状态和日志<a class="product-docs-heading-link" href="#components-section-23" aria-label="链接到本节">#</a></h3>
+<p>TS 提供健康检查、运行状态、日志和受保护的管理接口。维护者排查时按以下层次读取：TS 应用日志 -&gt; WSS 连接/心跳 -&gt; broker status -&gt; 券商 SDK 或 Gateway 日志。Client 端的交易员界面不应直接显示 TS 私网地址、券商名称或 SDK 堆栈。</p>
+<h3 id="components-section-24" data-toc-label="3.6 TS 截图占位">3.6 TS 截图占位<a class="product-docs-heading-link" href="#components-section-24" aria-label="链接到本节">#</a></h3>
+<ul>
+<li><code>[截图占位：TS 注册页面/注册结果]</code></li>
+<li><code>[截图占位：TS 运行状态和 broker status]</code></li>
+<li><code>[截图占位：TS 日志页，截图需脱敏]</code></li>
+</ul>
+<h2 id="components-section-25" data-toc-label="4. 维护者操作原则">4. 维护者操作原则<a class="product-docs-heading-link" href="#components-section-25" aria-label="链接到本节">#</a></h2>
+<ol>
+<li>先确认 Client -&gt; SM，再确认 Client -&gt; TS，最后确认 TS -&gt; 券商；不要把三层故障合并成“Client 登录失败”。</li>
+<li>所有真实下单和撤单测试必须人工确认，不使用自动化测试提交实盘订单。</li>
+<li>日志可以用于维护者排查，但展示给交易员的消息必须经过安全映射。</li>
+<li>不删除用户本地数据库、配置和日志；清理前先确认当前运行是否仍在使用。</li>
+</ol>
+</article>
+<article id="product-doc-brokers" class="product-docs-article" data-doc-id="brokers" data-doc-title="券商接入说明"><h1 id="brokers-section-1" data-toc-label="SC 证券股票交易系统：券商接入说明">SC 证券股票交易系统：券商接入说明<a class="product-docs-heading-link" href="#brokers-section-1" aria-label="链接到本节">#</a></h1>
+<blockquote>
+<p>生产维护版：2026-08-10</p>
+<p>本文面向维护者和审批管理员，说明统一 Broker Adapter、TT 和 IB 的差异、配置边界及故障定位方式。券商凭据只应出现在受控配置或券商官方登录界面，不能写入本文、截图或提交记录。</p>
+</blockquote>
+<h2 id="brokers-section-2" data-toc-label="1. 统一接入模型">1. 统一接入模型<a class="product-docs-heading-link" href="#brokers-section-2" aria-label="链接到本节">#</a></h2>
+<p>TS 通过 <code>Trader_Server/api/base.py</code> 定义统一接口，<code>Trader_Server/api/factory.py</code> 通过 <code>BrokerFactory</code> 创建具体适配器。上层交易服务只依赖统一方法，不直接依赖具体 SDK。</p>
+<p>当前主要生命周期：</p>
+<pre><code class="language-text">BrokerFactory.create(type)
+    -&gt; adapter.connect(credentials)
+    -&gt; adapter.is_connected()
+    -&gt; quotes / positions / orders / place / cancel
+    -&gt; adapter.disconnect()
+</code></pre>
+<p>统一能力包括：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>统一接口/字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>连接</td>
+<td><code>connect</code>, <code>is_connected</code>, <code>disconnect</code>, <code>reconnect</code></td>
+<td>连接状态由 TS 管理</td>
+</tr>
+<tr>
+<td>行情</td>
+<td><code>subscribe_quotes</code>, <code>unsubscribe_quotes</code></td>
+<td>回调归一化为 symbol、bid、ask、last、volume、时间等</td>
+</tr>
+<tr>
+<td>持仓</td>
+<td><code>get_positions</code></td>
+<td>由绑定账户返回</td>
+</tr>
+<tr>
+<td>下单</td>
+<td><code>place_order</code></td>
+<td>统一 symbol、qty、action、order_type、tif、route、hidden</td>
+</tr>
+<tr>
+<td>撤单</td>
+<td><code>cancel_order</code></td>
+<td>适配器判断券商订单 ID 和当前状态</td>
+</tr>
+<tr>
+<td>订单</td>
+<td><code>get_orders(mode)</code></td>
+<td>TS 协议使用 <code>live</code>/<code>all</code>；Client 再按统一状态归类四个页签</td>
+</tr>
+<tr>
+<td>能力</td>
+<td><code>capabilities</code>, <code>effective_capabilities</code></td>
+<td>UI 置灰和 TS 服务端二次校验均使用</td>
+</tr>
+<tr>
+<td>账户发现</td>
+<td><code>get_accounts</code></td>
+<td>第一版主要用于 IB 审批账户选择</td>
+</tr>
+</tbody></table></div>
+<p>Client 只发送统一 WSS 消息，SM 只管理审批和配置。新增券商时，应优先扩展 TS 适配器，不把 SDK import、凭据字段或券商特有状态散落到 Client/SM。</p>
+<h2 id="brokers-section-3" data-toc-label="2. Tastytrade 接入">2. Tastytrade 接入<a class="product-docs-heading-link" href="#brokers-section-3" aria-label="链接到本节">#</a></h2>
+<h3 id="brokers-section-4" data-toc-label="2.1 凭据和审批">2.1 凭据和审批<a class="product-docs-heading-link" href="#brokers-section-4" aria-label="链接到本节">#</a></h3>
+<p>TT 使用 OAuth 相关凭据和一个明确的账户编号。审批阶段由 SM 直接调用 TT 公网 API 验证凭据、账户可用性和账户范围；审批通过后保存明确的 <code>account_number</code> 等配置，TS 后续拉取配置并创建 TT Session。</p>
+<p>Client 不输入 TT 用户名/密码，也不直接请求 TT API。Client 看到的是统一连接状态和交易能力；维护者在 SM/TS 的受控日志中排查实际 Session 状态。</p>
+<h3 id="brokers-section-5" data-toc-label="2.2 当前能力和限制">2.2 当前能力和限制<a class="product-docs-heading-link" href="#brokers-section-5" aria-label="链接到本节">#</a></h3>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>当前规则</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>默认 Route</td>
+<td>SMART</td>
+</tr>
+<tr>
+<td>Route 修改</td>
+<td>主交易栏固定 SMART；快捷键配置可保存其他值，但实际下单回落为 SMART</td>
+</tr>
+<tr>
+<td>Hide</td>
+<td>TT 不支持；快捷键配置可以保存，实际下单按普通订单处理</td>
+</tr>
+<tr>
+<td>行情</td>
+<td>依赖 TT Session 和账户市场数据权限</td>
+</tr>
+<tr>
+<td>持仓</td>
+<td>支持查询；read-only 也可查询</td>
+</tr>
+<tr>
+<td>订单查询</td>
+<td>当前账户范围；按适配器提供的活跃/历史数据归一化</td>
+</tr>
+<tr>
+<td>下单</td>
+<td>依赖账户不是 read-only、订单类型/TIF/时段/价格满足 TT 规则</td>
+</tr>
+<tr>
+<td>撤单</td>
+<td>依赖账户和订单状态支持；失效或成交订单不可撤</td>
+</tr>
+</tbody></table></div>
+<p>TT 扩展时段通常要求限价单，订单能否路由还受标的、时段、价格精度和 TT 当时可用路由影响。<code>no compatible order router found</code> 应作为券商拒单原因排查，重点记录 symbol、price、order type、TIF、route、提交来源和订单时间；不能只根据 Client 是否连上 TS 判断。</p>
+<h3 id="brokers-section-6" data-toc-label="2.3 TT 生产验收">2.3 TT 生产验收<a class="product-docs-heading-link" href="#brokers-section-6" aria-label="链接到本节">#</a></h3>
+<ol>
+<li>在 SM 审批弹窗验证凭据并确认 account number。</li>
+<li>TS 拉取配置并显示 broker Session connected。</li>
+<li>Client 登录并连接绑定 TS。</li>
+<li>在可交易时段先测行情和持仓。</li>
+<li>用最小风险限价 Day 单人工确认下单，再人工确认撤单或成交结果。</li>
+<li>复核订单四页签和控制台弱提示，不把券商原始堆栈暴露给交易员。</li>
+</ol>
+<h2 id="brokers-section-7" data-toc-label="3. Interactive Brokers 接入">3. Interactive Brokers 接入<a class="product-docs-heading-link" href="#brokers-section-7" aria-label="链接到本节">#</a></h2>
+<h3 id="brokers-section-8" data-toc-label="3.1 部署关系">3.1 部署关系<a class="product-docs-heading-link" href="#brokers-section-8" aria-label="链接到本节">#</a></h3>
+<p>IB Gateway 与 TS 必须在同一台服务器。Gateway 由交易员/维护者人工启动、输入 IBKR 用户名密码并完成 2FA；当前第一版不做 Gateway 自动化维护，也不在 SM/TS/Client 保存 IBKR 登录凭据。</p>
+<div class="product-docs-flat-diagram" role="img" aria-label="IB Gateway、TS、SM 和 Client 的部署关系">
+<svg viewBox="0 0 1040 430" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ib1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 17px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:13px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#ib1)}</style></defs>
+  <rect x="48" y="56" width="210" height="78" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="153" y="90" text-anchor="middle" class="h">维护者</text><text x="153" y="116" text-anchor="middle" class="p">人工登录 + 2FA</text>
+  <rect x="415" y="56" width="210" height="78" rx="7" fill="#f4f5f7" stroke="#98a2b3" stroke-width="2"/><text x="520" y="90" text-anchor="middle" class="h">IB Gateway</text><text x="520" y="116" text-anchor="middle" class="p">Socket API :4001</text>
+  <rect x="782" y="56" width="210" height="78" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="887" y="90" text-anchor="middle" class="h">TS + ibapi</text><text x="887" y="116" text-anchor="middle" class="p">与 Gateway 同机</text>
+  <path d="M258 95 H415" class="ar"/><text x="337" y="81" text-anchor="middle" class="p">人工操作</text><path d="M625 95 H782" class="ar"/><text x="704" y="81" text-anchor="middle" class="p">127.0.0.1:4001</text>
+  <rect x="48" y="276" width="210" height="78" rx="7" fill="#eaf8f0" stroke="#45a66f" stroke-width="2"/><text x="153" y="322" text-anchor="middle" class="h">Client</text>
+  <rect x="415" y="276" width="210" height="78" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="520" y="310" text-anchor="middle" class="h">SM 审批</text><text x="520" y="336" text-anchor="middle" class="p">展示并选择 account_id</text>
+  <path d="M258 315 H782 C820 315 840 250 860 134" class="ar"/><text x="480" y="300" text-anchor="middle" class="p">WSS 统一交易消息</text>
+  <path d="M625 294 C690 245 745 192 820 134" class="ar"/><text x="710" y="219" text-anchor="middle" class="p">调用 TS 验证</text>
+  <path d="M835 134 C770 205 710 270 625 328" class="ar"/><text x="748" y="273" text-anchor="middle" class="p">managedAccounts</text>
+</svg>
+</div>
+
+<h3 id="brokers-section-9" data-toc-label="3.2 Gateway 必要设置">3.2 Gateway 必要设置<a class="product-docs-heading-link" href="#brokers-section-9" aria-label="链接到本节">#</a></h3>
+<p>在 Gateway 的 API 设置中由维护者人工确认：</p>
+<ul>
+<li>Enable ActiveX and Socket Clients：开启。</li>
+<li>Socket port：当前生产实现固定为 <code>4001</code>，TS 不提供实盘/模拟盘切换开关。</li>
+<li>Trusted IP：加入 <code>127.0.0.1</code>。</li>
+<li>Read-Only API：如需交易必须关闭。系统没有独立的“允许交易”开关；只读时 TS/券商返回不支持下单或撤单，Client 显示通用错误。</li>
+<li>Gateway 已完成登录并保持在线。</li>
+<li>行情权限：按 IBKR 账户购买/开通对应美股市场数据权限。</li>
+</ul>
+<p>Gateway 端口监听检查应在 TS 所在服务器本机执行，例如：</p>
+<pre><code class="language-powershell">Test-NetConnection 127.0.0.1 -Port 4001
+</code></pre>
+<p><code>TcpTestSucceeded: False</code> 表示 TS 无法建立 socket，不等于账号或行情权限问题；先检查 Gateway 是否运行、API 是否启用、端口是否一致。</p>
+<h3 id="brokers-section-10" data-toc-label="3.3 IB Gateway 生命周期">3.3 IB Gateway 生命周期<a class="product-docs-heading-link" href="#brokers-section-10" aria-label="链接到本节">#</a></h3>
+<p>第一版 Gateway 生命周期由维护者人工管理。TS 只连接已经启动、已完成登录且已开放 Socket API 的 Gateway，不保存 IBKR 用户名、密码或 2FA，也不负责自动操作 Gateway 界面。</p>
+<div class="product-docs-flat-diagram" role="img" aria-label="IB Gateway 人工维护生命周期">
+<svg viewBox="0 0 1060 500" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ib2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#667085"/></marker><style>.h{font:700 16px 'Microsoft YaHei',sans-serif;fill:#17212b}.p{font:13px 'Microsoft YaHei',sans-serif;fill:#4f5b67}.ar{fill:none;stroke:#667085;stroke-width:2;marker-end:url(#ib2)}</style></defs>
+  <rect x="40" y="80" width="176" height="78" rx="7" fill="#f4f5f7" stroke="#98a2b3" stroke-width="2"/><text x="128" y="113" text-anchor="middle" class="h">Gateway 未启动</text><text x="128" y="138" text-anchor="middle" class="p">4001 无监听</text>
+  <rect x="252" y="80" width="176" height="78" rx="7" fill="#fff4e5" stroke="#df8b30" stroke-width="2"/><text x="340" y="113" text-anchor="middle" class="h">等待人工登录</text><text x="340" y="138" text-anchor="middle" class="p">账号 / 密码 / 2FA</text>
+  <rect x="464" y="80" width="176" height="78" rx="7" fill="#fff8dc" stroke="#d5a928" stroke-width="2"/><text x="552" y="113" text-anchor="middle" class="h">API 就绪</text><text x="552" y="138" text-anchor="middle" class="p">Socket / 4001 / Trusted IP</text>
+  <rect x="676" y="80" width="176" height="78" rx="7" fill="#eaf2ff" stroke="#4d83d1" stroke-width="2"/><text x="764" y="113" text-anchor="middle" class="h">TS 已连接</text><text x="764" y="138" text-anchor="middle" class="p">handshake / account_id</text>
+  <rect x="888" y="80" width="140" height="78" rx="7" fill="#eaf8f0" stroke="#45a66f" stroke-width="2"/><text x="958" y="113" text-anchor="middle" class="h">交易就绪</text><text x="958" y="138" text-anchor="middle" class="p">权限验证通过</text>
+  <path d="M216 119 H252" class="ar"/><path d="M428 119 H464" class="ar"/><path d="M640 119 H676" class="ar"/><path d="M852 119 H888" class="ar"/>
+  <text x="234" y="103" text-anchor="middle" class="p">启动</text><text x="446" y="103" text-anchor="middle" class="p">登录</text><text x="658" y="103" text-anchor="middle" class="p">连接</text><text x="870" y="103" text-anchor="middle" class="p">验证</text>
+  <rect x="398" y="310" width="264" height="90" rx="7" fill="#fff0ef" stroke="#cf5d56" stroke-width="2"/><text x="530" y="345" text-anchor="middle" class="h">会话失效</text><text x="530" y="371" text-anchor="middle" class="p">登录过期 / Gateway 退出 / API 断开</text>
+  <path d="M958 158 C958 250 720 280 650 310" class="ar"/><text x="824" y="241" text-anchor="middle" class="p">失去会话</text>
+  <path d="M398 355 C315 355 300 230 330 158" class="ar"/><text x="294" y="278" text-anchor="middle" class="p">人工重新登录</text>
+  <path d="M764 158 C764 235 635 260 570 310" class="ar"/><text x="680" y="245" text-anchor="middle" class="p">TS 重启 / 配置重载</text>
+  <text x="530" y="458" text-anchor="middle" class="p">当前第一版不自动启动 Gateway、不保存登录凭据、不自动处理 2FA</text>
+</svg>
+</div>
+
+<p>各阶段的维护责任：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>判断标准</th>
+<th>维护动作</th>
+<th>Client 预期表现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Gateway 未启动</td>
+<td>本机 4001 无监听</td>
+<td>人工启动 Gateway</td>
+<td>只显示交易服务不可用，不显示 Gateway/IP</td>
+</tr>
+<tr>
+<td>等待登录</td>
+<td>Gateway 界面要求账号、密码或 2FA</td>
+<td>授权人员人工完成登录</td>
+<td>行情、持仓和交易不可用</td>
+</tr>
+<tr>
+<td>API 就绪</td>
+<td>Socket Clients 已开启，端口匹配，Trusted IP 包含 127.0.0.1</td>
+<td>执行端口检查和 SM 账户验证</td>
+<td>尚不能仅凭端口认定交易可用</td>
+</tr>
+<tr>
+<td>TS 已连接</td>
+<td>API handshake 完成并取得 <code>managedAccounts</code></td>
+<td>核对 <code>account_id</code> 和 TS broker status</td>
+<td>可继续验证行情和查询能力</td>
+</tr>
+<tr>
+<td>交易就绪</td>
+<td>账户匹配、非只读、行情/订单权限满足</td>
+<td>人工执行非交易检查，再进行授权的实盘验收</td>
+<td>Client 按 capability 开放功能</td>
+</tr>
+<tr>
+<td>会话失效</td>
+<td>Gateway 登录过期、退出或连接关闭</td>
+<td>人工重新登录/2FA，复核 API 设置，再确认 TS 恢复</td>
+<td>Client 使用简短的交易服务不可用提示</td>
+</tr>
+</tbody></table></div>
+<p>推荐启动顺序是先完成 Gateway 登录和 API 设置，再启动或恢复 TS。若 TS 先启动，适配器会记录连接失败；Gateway 就绪后仍应显式检查 TS broker status、账户和行情，不应仅根据端口恢复就判断业务已经恢复。必要时重启 TS 作为人工恢复手段。</p>
+<p>当前不实施的能力：</p>
+<ul>
+<li>不自动启动 IB Gateway。</li>
+<li>不自动填写 IBKR 用户名或密码。</li>
+<li>不自动处理 2FA。</li>
+<li>不提供 Gateway 实盘/模拟盘切换开关。</li>
+<li>不承诺 Gateway 登录过期后自动恢复交易状态。</li>
+</ul>
+<h3 id="brokers-section-11" data-toc-label="3.4 IB 审批流程">3.4 IB 审批流程<a class="product-docs-heading-link" href="#brokers-section-11" aria-label="链接到本节">#</a></h3>
+<p>IB 注册时，TS 选择 Interactive Brokers 发起注册。SM 审批弹窗中的“验证并获取账户”调用待审批 TS 的受保护验证接口；TS 本机连接 Gateway，获取 <code>managedAccounts</code>。管理员必须选择一个 <code>account_id</code> 后才允许审批通过。SM 保存 broker config，TS 后续拉取配置并只使用这个账户。</p>
+<p>若 Gateway 返回多个账户，第一版只绑定一个，不能让 TS 同时操作多个账户。缺少 <code>account_id</code> 时不能误报“持仓/交易可用”；审批和 TS 初始化都必须把账户选择作为明确前置条件。</p>
+<h3 id="brokers-section-12" data-toc-label="3.5 IB 第一版标的和订单边界">3.5 IB 第一版标的和订单边界<a class="product-docs-heading-link" href="#brokers-section-12" aria-label="链接到本节">#</a></h3>
+<p>第一版只支持美股普通股票：</p>
+<ul>
+<li>security type：<code>STK</code></li>
+<li>exchange/route：默认 <code>SMART</code>，IB 支持按适配器能力切换</li>
+<li>currency：<code>USD</code></li>
+</ul>
+<p>不扩展期权、期货、外汇。存在 symbol 歧义时，适配器应通过合约详情确认，必要时再增加 <code>primaryExchange</code> 约束。行情权限不足、合约解析失败和 Gateway 未连接必须被区分记录。</p>
+<p>订单方向映射：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>Client 方向</th>
+<th>IB action</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Buy to Open</td>
+<td><code>BUY</code></td>
+</tr>
+<tr>
+<td>Buy to Close</td>
+<td><code>BUY</code></td>
+</tr>
+<tr>
+<td>Sell to Open</td>
+<td><code>SELL</code></td>
+</tr>
+<tr>
+<td>Sell to Close</td>
+<td><code>SELL</code></td>
+</tr>
+</tbody></table></div>
+<p>订单类型和 TIF 映射：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>Client</th>
+<th>IB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>limit</td>
+<td><code>LMT</code></td>
+</tr>
+<tr>
+<td>market</td>
+<td><code>MKT</code></td>
+</tr>
+<tr>
+<td>Day</td>
+<td><code>DAY</code>, <code>outsideRth=false</code></td>
+</tr>
+<tr>
+<td>GTC</td>
+<td><code>GTC</code>, <code>outsideRth=false</code></td>
+</tr>
+<tr>
+<td>IOC</td>
+<td><code>IOC</code>, <code>outsideRth=false</code></td>
+</tr>
+<tr>
+<td>EXT</td>
+<td><code>DAY</code>, <code>outsideRth=true</code></td>
+</tr>
+<tr>
+<td>GTC_EXT</td>
+<td><code>GTC</code>, <code>outsideRth=true</code></td>
+</tr>
+</tbody></table></div>
+<h3 id="brokers-section-13" data-toc-label="3.6 IB 事件、订单和持仓">3.6 IB 事件、订单和持仓<a class="product-docs-heading-link" href="#brokers-section-13" aria-label="链接到本节">#</a></h3>
+<p>IB 的活动订单、成交和已完成订单不是同一个回调来源：</p>
+<ul>
+<li><code>openOrder</code> / <code>orderStatus</code>：活动订单和状态。</li>
+<li><code>execDetails</code>：成交记录。</li>
+<li><code>completedOrder</code>：已完成订单。</li>
+</ul>
+<p>IB 适配器负责把这些来源转换成 TS 的统一订单结构。Client 不 import <code>ibapi</code>，也不理解回调差异。订单成功、成交、拒绝、取消和持仓变化可以通过 TS 的事件刷新；Client 保留刷新入口用于恢复和人工核对。</p>
+<h3 id="brokers-section-14" data-toc-label="3.7 IB 常见故障表">3.7 IB 常见故障表<a class="product-docs-heading-link" href="#brokers-section-14" aria-label="链接到本节">#</a></h3>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>优先检查</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ibapi is not installed on Trader Server</code></td>
+<td>在 TS 使用的 Python/虚拟环境执行 <code>python -c &quot;import ibapi&quot;</code>；确认依赖安装到 TS，不是 Client 或 SM</td>
+</tr>
+<tr>
+<td><code>IB Gateway socket is not available</code></td>
+<td>Gateway 进程、API 开关、端口、Trusted IP；本机 <code>Test-NetConnection 127.0.0.1 -Port 4001</code></td>
+</tr>
+<tr>
+<td>socket 可用但验证失败</td>
+<td>Gateway 是否完成账号登录/2FA、API 是否接受客户端、端口是否为 4001</td>
+</tr>
+<tr>
+<td>Gateway connected 但行情失败</td>
+<td>IBKR 市场数据权限、合同解析、symbol 歧义；连接成功不代表行情授权成功</td>
+</tr>
+<tr>
+<td>订单被拒</td>
+<td>Read-Only、订单参数、价格精度、TIF/交易时段和账户权限</td>
+</tr>
+<tr>
+<td>Client 看不到 IB 订单</td>
+<td>确认订单查询范围为当前 TS 创建/维护的订单，并检查 open/orderStatus/exec/completed 的归一化结果</td>
+</tr>
+</tbody></table></div>
+<h2 id="brokers-section-15" data-toc-label="4. 新券商接入检查表">4. 新券商接入检查表<a class="product-docs-heading-link" href="#brokers-section-15" aria-label="链接到本节">#</a></h2>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>必须完成</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Adapter</td>
+<td>继承 <code>BaseBrokerAPI</code>，实现生命周期、行情、持仓、下单、撤单和订单查询</td>
+</tr>
+<tr>
+<td>Factory</td>
+<td>注册稳定的 broker type，并添加工厂单元测试</td>
+</tr>
+<tr>
+<td>Capability</td>
+<td>明确 quotes、positions、orders、cancel、order_query、route、hidden 和支持的 TIF</td>
+</tr>
+<tr>
+<td>Credentials</td>
+<td>只在 TS 或 SM 必要边界保存；Client 不保存券商凭据</td>
+</tr>
+<tr>
+<td>Validation</td>
+<td>审批时验证真实通道和账户；多账户必须明确选择策略</td>
+</tr>
+<tr>
+<td>Normalization</td>
+<td>把券商订单/行情/错误转换为统一结构和安全错误码</td>
+</tr>
+<tr>
+<td>Client</td>
+<td>只使用统一消息；不 import SDK；不显示直观券商信息给交易员</td>
+</tr>
+<tr>
+<td>Tests</td>
+<td>单元、审批、能力门控、TT 回归和真实环境人工验收</td>
+</tr>
+</tbody></table></div>
+<h2 id="brokers-section-16" data-toc-label="5. 截图占位">5. 截图占位<a class="product-docs-heading-link" href="#brokers-section-16" aria-label="链接到本节">#</a></h2>
+<ul>
+<li><code>[截图占位：SM 的券商审批弹窗，账号和凭据必须脱敏]</code></li>
+<li><code>[截图占位：IB Gateway API 设置页，地址/账号信息脱敏]</code></li>
+<li><code>[截图占位：TS broker status，供维护者使用]</code></li>
+</ul>
+</article>
+<article id="product-doc-operations" class="product-docs-article" data-doc-id="operations" data-doc-title="维护与故障排查"><h1 id="operations-section-1" data-toc-label="SC 证券股票交易系统：维护与故障排查">SC 证券股票交易系统：维护与故障排查<a class="product-docs-heading-link" href="#operations-section-1" aria-label="链接到本节">#</a></h1>
+<blockquote>
+<p>生产维护版：2026-08-10</p>
+<p>本文面向生产维护者。命令示例按 Windows/PowerShell 和当前项目部署方式整理；执行前先确认所在服务器、目录和环境变量，涉及真实下单的步骤必须人工确认。</p>
+</blockquote>
+<h2 id="operations-section-2" data-toc-label="1. 首次部署原则">1. 首次部署原则<a class="product-docs-heading-link" href="#operations-section-2" aria-label="链接到本节">#</a></h2>
+<h3 id="operations-section-3" data-toc-label="1.1 部署顺序">1.1 部署顺序<a class="product-docs-heading-link" href="#operations-section-3" aria-label="链接到本节">#</a></h3>
+<ol>
+<li>准备 SM 服务器：Python/打包运行时、SM 数据目录、Caddy 运行目录、域名和证书出站网络。</li>
+<li>准备 TS 服务器：TS 运行时、Caddy 运行目录、券商 SDK；IB 节点另行安装 <code>ibapi</code> 和 IB Gateway。</li>
+<li>在 DNSPod 创建或导入 TS 域名池，域名必须是 <code>scjrdomain.com</code> 下的完整 FQDN。</li>
+<li>配置 SM 的生产环境变量，先做 DNSPod 权限测试和域名池保存前的连通性验证。</li>
+<li>启动 SM Caddy/SM，确认 <code>https://scjrdomain.com/ping</code> 返回成功。</li>
+<li>启动 TS，先检查到 SM 的网络，再提交 TS 注册申请。</li>
+<li>在 SM 完成券商验证和审批；审批通过后核对分配域名和 A 记录。</li>
+<li>TS 拉取配置、初始化适配器和 Caddy，维护者再让交易员通过 Client 登录。</li>
+</ol>
+<h3 id="operations-section-4" data-toc-label="1.2 生产网络原则">1.2 生产网络原则<a class="product-docs-heading-link" href="#operations-section-4" aria-label="链接到本节">#</a></h3>
+<p>应用进程的本地端口不是交易员入口。当前部署脚本默认：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>入口</th>
+<th>本地服务</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>https://scjrdomain.com</code></td>
+<td>SM <code>127.0.0.1:8800</code></td>
+</tr>
+<tr>
+<td><code>wss://&lt;TS domain&gt;/ws</code></td>
+<td>TS <code>127.0.0.1:8900</code></td>
+</tr>
+</tbody></table></div>
+<p>公网通常只开放 TCP 80/443。8800、8900、Caddy admin 2019/2020、IB Gateway 4001 不应开放公网。若临时直连测试改变了监听地址，测试结束后必须恢复回环监听和防火墙策略。</p>
+<h2 id="operations-section-5" data-toc-label="2. 运行目录和持久化数据">2. 运行目录和持久化数据<a class="product-docs-heading-link" href="#operations-section-5" aria-label="链接到本节">#</a></h2>
+<p>不要在不确认的情况下删除或重置以下目录；它们可能是当前实例正在使用的数据：</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>作用</th>
+<th>维护要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Server_manager/data/server_manager.db</code></td>
+<td>SM 账号、节点、审批、域名和审计等数据</td>
+<td>重装前备份；开发环境废弃时再按当次计划清理</td>
+</tr>
+<tr>
+<td><code>Server_manager/data/logs/</code></td>
+<td>SM 日志</td>
+<td>保留故障时间窗口，定期轮换</td>
+</tr>
+<tr>
+<td><code>Trader_Server/data/config.json</code></td>
+<td>TS 审批和运行配置</td>
+<td>备份前脱敏；不要复制到 Client</td>
+</tr>
+<tr>
+<td><code>Trader_Server/data/logs/</code></td>
+<td>TS 运行、券商和 WSS 日志</td>
+<td>交易故障排查的主要来源</td>
+</tr>
+<tr>
+<td><code>Trader_Server/.register_state.json</code></td>
+<td>TS 注册等待状态</td>
+<td>注册中断时用于恢复；确认状态后再清理</td>
+</tr>
+<tr>
+<td><code>Server_manager/caddy/data/</code>、<code>Server_manager/caddy/config/</code></td>
+<td>SM Caddy 证书和运行状态</td>
+<td>重装前按域名证书策略备份；不要把证书数据提交 Git</td>
+</tr>
+<tr>
+<td><code>Trader_Server/caddy/data/</code>、<code>Trader_Server/caddy/config/</code></td>
+<td>TS Caddy 证书和运行状态</td>
+<td>每台 TS 单独维护；不要复制到 Client 或提交 Git</td>
+</tr>
+<tr>
+<td><code>%APPDATA%/SC Client/hotkey.json</code></td>
+<td>Client 本地快捷键配置</td>
+<td>交易员个性化配置；损坏时回退代码默认配置</td>
+</tr>
+</tbody></table></div>
+<p>开发目录可能还存在 <code>.idea/workspace.xml</code>、临时诊断输出和本地环境文件。它们不应进入生产包或 Git；清理前仍需确认是否有当前测试在使用。</p>
+<h2 id="operations-section-6" data-toc-label="3. 启停和重装">3. 启停和重装<a class="product-docs-heading-link" href="#operations-section-6" aria-label="链接到本节">#</a></h2>
+<h3 id="operations-section-7" data-toc-label="3.1 启停检查">3.1 启停检查<a class="product-docs-heading-link" href="#operations-section-7" aria-label="链接到本节">#</a></h3>
+<p>SM 和 TS 的 Windows 启动模板分别为 <code>deploy/windows/start_sm.bat</code>、<code>deploy/windows/start_ts.bat</code>。正式部署应从各端固定运行目录启动对应程序。启动前检查环境变量，而不是把密钥直接写入命令行历史。</p>
+<p>启动后依次检查：</p>
+<pre><code class="language-powershell">Test-NetConnection 127.0.0.1 -Port 8800   # SM 本机应用
+Test-NetConnection 127.0.0.1 -Port 8900   # TS 本机应用
+Test-NetConnection 127.0.0.1 -Port 2019   # SM Caddy 管理端，仅本机
+Test-NetConnection 127.0.0.1 -Port 2020   # TS Caddy 管理端，仅本机
+</code></pre>
+<p>对外验证优先使用：</p>
+<pre><code class="language-powershell">curl.exe -I https://scjrdomain.com/ping
+</code></pre>
+<p><code>HEAD</code> 可能返回 405，因为 <code>/ping</code> 只允许 GET；这仍说明 TLS、域名和 Caddy 已经到达 SM。需要确认业务响应时使用 GET：</p>
+<pre><code class="language-powershell">curl.exe https://scjrdomain.com/ping
+</code></pre>
+<h3 id="operations-section-8" data-toc-label="3.2 重新安装">3.2 重新安装<a class="product-docs-heading-link" href="#operations-section-8" aria-label="链接到本节">#</a></h3>
+<p>当前没有需要支持的“原目录升级兼容”流程；正式产品只按重新安装处理。重装前应：</p>
+<ol>
+<li>停止 SM/TS 应用，确认 Caddy 进程和端口归属。</li>
+<li>备份需要保留的数据库、节点配置、日志和 Caddy 证书状态。</li>
+<li>清点并移除打包目录中的 <code>.env</code>、本地数据库、测试账号、测试 token、日志和临时诊断脚本。</li>
+<li>安装新版本到目标目录，放回经过审核的运行数据和 Caddy 配置。</li>
+<li>启动 SM，确认管理员账号和 <code>/ping</code>。</li>
+<li>启动 TS，确认节点状态和 broker config。</li>
+<li>Client 重新登录并做非交易链路验收，再进行人工实盘小额验收。</li>
+</ol>
+<p>不应把开发机的 SM 数据库直接带进生产，除非维护者明确决定迁移，并已确认其中没有测试账号、旧节点、凭据或敏感日志。</p>
+<h2 id="operations-section-9" data-toc-label="4. Caddy 和域名池维护">4. Caddy 和域名池维护<a class="product-docs-heading-link" href="#operations-section-9" aria-label="链接到本节">#</a></h2>
+<h3 id="operations-section-10" data-toc-label="4.1 Caddy">4.1 Caddy<a class="product-docs-heading-link" href="#operations-section-10" aria-label="链接到本节">#</a></h3>
+<p>SM Caddy 管理地址为 <code>127.0.0.1:2019</code>，TS Caddy 管理地址为 <code>127.0.0.1:2020</code>。Caddyfile 示例位于 <code>deploy/caddy/</code>。SM Caddy 反代 8800；TS Caddy 反代 <code>/ws</code> 到 8900，并只暴露受控的 TS 管理接口路径。</p>
+<p>Caddy 的证书和配置状态分别位于 <code>Server_manager/caddy/</code> 与 <code>Trader_Server/caddy/</code> 下的 <code>data/</code>、<code>config/</code>。重新安装时如果删除这些目录，可能需要重新签发证书；正式维护应先备份并确认 DNS 已指向正确服务器。不要把 Caddy 证书、私钥和自动生成数据提交到 Git。</p>
+<h3 id="operations-section-11" data-toc-label="4.2 TS 域名池">4.2 TS 域名池<a class="product-docs-heading-link" href="#operations-section-11" aria-label="链接到本节">#</a></h3>
+<p>域名池处理顺序：</p>
+<ol>
+<li>在 SM 导入完整 FQDN，例如 <code>www.ts01.scjrdomain.com</code>。</li>
+<li>确认域名属于 <code>scjrdomain.com</code>，且没有重复或非法 label。</li>
+<li>审批 TS 时由 SM 保留未占用域名。</li>
+<li>SM 使用 DNSPod upsert A 记录，把该域名指向 TS 公网 IPv4。</li>
+<li>TS 收到 assigned domain 后启动/重载 Caddy。</li>
+<li>使用 DNS 查询和 HTTPS/WSS 实际连接验证，不只检查 SM 数据库状态。</li>
+</ol>
+<p>TS 公网 IP 发生变化时，维护者需要确认 TS 上报的新公网 IP、SM 域名池记录、DNSPod A 记录和 Caddy 证书状态。IP 变化的人工操作规范属于后续产品维护文档扩展项，但生产验收仍要保留人工核对。</p>
+<h2 id="operations-section-12" data-toc-label="5. 券商维护">5. 券商维护<a class="product-docs-heading-link" href="#operations-section-12" aria-label="链接到本节">#</a></h2>
+<h3 id="operations-section-13" data-toc-label="5.1 TT">5.1 TT<a class="product-docs-heading-link" href="#operations-section-13" aria-label="链接到本节">#</a></h3>
+<p>TT 的 Client Secret、Refresh Token 和明确的 Account Number 由受控管理员在 SM 审批流程配置。凭据轮换时：</p>
+<ol>
+<li>在 TT 官方侧生成/更新凭据。</li>
+<li>在 SM 对相应节点执行重新验证。</li>
+<li>保存成功后等待 TS 配置同步或重启 TS。</li>
+<li>检查 TS Session、行情、持仓和订单查询。</li>
+<li>最后人工执行低风险下单/撤单验收。</li>
+</ol>
+<p>TT 主交易栏 Route 固定 SMART；快捷键配置页允许保存 Route/Hide，但执行时 Route 回落为 SMART、Hide 按普通订单处理。扩展时段和 IOC 订单需结合 TT 当前交易时段、标的、价格和路由能力排查。</p>
+<h3 id="operations-section-14" data-toc-label="5.2 IB Gateway">5.2 IB Gateway<a class="product-docs-heading-link" href="#operations-section-14" aria-label="链接到本节">#</a></h3>
+<p>IB Gateway 维护仍是人工流程，当前不包含 Windows 任务计划、IBC/IBController 或自动输入账号/密码/2FA：</p>
+<ol>
+<li>在 TS 同机启动 IB Gateway。</li>
+<li>人工输入 IBKR 凭据并完成 2FA。</li>
+<li>在 API 设置中开启 Socket Clients，核对端口 <code>4001</code>、Trusted IP <code>127.0.0.1</code> 和 Read-Only API 关闭状态。</li>
+<li>在 TS 服务器本机执行端口检查。</li>
+<li>在 SM 审批中点击“验证并获取账户”，选择唯一绑定的 <code>account_id</code>。</li>
+<li>TS 拉取配置并连接 Gateway，再让 Client 登录。</li>
+</ol>
+<p>IB Gateway 登录过期、API 未启用、端口不一致和无市场数据权限分别处理；Gateway socket 可用不能证明行情权限或订单权限可用。IB 自动登录维护属于后续待办，不应在第一版部署脚本中自行实现。</p>
+<h2 id="operations-section-15" data-toc-label="6. 分层故障排查">6. 分层故障排查<a class="product-docs-heading-link" href="#operations-section-15" aria-label="链接到本节">#</a></h2>
+<h3 id="operations-section-16" data-toc-label="6.1 Client 登录失败">6.1 Client 登录失败<a class="product-docs-heading-link" href="#operations-section-16" aria-label="链接到本节">#</a></h3>
+<p>检查顺序：</p>
+<ol>
+<li>DNS 是否解析到 SM 服务器。</li>
+<li><code>curl.exe https://scjrdomain.com/ping</code> 是否返回 <code>{&quot;status&quot;:&quot;pong&quot;}</code>。</li>
+<li>SM 应用是否监听 8800，Caddy 是否反代到正确地址。</li>
+<li>交易员账号是否 active、密码是否正确、是否绑定 TS。</li>
+<li>是否是 24 小时 Client token 过期；重新登录获取新 token。</li>
+</ol>
+<p>不要把 <code>curl -I</code> 的 405 误判为 TLS 失败；<code>/ping</code> 当前允许 GET，HEAD 返回 405 是 HTTP 方法不匹配。</p>
+<h3 id="operations-section-17" data-toc-label="6.2 Client WSS 连接失败或高延迟">6.2 Client WSS 连接失败或高延迟<a class="product-docs-heading-link" href="#operations-section-17" aria-label="链接到本节">#</a></h3>
+<p>检查顺序：</p>
+<ol>
+<li>Client 使用的 TS 域名是否与 SM 返回的绑定地址一致。</li>
+<li>TS 域名 A 记录是否指向当前 TS 公网 IP。</li>
+<li>TS Caddy 是否运行，<code>/ws</code> 是否反代到 8900。</li>
+<li>TS 应用、SM Token 复验和节点占用是否正常。</li>
+<li>查看 Client 与 TS 同一时间窗口的日志，区分网络 RTT、事件循环处理、WSS 重连和券商回调延迟。</li>
+</ol>
+<p>当前系统不应因为一次短暂网络波动就盲目频繁重连；高延迟诊断应先收集证据，再决定是否调整重连策略。</p>
+<h3 id="operations-section-18" data-toc-label="6.3 行情失败">6.3 行情失败<a class="product-docs-heading-link" href="#operations-section-18" aria-label="链接到本节">#</a></h3>
+<p>按以下五类区分并记录：</p>
+<ul>
+<li>Gateway/券商 Session 未连接。</li>
+<li>API 未开启或 socket 不可用。</li>
+<li>账户没有登录。</li>
+<li>账户没有对应市场数据权限。</li>
+<li>symbol/合约解析失败。</li>
+</ul>
+<p>IB 只支持第一版美股 STK/SMART/USD；symbol 歧义和缺少 primary exchange 时优先看合约详情。</p>
+<h3 id="operations-section-19" data-toc-label="6.4 下单或撤单失败">6.4 下单或撤单失败<a class="product-docs-heading-link" href="#operations-section-19" aria-label="链接到本节">#</a></h3>
+<p>先保存失败订单的 symbol、qty、price、action、order_type、TIF、route、hidden、提交时间和订单来源。然后检查：</p>
+<ol>
+<li>Client 是否把操作发到当前选中的交易栏。</li>
+<li>TS 是否通过参数和 capability 校验。</li>
+<li>账户是否 read-only。</li>
+<li>TIF/订单类型是否符合当前券商和交易时段规则。</li>
+<li>订单是否已经成交、取消或拒绝；失效订单不可撤单。</li>
+<li>TT 的 <code>no compatible order router found</code> 是否由价格、时段或路由能力引起。</li>
+</ol>
+<p>交易员侧只显示安全映射文案；维护者可以在 TS/SM 受控日志查看 trace id 和券商原始原因。真实日志不得直接发给交易员或上传到公共位置。</p>
+<h3 id="operations-section-20" data-toc-label="6.5 IB 注册失败">6.5 IB 注册失败<a class="product-docs-heading-link" href="#operations-section-20" aria-label="链接到本节">#</a></h3>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>错误</th>
+<th>判断</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TLS certificate verify failed</td>
+<td>Python/虚拟环境的证书链异常；先用同一解释器请求 SM，再检查 certifi/系统证书</td>
+</tr>
+<tr>
+<td><code>ibapi is not installed on Trader Server</code></td>
+<td><code>ibapi</code> 安装到了错误环境；依赖应在 TS 的解释器/打包运行时中</td>
+</tr>
+<tr>
+<td><code>IB Gateway socket is not available</code></td>
+<td>本机 4001 无监听，优先查 Gateway 登录、API 开关和端口</td>
+</tr>
+<tr>
+<td>返回多个账户</td>
+<td>正常，SM 必须选择一个 <code>account_id</code></td>
+</tr>
+<tr>
+<td>无账户或账户不可用</td>
+<td>Gateway 会话、API 权限或账户状态异常；不能跳过审批选择</td>
+</tr>
+</tbody></table></div>
+<h2 id="operations-section-21" data-toc-label="7. 错误码和提示词对照">7. 错误码和提示词对照<a class="product-docs-heading-link" href="#operations-section-21" aria-label="链接到本节">#</a></h2>
+<p>错误处理分为两层：交易员侧只显示安全、券商无关的提示；维护者侧使用 SM/TS 日志中的错误码定位真实原因。不能把维护侧原始异常、地址、账户或券商名称直接透传给 Client。</p>
+<h3 id="operations-section-22" data-toc-label="7.1 Client 认证和连接提示">7.1 Client 认证和连接提示<a class="product-docs-heading-link" href="#operations-section-22" aria-label="链接到本节">#</a></h3>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>错误码/状态</th>
+<th>Client 提示或行为</th>
+<th>维护者检查</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AUTH_EXPIRED</code></td>
+<td><code>认证已过期，请重新认证登录</code>，返回登录页</td>
+<td>Client token 是否超过 24 小时；SM token 是否仍存在</td>
+</tr>
+<tr>
+<td><code>AUTH_INVALID</code> / <code>AUTH_REVOKED</code></td>
+<td><code>认证已失效，请重新认证登录</code>，返回登录页</td>
+<td>SM 是否重启、token 是否撤销、账号/节点绑定是否变化</td>
+</tr>
+<tr>
+<td><code>already_logged_in</code></td>
+<td>弹出账号已登录提示，可按现有流程选择接管</td>
+<td>同账号是否已有有效 token 和节点占用</td>
+</tr>
+<tr>
+<td><code>CLIENT_DISCONNECTED</code></td>
+<td><code>交易服务未连接</code></td>
+<td>Client WSS、TS 进程、Caddy <code>/ws</code> 和节点占用</td>
+</tr>
+<tr>
+<td>broker status 查询超时</td>
+<td><code>交易状态查询超时</code></td>
+<td>WSS 请求是否发出、TS 事件循环和 broker status 响应</td>
+</tr>
+<tr>
+<td>行情订阅失败</td>
+<td><code>行情订阅失败</code></td>
+<td>symbol、broker Session、行情权限、合约解析和回调</td>
+</tr>
+</tbody></table></div>
+<h3 id="operations-section-23" data-toc-label="7.2 Client 交易安全提示">7.2 Client 交易安全提示<a class="product-docs-heading-link" href="#operations-section-23" aria-label="链接到本节">#</a></h3>
+<p>以下映射来自 TS 的 Client 安全输出层。多个维护侧原因可以故意映射为同一个交易员提示，以避免泄露券商类型和后端细节。</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>TS 错误码</th>
+<th>Client 安全提示</th>
+<th>维护者含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>BROKER_OFFLINE</code> / <code>NO_BROKER</code> / <code>BROKER_CONNECT_FAILED</code> / <code>IB_UNAVAILABLE</code></td>
+<td><code>交易服务暂不可用</code></td>
+<td>券商适配器未连接、配置未加载或底层通道不可用</td>
+</tr>
+<tr>
+<td><code>ORDER_NOT_SUPPORTED</code></td>
+<td><code>当前交易通道不支持下单</code></td>
+<td>capability 关闭、只读或适配器不支持</td>
+</tr>
+<tr>
+<td><code>ORDER_CANCEL_NOT_SUPPORTED</code></td>
+<td><code>当前交易通道不支持撤单</code></td>
+<td>capability 关闭、只读或订单不在可撤范围</td>
+</tr>
+<tr>
+<td><code>POSITION_NOT_SUPPORTED</code></td>
+<td><code>当前交易通道不支持持仓查询</code></td>
+<td>positions capability 不可用</td>
+</tr>
+<tr>
+<td><code>ORDER_QUERY_NOT_SUPPORTED</code></td>
+<td><code>当前交易通道不支持订单查询</code></td>
+<td>order_query capability 不可用</td>
+</tr>
+<tr>
+<td><code>QUOTE_NOT_SUPPORTED</code></td>
+<td><code>当前交易通道不支持行情订阅</code></td>
+<td>quotes capability 不可用</td>
+</tr>
+<tr>
+<td><code>ORDER_INVALID_SYMBOL</code></td>
+<td><code>请输入正确的股票代码</code></td>
+<td>symbol 为空或格式校验失败</td>
+</tr>
+<tr>
+<td><code>ORDER_INVALID_QTY</code></td>
+<td><code>订单数量无效</code></td>
+<td>数量不是正整数或解析失败</td>
+</tr>
+<tr>
+<td><code>ORDER_INVALID_PRICE</code></td>
+<td><code>订单价格无效</code></td>
+<td>限价单价格不是有效正数</td>
+</tr>
+<tr>
+<td><code>ORDER_INVALID_ACTION</code></td>
+<td><code>订单方向无效</code></td>
+<td>action 不在统一方向集合中</td>
+</tr>
+<tr>
+<td><code>ORDER_INVALID_TYPE</code></td>
+<td><code>订单类型无效</code></td>
+<td>不是 limit/market</td>
+</tr>
+<tr>
+<td><code>ORDER_INVALID_TIF</code></td>
+<td><code>订单有效期无效</code></td>
+<td>TIF 不在支持集合中</td>
+</tr>
+<tr>
+<td><code>DUPLICATE_ORDER_BLOCKED</code></td>
+<td><code>相同订单提交过于频繁</code></td>
+<td>仅在服务端重复订单窗口启用时出现；当前窗口配置为关闭</td>
+</tr>
+<tr>
+<td><code>ORDER_REJECTED</code></td>
+<td><code>订单未被接受</code></td>
+<td>券商拒单；维护日志查看 trace id 和脱敏后的拒绝原因</td>
+</tr>
+<tr>
+<td><code>ORDER_SUBMIT_FAILED</code></td>
+<td><code>下单失败，请稍后重试</code></td>
+<td>下单调用异常或未知失败</td>
+</tr>
+<tr>
+<td><code>ORDER_CANCEL_FAILED</code></td>
+<td><code>撤单失败，请刷新订单确认</code></td>
+<td>撤单结果失败或状态无法确认</td>
+</tr>
+<tr>
+<td><code>POSITION_QUERY_FAILED</code></td>
+<td><code>持仓查询失败，请稍后重试</code></td>
+<td>适配器查询异常</td>
+</tr>
+<tr>
+<td><code>ORDER_QUERY_FAILED</code></td>
+<td><code>订单查询失败，请稍后重试</code></td>
+<td>适配器查询异常</td>
+</tr>
+<tr>
+<td><code>ORDER_RESPONSE_INVALID</code></td>
+<td><code>订单状态未知，请刷新订单确认</code></td>
+<td>券商未返回可识别订单对象或状态</td>
+</tr>
+</tbody></table></div>
+<p>TS 还会根据券商原始文本进行安全归类：资金不足 -&gt; <code>可用资金不足</code>；只读限制 -&gt; <code>当前账户为只读权限</code>；市场关闭/时段不符 -&gt; <code>当前不在可交易时段</code>；价格范围/NBBO 限制 -&gt; <code>订单价格超出允许范围</code>；不可撤销 -&gt; <code>当前订单不可撤销</code>；标的未找到 -&gt; <code>未找到对应的交易对象</code>。无法安全归类时使用 <code>操作失败，请稍后重试</code>。</p>
+<h3 id="operations-section-24" data-toc-label="7.3 SM/TS 维护侧诊断码">7.3 SM/TS 维护侧诊断码<a class="product-docs-heading-link" href="#operations-section-24" aria-label="链接到本节">#</a></h3>
+<p>这些诊断码只用于管理员界面和受控日志，不应直接展示给交易员。</p>
+<div class="product-docs-table-wrap"><table>
+<thead>
+<tr>
+<th>诊断码</th>
+<th>主要含义</th>
+<th>处理方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>TT_SDK_MISSING</code> / <code>BROKER_SDK_MISSING</code></td>
+<td>TT SDK 未安装或运行环境不一致</td>
+<td>检查 SM/TS 实际解释器和打包依赖</td>
+</tr>
+<tr>
+<td><code>TT_CREDENTIALS_REQUIRED</code> / <code>BROKER_CREDENTIALS_INVALID</code></td>
+<td>TT 凭据缺失或格式不完整</td>
+<td>在 SM 重新填写并验证，不在日志打印值</td>
+</tr>
+<tr>
+<td><code>TT_AUTH_INVALID</code> / <code>BROKER_AUTH_INVALID</code></td>
+<td>TT OAuth 凭据无效</td>
+<td>轮换凭据后重新审批/同步</td>
+</tr>
+<tr>
+<td><code>TT_AUTH_FORBIDDEN</code> / <code>BROKER_AUTH_FORBIDDEN</code></td>
+<td>凭据有效但没有访问权限</td>
+<td>检查 TT OAuth grant 权限</td>
+</tr>
+<tr>
+<td><code>TT_NETWORK_TIMEOUT</code></td>
+<td>SM 调用 TT 超时</td>
+<td>检查 SM 境外网络和 TT 服务状态</td>
+</tr>
+<tr>
+<td><code>TT_NO_ACCOUNTS</code> / <code>BROKER_ACCOUNT_MISSING</code></td>
+<td>未返回可用账户</td>
+<td>检查凭据归属和账户状态</td>
+</tr>
+<tr>
+<td><code>TT_ACCOUNT_NOT_FOUND</code> / <code>BROKER_ACCOUNT_NOT_FOUND</code></td>
+<td>配置账户不在当前凭据授权范围</td>
+<td>重新验证并选择正确账户</td>
+</tr>
+<tr>
+<td><code>TT_ACCOUNT_CLOSED</code> / <code>BROKER_ACCOUNT_CLOSED</code></td>
+<td>配置账户已关闭</td>
+<td>更换可用账户后重新审批</td>
+</tr>
+<tr>
+<td><code>IB_SDK_MISSING</code></td>
+<td>TS 未安装 <code>ibapi</code></td>
+<td>安装到 TS 实际运行环境并重启</td>
+</tr>
+<tr>
+<td><code>IB_CONFIG_INVALID</code></td>
+<td>Gateway host/port/client_id/account 配置无效</td>
+<td>核对固定本机配置和审批结果</td>
+</tr>
+<tr>
+<td><code>IB_GATEWAY_UNREACHABLE</code></td>
+<td>Gateway socket 不可达</td>
+<td>检查进程、API 开关、端口和 Trusted IP</td>
+</tr>
+<tr>
+<td><code>IB_API_HANDSHAKE_TIMEOUT</code></td>
+<td>socket 已尝试连接但 API handshake 超时</td>
+<td>检查 Gateway 登录状态、弹窗和 API 接受状态</td>
+</tr>
+<tr>
+<td><code>IB_CLIENT_ID_IN_USE</code></td>
+<td>当前 <code>client_id</code> 已被占用</td>
+<td>关闭重复 API 客户端，确认只保留预期 TS</td>
+</tr>
+<tr>
+<td><code>IB_NO_MANAGED_ACCOUNTS</code></td>
+<td>Gateway 未返回账户</td>
+<td>检查登录、账户权限和 Gateway 会话</td>
+</tr>
+<tr>
+<td><code>IB_ACCOUNT_NOT_MANAGED</code></td>
+<td>配置账户不在 managedAccounts 中</td>
+<td>在 SM 重新验证并选择账户</td>
+</tr>
+<tr>
+<td><code>IB_CONTRACT_NOT_FOUND</code></td>
+<td>未找到符合 STK/SMART/USD 的美股合约</td>
+<td>检查 symbol 和合约信息</td>
+</tr>
+<tr>
+<td><code>IB_CONTRACT_AMBIGUOUS</code></td>
+<td>symbol 匹配多个合约</td>
+<td>核对标的，后续按需补 primaryExchange</td>
+</tr>
+<tr>
+<td><code>IB_VALIDATION_TIMEOUT</code></td>
+<td>SM 等待待审批 TS 验证结果超时</td>
+<td>确认 TS 在线、注册 worker 和 SM/TS HTTPS 链路</td>
+</tr>
+<tr>
+<td><code>IB_VALIDATION_REQUIRED</code></td>
+<td>审批前还没有新鲜验证结果</td>
+<td>重新点击“验证并获取账户”</td>
+</tr>
+<tr>
+<td><code>IB_ACCOUNT_REQUIRED</code></td>
+<td>审批时未选择 account_id</td>
+<td>从验证结果中选择一个账户</td>
+</tr>
+<tr>
+<td><code>IB_ACCOUNT_NOT_VALIDATED</code></td>
+<td>所选账户不在最近验证结果中</td>
+<td>重新验证后选择当前返回账户</td>
+</tr>
+</tbody></table></div>
+<p>维护者记录问题时至少保留：北京时间、Client 操作、symbol、订单参数、TS <code>trace_id</code>、错误码、SM/TS/broker 状态以及处理结果。不要在记录中保存完整 token、券商凭据或账户敏感字段。</p>
+<h2 id="operations-section-25" data-toc-label="8. 日志、敏感信息和交接">8. 日志、敏感信息和交接<a class="product-docs-heading-link" href="#operations-section-25" aria-label="链接到本节">#</a></h2>
+<p>维护者交接日志时只提供必要时间窗口和脱敏副本：</p>
+<ul>
+<li>删除或掩码 Client token、TT secret/token、IB 账号信息、DNSPod 凭据、节点 token、订单敏感字段。</li>
+<li>不把 TS IP、域名池全量和 Caddy 私钥发给交易员。</li>
+<li>Client 日志和控制台对交易员使用通用文案；券商名称和地址只在维护者侧出现。</li>
+<li>临时延迟诊断脚本和临时采集日志确认问题后必须移除，避免进入生产包和 Git。</li>
+<li>Git 提交前检查 <code>.env</code>、<code>*.local.bat</code>、数据库、日志、两端 <code>caddy/data</code>、<code>caddy/config</code> 和打包产物。</li>
+</ul>
+<h2 id="operations-section-26" data-toc-label="9. 维护记录模板">9. 维护记录模板<a class="product-docs-heading-link" href="#operations-section-26" aria-label="链接到本节">#</a></h2>
+<pre><code class="language-text">发生时间（北京时间）：
+影响范围：Client / SM / TS / TT / IB / DNS / Caddy
+现象：
+首次观察到的安全错误码：
+相关 trace id / request id：
+检查过的端口和域名：
+处理动作：
+是否重启服务：
+是否改动凭据或配置：
+回归结果：登录 / WSS / 行情 / 持仓 / 订单查询 / 撤单
+后续待办：
+</code></pre>
+<h2 id="operations-section-27" data-toc-label="10. 当前暂缓边界">10. 当前暂缓边界<a class="product-docs-heading-link" href="#operations-section-27" aria-label="链接到本节">#</a></h2>
+<ul>
+<li>IB Gateway 自动登录、自动 2FA 和自动维护暂不实施。</li>
+<li>实盘/模拟盘切换开关暂不实施；模拟环境应使用独立 TS/Gateway 部署。</li>
+<li>打包前清理、生产真实环境验收和详细产品截图在后续上线阶段处理。</li>
+<li>认证过期后的滑动续期暂不实施；当前按固定有效期到期后重新登录。</li>
+</ul>
+</article></main>
+    <aside class="product-docs-toc"><div class="product-docs-toc-label">本页目录</div><nav data-product-docs-toc></nav></aside>
+  </div>
+</div>

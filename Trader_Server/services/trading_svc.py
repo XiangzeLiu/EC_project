@@ -185,7 +185,25 @@ async def place_order(params: dict[str, Any], session_id: str, username: str = "
     order_type = order["order_type"]
     tif = order["tif"]
 
+    route = str(order.get("route") or "")
+    hidden = bool(order.get("hidden", False))
+
     log.info("[%s][%s] PLACE_ORDER: %s %sx %s @%s (%s/%s)", session_id, trace_id, action, qty, symbol, price, order_type, tif)
+    log.info(
+        "[%s][%s][ORDER_DIAG][TS_SUBMIT] username=%s server_id=%s symbol=%s action=%s qty=%s price=%s order_type=%s tif=%s route=%s hidden=%s",
+        session_id,
+        trace_id,
+        username or "",
+        server_id or "",
+        symbol,
+        action,
+        qty,
+        price,
+        order_type,
+        tif,
+        route,
+        hidden,
+    )
 
     try:
         result = await broker.place_order(order)
@@ -203,6 +221,22 @@ async def place_order(params: dict[str, Any], session_id: str, username: str = "
                 trace_id,
                 order_id,
                 code,
+            )
+            log.warning(
+                "[%s][%s][ORDER_DIAG][TS_REJECT] order_id=%s code=%s message=%s symbol=%s action=%s qty=%s price=%s order_type=%s tif=%s route=%s hidden=%s",
+                session_id,
+                trace_id,
+                order_id,
+                code,
+                message,
+                symbol,
+                action,
+                qty,
+                price,
+                order_type,
+                tif,
+                route,
+                hidden,
             )
             return _error(code, message, trace_id=trace_id)
         log.info("[%s][%s] PLACE_ORDER OK: order_id=%s", session_id, trace_id, order_id)
