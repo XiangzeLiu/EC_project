@@ -34,39 +34,67 @@ function plainText(html) {
     .trim();
 }
 
-function renderDocument(document) {
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderDocument(document, documentIndex) {
   const markdown = fs.readFileSync(path.join(__dirname, document.file), "utf8");
   let headingIndex = 0;
+  const headings = [];
   let html = marked.parse(markdown, { gfm: true, breaks: false });
   html = html.replaceAll('class="flat-diagram"', 'class="product-docs-flat-diagram"');
   html = html.replace(/(<a\b[^>]*>)([^<]+)\.md(<\/a>)/g, "$1$2$3");
   html = html.replace(/<h([1-3])>([\s\S]*?)<\/h\1>/g, (_match, level, content) => {
     headingIndex += 1;
     const headingId = `${document.id}-section-${headingIndex}`;
-    const label = plainText(content).replace(/"/g, "&quot;");
-    return `<h${level} id="${headingId}" data-toc-label="${label}">${content}<a class="product-docs-heading-link" href="#${headingId}" aria-label="链接到本节">#</a></h${level}>`;
+    const label = escapeHtml(plainText(content));
+    headings.push({ id: headingId, label, level: Number(level) });
+    return `<h${level} id="${headingId}" data-toc-label="${label}">${content}<a class="product-docs-heading-link" href="#docs/${document.id}/${headingId}" data-doc-section-target="${headingId}" data-doc-section-document="${document.id}" aria-label="链接到本节">#</a></h${level}>`;
   });
   html = html.replace(/<table>/g, '<div class="product-docs-table-wrap"><table>').replace(/<\/table>/g, "</table></div>");
   for (const [file, id] of Object.entries(articleIdsByFile)) {
     for (const href of [file, encodeURI(file)]) {
-      html = html.replaceAll(`href="${href}"`, `href="#product-doc-${id}"`);
+      html = html.replaceAll(`href="${href}"`, `href="#docs/${id}" data-product-doc-link="${id}"`);
     }
   }
-  return `<article id="product-doc-${document.id}" class="product-docs-article" data-doc-id="${document.id}" data-doc-title="${document.label}">${html}</article>`;
+  const activeClass = documentIndex === 0 ? " active" : "";
+  const hiddenAttribute = documentIndex === 0 ? "" : ' aria-hidden="true"';
+  return {
+    headings,
+    html: `<article id="product-doc-${document.id}" class="product-docs-article${activeClass}" data-doc-id="${document.id}" data-doc-title="${document.label}"${hiddenAttribute}>${html}</article>`,
+  };
 }
 
-const articles = documents.map(renderDocument).join("\n");
-const primaryNav = documents.map((item, index) => `
-  <a class="product-docs-nav-item${index === 0 ? " active" : ""}" href="#product-doc-${item.id}" data-doc-target="${item.id}">
-    <span class="product-docs-nav-index">${String(index + 1).padStart(2, "0")}</span>
-    <span>${item.label}</span>
-  </a>`).join("");
+const renderedDocuments = documents.map(renderDocument);
+const articles = renderedDocuments.map((item) => item.html).join("\n");
+const primaryNav = documents.map((item, index) => {
+  const sections = renderedDocuments[index].headings
+    .filter((heading) => heading.level >= 2)
+    .map((heading) => `
+      <a class="product-docs-nav-section level-${heading.level}" href="#docs/${item.id}/${heading.id}" data-doc-section-target="${heading.id}" data-doc-section-document="${item.id}">${heading.label}</a>`)
+    .join("");
+  return `
+  <div class="product-docs-nav-group${index === 0 ? " active" : ""}" data-doc-group="${item.id}">
+    <a class="product-docs-nav-item${index === 0 ? " active" : ""}" href="#docs/${item.id}" data-doc-target="${item.id}" aria-expanded="${index === 0 ? "true" : "false"}">
+      <span class="product-docs-nav-index">${String(index + 1).padStart(2, "0")}</span>
+      <span class="product-docs-nav-text">${item.label}</span>
+      <span class="product-docs-nav-chevron" aria-hidden="true">&#8250;</span>
+    </a>
+    <div class="product-docs-nav-sections">${sections}</div>
+  </div>`;
+}).join("");
 
 const css = String.raw`
   #product-docs-root { --doc-green:#267a50; --doc-blue:#356fad; --doc-ink:#17212b; --doc-muted:#65717d; --doc-line:#dfe5e1; --doc-page:#f8faf9; color:var(--doc-ink); font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Segoe UI",sans-serif; font-size:14px; line-height:1.75; }
   #product-docs-root *, #product-docs-root *::before, #product-docs-root *::after { box-sizing:border-box; }
   #product-docs-root a { color:var(--doc-blue); }
-  #product-docs-root .product-docs-toolbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:12px; min-height:58px; padding:8px 16px; background:rgba(255,255,255,.96); border-bottom:1px solid var(--doc-line); backdrop-filter:blur(10px); }
+  #product-docs-root .product-docs-toolbar { position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:12px; min-height:58px; padding:8px 16px; background:rgba(255,255,255,.96); border-bottom:1px solid var(--doc-line); backdrop-filter:blur(10px); }
   #product-docs-root .product-docs-title { min-width:180px; color:var(--doc-ink); font-size:15px; font-weight:700; }
   #product-docs-root .product-docs-search-wrap { position:relative; flex:1; max-width:580px; margin-left:auto; }
   #product-docs-root .product-docs-search { width:100%; height:36px; padding:0 12px; color:var(--doc-ink); background:#f8faf9; border:1px solid #d8dfdb; border-radius:6px; outline:none; }
@@ -79,19 +107,29 @@ const css = String.raw`
   #product-docs-root .product-docs-action { display:inline-flex; height:36px; align-items:center; gap:6px; padding:0 12px; color:#36443c; background:#fff; border:1px solid var(--doc-line); border-radius:6px; cursor:pointer; text-decoration:none; white-space:nowrap; }
   #product-docs-root .product-docs-action:hover { color:#267a50; background:#f4f8f5; border-color:#b9c8bf; }
   #product-docs-root .product-docs-action:active { transform:translateY(1px); }
-  #product-docs-root .product-docs-layout { display:grid; grid-template-columns:190px minmax(0,1fr) 190px; gap:22px; padding:20px 18px 44px; }
-  #product-docs-root .product-docs-nav { position:sticky; top:78px; align-self:start; max-height:calc(100vh - 112px); overflow:auto; padding-right:10px; }
-  #product-docs-root .product-docs-nav-label, #product-docs-root .product-docs-toc-label { margin-bottom:8px; color:#87928c; font-size:11px; font-weight:700; }
-  #product-docs-root .product-docs-nav-item { display:grid; grid-template-columns:26px 1fr; gap:5px; align-items:center; min-height:38px; padding:6px 8px; color:#68736d; text-decoration:none; border:1px solid transparent; border-radius:5px; font-size:12px; }
+  #product-docs-root .product-docs-layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:24px; padding:20px 18px 44px; }
+  #product-docs-root .product-docs-nav { position:sticky; top:78px; align-self:start; max-height:calc(100vh - 176px); overflow-y:auto; overflow-x:hidden; padding-right:10px; scrollbar-gutter:stable; }
+  #product-docs-root .product-docs-nav-label { margin-bottom:8px; color:#87928c; font-size:11px; font-weight:700; }
+  #product-docs-root .product-docs-nav-group { margin-bottom:3px; }
+  #product-docs-root .product-docs-nav-item { display:grid; grid-template-columns:26px minmax(0,1fr) 14px; gap:5px; align-items:center; min-height:38px; padding:6px 8px; color:#68736d; text-decoration:none; border:1px solid transparent; border-radius:5px; font-size:12px; }
   #product-docs-root .product-docs-nav-item:hover { color:var(--doc-green); background:#f0f6f2; }
   #product-docs-root .product-docs-nav-item.active { color:var(--doc-green); background:#eaf8f0; border-color:#c9e5d3; box-shadow:inset 3px 0 #45a66f; }
   #product-docs-root .product-docs-nav-index { color:#9aa69e; font:700 10px "Segoe UI",sans-serif; }
+  #product-docs-root .product-docs-nav-text { min-width:0; overflow-wrap:anywhere; }
+  #product-docs-root .product-docs-nav-chevron { color:#9aa69e; font-size:18px; line-height:1; transform:rotate(0deg); transition:transform .16s ease; }
+  #product-docs-root .product-docs-nav-group.active .product-docs-nav-chevron { transform:rotate(90deg); }
+  #product-docs-root .product-docs-nav-sections { display:none; margin:3px 0 7px 34px; padding-left:9px; border-left:1px solid #dfe7e2; }
+  #product-docs-root .product-docs-nav-group.active .product-docs-nav-sections { display:block; }
+  #product-docs-root .product-docs-nav-section { display:block; padding:5px 7px; color:#758079; text-decoration:none; border-radius:4px; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+  #product-docs-root .product-docs-nav-section.level-3 { padding-left:18px; }
+  #product-docs-root .product-docs-nav-section:hover { color:var(--doc-green); background:#f0f6f2; }
+  #product-docs-root .product-docs-nav-section.active { color:var(--doc-green); background:#edf7f1; font-weight:600; }
   #product-docs-root .product-docs-content { min-width:0; }
-  #product-docs-root .product-docs-article { padding:2px 0 42px; border-bottom:1px solid var(--doc-line); }
-  #product-docs-root .product-docs-article:last-child { border-bottom:0; }
+  #product-docs-root .product-docs-article { display:none; padding:2px 0 42px; scroll-margin-top:78px; }
+  #product-docs-root .product-docs-article.active { display:block; }
   #product-docs-root .product-docs-article h1 { margin:0 0 18px; font-size:27px; line-height:1.35; letter-spacing:0; }
-  #product-docs-root .product-docs-article h2 { margin:35px 0 13px; padding-top:4px; font-size:21px; line-height:1.4; letter-spacing:0; }
-  #product-docs-root .product-docs-article h3 { margin:25px 0 10px; font-size:17px; line-height:1.45; letter-spacing:0; }
+  #product-docs-root .product-docs-article h2 { margin:35px 0 13px; padding-top:4px; font-size:21px; line-height:1.4; letter-spacing:0; scroll-margin-top:78px; }
+  #product-docs-root .product-docs-article h3 { margin:25px 0 10px; font-size:17px; line-height:1.45; letter-spacing:0; scroll-margin-top:78px; }
   #product-docs-root .product-docs-heading-link { margin-left:7px; color:#b7c0bb; text-decoration:none; font-size:.72em; opacity:0; }
   #product-docs-root .product-docs-article h1:hover .product-docs-heading-link, #product-docs-root .product-docs-article h2:hover .product-docs-heading-link, #product-docs-root .product-docs-article h3:hover .product-docs-heading-link { opacity:1; }
   #product-docs-root .product-docs-article p { margin:9px 0 14px; }
@@ -109,24 +147,22 @@ const css = String.raw`
   #product-docs-root .product-docs-article th, #product-docs-root .product-docs-article td { padding:9px 11px; text-align:left; vertical-align:top; border-bottom:1px solid #e7ebe8; }
   #product-docs-root .product-docs-article th { color:#3d4a43; background:#eef3f0; font-size:12px; }
   #product-docs-root .product-docs-article tr:last-child td { border-bottom:0; }
-  #product-docs-root .product-docs-flat-diagram { margin:19px 0 24px; padding:10px; overflow:auto; background:#fff; border:1px solid #d8dfdb; border-radius:7px; }
-  #product-docs-root .product-docs-flat-diagram svg { display:block; width:100%; min-width:620px; height:auto; }
-  #product-docs-root .product-docs-toc { position:sticky; top:78px; align-self:start; max-height:calc(100vh - 112px); overflow:auto; padding-left:14px; border-left:1px solid var(--doc-line); }
-  #product-docs-root .product-docs-toc-link { display:block; padding:4px 0; color:#6b766f; text-decoration:none; font-size:11px; line-height:1.45; }
-  #product-docs-root .product-docs-toc-link.level-3 { padding-left:11px; }
-  #product-docs-root .product-docs-toc-link:hover, #product-docs-root .product-docs-toc-link.active { color:var(--doc-green); }
-  #product-docs-root.product-docs-dark { --doc-ink:#e5e7eb; --doc-muted:#a9b4ae; --doc-line:rgba(148,163,184,.22); background:#17211d; }
+  #product-docs-root .product-docs-flat-diagram { width:70.7107%; min-width:438px; margin:19px auto 24px; padding:10px; overflow:auto; background:#fff; border:1px solid #d8dfdb; border-radius:7px; }
+  #product-docs-root .product-docs-flat-diagram svg { display:block; width:100%; min-width:0; height:auto; }
+  #product-docs-root.product-docs-dark { --doc-ink:#e5e7eb; --doc-muted:#a9b4ae; --doc-line:rgba(148,163,184,.22); --doc-page:#17211d; background:#17211d; }
   #product-docs-root.product-docs-dark .product-docs-toolbar, #product-docs-root.product-docs-dark .product-docs-search-results, #product-docs-root.product-docs-dark .product-docs-article table, #product-docs-root.product-docs-dark .product-docs-flat-diagram { background:#1f2937; }
   #product-docs-root.product-docs-dark .product-docs-search { color:#e5e7eb; background:#0f172a; border-color:rgba(148,163,184,.24); }
   #product-docs-root.product-docs-dark .product-docs-nav-item:hover { background:rgba(69,166,111,.12); }
   #product-docs-root.product-docs-dark .product-docs-nav-item.active { background:rgba(69,166,111,.18); border-color:rgba(69,166,111,.35); }
+  #product-docs-root.product-docs-dark .product-docs-nav-sections { border-left-color:rgba(148,163,184,.22); }
+  #product-docs-root.product-docs-dark .product-docs-nav-section:hover, #product-docs-root.product-docs-dark .product-docs-nav-section.active { background:rgba(69,166,111,.12); }
   #product-docs-root.product-docs-dark .product-docs-article th { color:#d1d5db; background:#0f172a; }
-  @media (max-width:1180px) { #product-docs-root .product-docs-layout { grid-template-columns:170px minmax(0,1fr); } #product-docs-root .product-docs-toc { display:none; } }
-  @media (max-width:760px) { #product-docs-root .product-docs-toolbar { min-height:54px; padding:8px 10px; } #product-docs-root .product-docs-title { display:none; } #product-docs-root .product-docs-action span { display:none; } #product-docs-root .product-docs-action { width:36px; justify-content:center; padding:0; } #product-docs-root .product-docs-layout { display:block; padding:14px 11px 35px; } #product-docs-root .product-docs-nav { position:static; display:flex; gap:5px; max-height:none; overflow:auto; padding:0 0 12px; border-bottom:1px solid var(--doc-line); } #product-docs-root .product-docs-nav-label { display:none; } #product-docs-root .product-docs-nav-item { min-width:max-content; } #product-docs-root .product-docs-article h1 { font-size:24px; } #product-docs-root .product-docs-article h2 { font-size:19px; } #product-docs-root .product-docs-flat-diagram svg { min-width:620px; } }
-  @media print { #product-docs-root .product-docs-toolbar, #product-docs-root .product-docs-nav, #product-docs-root .product-docs-toc { display:none; } #product-docs-root .product-docs-layout { display:block; padding:0; } #product-docs-root .product-docs-article { break-before:page; border:0; } #product-docs-root .product-docs-article:first-child { break-before:auto; } #product-docs-root .product-docs-article h2, #product-docs-root .product-docs-article h3 { break-after:avoid; } #product-docs-root .product-docs-flat-diagram, #product-docs-root .product-docs-table-wrap, #product-docs-root .product-docs-article pre, #product-docs-root .product-docs-article ul { break-inside:avoid; } }
+  @media (max-width:1180px) { #product-docs-root .product-docs-layout { grid-template-columns:210px minmax(0,1fr); gap:18px; } }
+  @media (max-width:760px) { #product-docs-root .product-docs-toolbar { min-height:54px; padding:8px 10px; } #product-docs-root .product-docs-title { display:none; } #product-docs-root .product-docs-action span { display:none; } #product-docs-root .product-docs-action { width:36px; justify-content:center; padding:0; } #product-docs-root .product-docs-layout { display:block; padding:14px 11px 35px; } #product-docs-root .product-docs-nav { position:sticky; top:58px; z-index:8; max-height:240px; margin-bottom:18px; padding:8px 5px 10px 0; background:var(--doc-page); border-bottom:1px solid var(--doc-line); } #product-docs-root .product-docs-article h1 { font-size:24px; } #product-docs-root .product-docs-article h2 { font-size:19px; } #product-docs-root .product-docs-flat-diagram { width:100%; min-width:0; } }
+  @media print { #product-docs-root .product-docs-toolbar, #product-docs-root .product-docs-nav { display:none; } #product-docs-root .product-docs-layout { display:block; padding:0; } #product-docs-root .product-docs-article { display:block !important; break-before:page; border:0; } #product-docs-root .product-docs-article:first-child { break-before:auto; } #product-docs-root .product-docs-article h2, #product-docs-root .product-docs-article h3 { break-after:avoid; } #product-docs-root .product-docs-flat-diagram, #product-docs-root .product-docs-table-wrap, #product-docs-root .product-docs-article pre, #product-docs-root .product-docs-article ul { break-inside:avoid; } }
 `;
 
-const fragment = `<div id="product-docs-root" class="product-docs-root" data-product-docs-version="1">
+const fragment = `<div id="product-docs-root" class="product-docs-root" data-product-docs-version="2">
   <style>${css}</style>
   <div class="product-docs-toolbar">
     <div class="product-docs-title" data-product-docs-title>产品维护文档</div>
@@ -134,13 +170,11 @@ const fragment = `<div id="product-docs-root" class="product-docs-root" data-pro
       <input class="product-docs-search" data-product-docs-search type="search" placeholder="搜索标题或内容" autocomplete="off" />
       <div class="product-docs-search-results" data-product-docs-search-results></div>
     </div>
-    <button class="product-docs-action" type="button" data-product-docs-print><i class="ri-printer-line" aria-hidden="true"></i><span>打印</span></button>
     <a class="product-docs-action" href="/admin/product-docs/download" data-product-docs-download><i class="ri-download-2-line" aria-hidden="true"></i><span>下载 PDF</span></a>
   </div>
   <div class="product-docs-layout">
     <nav class="product-docs-nav" aria-label="产品文档目录"><div class="product-docs-nav-label">文档目录</div>${primaryNav}</nav>
     <main class="product-docs-content" data-product-docs-content>${articles}</main>
-    <aside class="product-docs-toc"><div class="product-docs-toc-label">本页目录</div><nav data-product-docs-toc></nav></aside>
   </div>
 </div>`;
 

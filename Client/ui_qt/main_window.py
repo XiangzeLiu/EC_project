@@ -66,7 +66,7 @@ from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
 from Client.ui_qt.quote_subscription_coordinator import QuoteSubscriptionCoordinator
 from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
 from Client.ui_qt.hotkey_config_store import HotkeyConfigLoadResult, load_hotkey_config, save_hotkey_config
-from Client.ui_qt.settings_overlay import SettingsOverlay
+from Client.ui_qt.settings_overlay import ORDER_TIFS, SettingsOverlay, set_combo_item_enabled
 from Client.ui_qt.hotkey_config import (
     BATCH_CANCEL_POLICY,
     DEFAULT_HOTKEY_CONFIG,
@@ -1002,6 +1002,7 @@ class TradingTerminalQt(QMainWindow):
             route_options=self._current_route_options(),
             route_effective=self._route_editable(),
             hidden_effective=self._hidden_order_supported(),
+            supported_tifs=self._broker_supported_tifs(),
         )
         overlay.close_requested.connect(self._close_settings_overlay)
         overlay.save_requested.connect(self._save_settings_config)
@@ -1976,6 +1977,7 @@ class TradingTerminalQt(QMainWindow):
         routes = self._current_route_options(symbol)
         route_editable = self._route_editable(symbol)
         hidden_supported = self._hidden_order_supported(symbol)
+        supported_tifs = self._broker_supported_tifs(symbol)
         if slot.route:
             current = slot.route.currentText().strip().upper() or self._resolve_route_value("DEFAULT", symbol)
             slot.route.blockSignals(True)
@@ -1997,6 +1999,38 @@ class TradingTerminalQt(QMainWindow):
             slot.route.setAttribute(Qt.WA_TransparentForMouseEvents, not route_editable)
             slot.route.setProperty("locked", not route_editable)
             self._repolish(slot.route)
+        if slot.tif:
+            declared_tifs = bool(supported_tifs)
+            current_tif = slot.tif.currentText().strip().upper()
+            current_supported = (
+                current_tif in supported_tifs
+                if declared_tifs
+                else current_tif != "IOC"
+            )
+            if not current_supported:
+                fallback = "DAY" if not declared_tifs or "DAY" in supported_tifs else ""
+                if not fallback and supported_tifs:
+                    fallback = next(
+                        (value.upper() for value in ORDER_TIFS if value.upper() in supported_tifs),
+                        "",
+                    )
+                if fallback:
+                    slot.tif.setCurrentText(next(
+                        (value for value in ORDER_TIFS if value.upper() == fallback),
+                        "Day",
+                    ))
+            for value in ORDER_TIFS:
+                enabled_for_channel = (
+                    value.upper() in supported_tifs
+                    if declared_tifs
+                    else value.upper() != "IOC"
+                )
+                set_combo_item_enabled(
+                    slot.tif,
+                    value,
+                    enabled_for_channel,
+                    f"当前交易通道不支持 {value} 订单",
+                )
         if slot.hidden_order:
             slot.hidden_order.setEnabled(hidden_supported)
             slot.hidden_order.setToolTip(
@@ -2984,6 +3018,9 @@ class TradingTerminalQt(QMainWindow):
             return
         if slot.current_symbol != sym:
             self._log_user_error_once("下单失败：请先确认股票代码", "warn")
+            return
+        if tif.strip().upper() == "IOC" and not self._broker_supports_tif(tif, sym):
+            self._log_user_error_once("当前交易通道不支持 IOC 订单，订单未提交", "warn")
             return
         route = self._resolve_route_value(requested_route, sym)
         hidden = bool(requested_hidden and self._hidden_order_supported(sym))

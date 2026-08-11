@@ -774,6 +774,43 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertIn(client_main_window.theme.INPUT_BG, settings_combo.view().styleSheet())
         self.assertEqual(self.window.slots[1].order_type.view().objectName(), "comboPopup")
         self.assertIn(client_main_window.theme.TEXT_PRIMARY, self.window.slots[1].order_type.view().styleSheet())
+        self.assertIn("QListView#comboPopup::item:disabled", client_main_window.theme.COMBO_POPUP_QSS)
+
+    def test_ioc_is_disabled_for_tt_and_remains_available_for_ib(self):
+        tt_tifs = ["Day", "GTC", "EXT", "GTC_EXT"]
+        self.session.broker_detail["order_options"]["supported_tifs"] = tt_tifs
+        self.window._apply_broker_status_ui()
+
+        for slot in self.window.slots.values():
+            ioc_index = slot.tif.findText("IOC")
+            self.assertGreaterEqual(ioc_index, 0)
+            self.assertFalse(slot.tif.model().item(ioc_index).isEnabled())
+            self.assertEqual(slot.tif.currentText(), "Day")
+
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        ioc_rows = [row for row in overlay._order_rows if row["tif"].currentText() == "IOC"]
+        self.assertTrue(ioc_rows)
+        for row in overlay._order_rows:
+            combo = row["tif"]
+            ioc_index = combo.findText("IOC")
+            self.assertFalse(combo.model().item(ioc_index).isEnabled())
+        self.assertIn("不支持 IOC", overlay.order_capability_note.text())
+        self.window._close_settings_overlay()
+
+        self.session.broker_detail["order_options"]["supported_tifs"] = [*tt_tifs, "IOC"]
+        self.window._apply_broker_status_ui()
+        for slot in self.window.slots.values():
+            ioc_index = slot.tif.findText("IOC")
+            self.assertTrue(slot.tif.model().item(ioc_index).isEnabled())
+
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        for row in overlay._order_rows:
+            combo = row["tif"]
+            ioc_index = combo.findText("IOC")
+            self.assertTrue(combo.model().item(ioc_index).isEnabled())
+        self.assertNotIn("不支持 IOC", overlay.order_capability_note.text())
 
     def test_hide_is_last_row_control_and_reaches_submit_payload_when_supported(self):
         self.session.broker_detail.update({
@@ -783,6 +820,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
                 "routes": ["SMART"],
                 "route_editable": True,
                 "hidden_order": True,
+                "supported_tifs": ["Day", "GTC", "IOC", "EXT", "GTC_EXT"],
             },
         })
         self.window._apply_broker_status_ui()
@@ -945,6 +983,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
                 "routes": ["SMART"],
                 "route_editable": True,
                 "hidden_order": True,
+                "supported_tifs": ["Day", "GTC", "IOC", "EXT", "GTC_EXT"],
             },
         })
         self.window._apply_broker_status_ui()
@@ -1604,6 +1643,15 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         }, 1)
         self.assertEqual(self.session.orders, [])
         self.assertEqual(self.window.slots[1].pending_action, "")
+
+        self.window._place_order(
+            "Buy to Open",
+            1,
+            order_type_override="market",
+            price_override=0.0,
+            tif_override="IOC",
+        )
+        self.assertEqual(self.session.orders, [])
 
     def test_legacy_symbol_options_fall_back_to_global_tif_support(self):
         self.session.symbol_options["AAPL"] = {

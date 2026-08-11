@@ -57,7 +57,6 @@ if _SDK_AVAILABLE:
     TIF_MAP = {
         "Day":     OrderTimeInForce.DAY,
         "GTC":     OrderTimeInForce.GTC,
-        "IOC":     OrderTimeInForce.IOC,
         "EXT":     OrderTimeInForce.EXT,
         "GTC_EXT": OrderTimeInForce.GTC_EXT,
     }
@@ -85,7 +84,7 @@ class TastytradeBroker(BaseBrokerAPI):
 
     @classmethod
     def supported_tifs(cls) -> tuple[str, ...]:
-        return ("Day", "GTC", "IOC", "EXT", "GTC_EXT")
+        return ("Day", "GTC", "EXT", "GTC_EXT")
 
     @staticmethod
     def _classify_connect_exception(exc: Exception) -> tuple[str, str, bool]:
@@ -555,14 +554,22 @@ class TastytradeBroker(BaseBrokerAPI):
 
     async def place_order(self, order_params: dict) -> dict:
         """下单"""
-        s, a = await self._get_fresh()
+        tif_str = str(order_params.get("tif") or "Day").strip() or "Day"
+        if tif_str not in self.supported_tifs():
+            return {
+                "success": False,
+                "code": "ORDER_UNSUPPORTED_TIF",
+                "order_id": "",
+                "status": "Rejected",
+                "status_message": f"当前交易通道不支持 {tif_str} 订单",
+            }
 
+        s, a = await self._get_fresh()
         symbol = order_params["symbol"]
         qty = order_params.get("qty", 1)
         price = float(order_params.get("price", 0.0))
         action_str = order_params.get("action", "Buy to Open")
         order_type_str = order_params.get("order_type", "limit")
-        tif_str = order_params.get("tif", "Day")
         route = str(order_params.get("route") or "SMART").strip().upper()
         hidden = bool(order_params.get("hidden", False))
         if route and route not in {"SMART", "DEFAULT"}:
@@ -571,7 +578,7 @@ class TastytradeBroker(BaseBrokerAPI):
             raise ValueError("tastytrade does not support hidden orders in this Client")
 
         act = ACTION_MAP.get(action_str, OrderAction.BUY_TO_OPEN)
-        tif_enum = TIF_MAP.get(tif_str, OrderTimeInForce.DAY)
+        tif_enum = TIF_MAP[tif_str]
         is_buy = "Buy" in action_str
 
         equity = await self._get_equity(s, symbol)

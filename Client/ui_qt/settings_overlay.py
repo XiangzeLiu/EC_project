@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QKeySequence, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -51,6 +51,29 @@ ORDER_TYPES = ("limit", "market")
 SIDES = ("buy", "sell")
 SIDE_LABELS = {"buy": "BUY", "sell": "SELL"}
 TYPE_LABELS = {"limit": "LMT", "market": "MKT"}
+ORDER_TIFS = ("Day", "GTC", "IOC", "EXT", "GTC_EXT")
+
+
+def set_combo_item_enabled(
+    combo: QComboBox,
+    value: str,
+    enabled: bool,
+    unavailable_tooltip: str = "",
+) -> bool:
+    target = str(value or "").strip().upper()
+    model = combo.model()
+    if not isinstance(model, QStandardItemModel):
+        return False
+    for index in range(combo.count()):
+        if combo.itemText(index).strip().upper() != target:
+            continue
+        item = model.item(index)
+        if item is None:
+            return False
+        item.setEnabled(bool(enabled))
+        item.setToolTip("" if enabled else unavailable_tooltip)
+        return True
+    return False
 
 
 class KeyCaptureEdit(QLineEdit):
@@ -88,6 +111,7 @@ class SettingsOverlay(QWidget):
         route_options: list[str] | tuple[str, ...] = ("SMART",),
         route_effective: bool = False,
         hidden_effective: bool = False,
+        supported_tifs: set[str] | list[str] | tuple[str, ...] = ORDER_TIFS,
     ):
         super().__init__(parent)
         self.setObjectName("settingsOverlay")
@@ -97,6 +121,11 @@ class SettingsOverlay(QWidget):
         self._route_options = self._normalize_routes(route_options)
         self._route_effective = bool(route_effective)
         self._hidden_effective = bool(hidden_effective)
+        self._supported_tifs = {
+            str(value or "").strip().upper()
+            for value in supported_tifs or ()
+            if str(value or "").strip()
+        }
         self._quantity_rows: list[dict[str, object]] = []
         self._order_rows: list[dict[str, object]] = []
 
@@ -399,13 +428,16 @@ class SettingsOverlay(QWidget):
         return page
 
     def _order_capability_note(self) -> str:
+        notes: list[str] = []
         if not self._route_effective and not self._hidden_effective:
-            return "当前交易通道不应用 ROUTE / HIDE：配置可以保存，实际下单使用 SMART 且按普通订单执行"
-        if not self._route_effective:
-            return "当前交易通道不应用 ROUTE：配置可以保存，实际下单使用 SMART"
-        if not self._hidden_effective:
-            return "当前交易通道不应用 HIDE：配置可以保存，实际按普通订单执行"
-        return ""
+            notes.append("当前交易通道不应用 ROUTE / HIDE：配置可以保存，实际下单使用 SMART 且按普通订单执行")
+        elif not self._route_effective:
+            notes.append("当前交易通道不应用 ROUTE：配置可以保存，实际下单使用 SMART")
+        elif not self._hidden_effective:
+            notes.append("当前交易通道不应用 HIDE：配置可以保存，实际按普通订单执行")
+        if "IOC" not in self._supported_tifs:
+            notes.append("当前交易通道不支持 IOC，选项已置灰且不会提交")
+        return "；".join(notes)
 
     def _build_fixed_page(self) -> QWidget:
         page = QWidget()
@@ -525,10 +557,23 @@ class SettingsOverlay(QWidget):
         order_type.setCurrentText(TYPE_LABELS.get(rule.order_type, "LMT"))
         self._center_combo(order_type)
         tif = self._new_combo()
-        for value in ("Day", "GTC", "IOC", "EXT", "GTC_EXT"):
+        for value in ORDER_TIFS:
             tif.addItem(value)
         tif.setCurrentText(rule.tif if rule.tif in VALID_TIFS else "Day")
         self._center_combo(tif)
+        declared_tifs = bool(self._supported_tifs)
+        for value in ORDER_TIFS:
+            enabled_for_channel = (
+                value.upper() in self._supported_tifs
+                if declared_tifs
+                else value.upper() != "IOC"
+            )
+            set_combo_item_enabled(
+                tif,
+                value,
+                enabled_for_channel,
+                f"当前交易通道不支持 {value} 订单",
+            )
         route = self._route_combo(include_default=True)
         self._set_combo_data(route, rule.route or "DEFAULT")
         offset = QDoubleSpinBox()

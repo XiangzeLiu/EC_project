@@ -156,6 +156,11 @@ QListView#comboPopup::item:selected {{
     background: {PANEL_ALT_BG};
     color: #FFFFFF;
 }}
+
+QListView#comboPopup::item:disabled {{
+    background: {INPUT_BG};
+    color: {TEXT_LOW};
+}}
 """ + SCROLLBAR_QSS
 
 
