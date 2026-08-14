@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 
 from ..config import state
+from .https_client import urlopen
 
 log = logging.getLogger("trader_server.heartbeat")
 
@@ -142,7 +143,7 @@ class HeartbeatSender:
         req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
                 status = data.get("status", "")

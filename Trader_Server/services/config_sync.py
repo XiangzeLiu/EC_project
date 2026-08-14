@@ -23,6 +23,7 @@ import uuid
 
 from ..api.factory import BrokerFactory
 from ..api.base import BaseBrokerAPI
+from .https_client import urlopen
 from ..config import state
 from ..network import ws_server
 from .client_security import safe_client_message, safe_order_status_message
@@ -407,7 +408,7 @@ async def _config_event_loop():
         resp = None
         try:
             loop = asyncio.get_running_loop()
-            resp = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=60))
+            resp = await loop.run_in_executor(None, lambda: urlopen(req, timeout=60))
 
             while _reconnect_enabled and not state.is_shutting_down:
                 raw = await loop.run_in_executor(None, resp.readline)
@@ -465,7 +466,7 @@ async def _pull_config_from_sm() -> dict | None:
         loop = asyncio.get_running_loop()
 
         def _fetch_json():
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urlopen(req, timeout=15) as resp:
                 return json.loads(resp.read().decode("utf-8"))
 
         data = await loop.run_in_executor(None, _fetch_json)

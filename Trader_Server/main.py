@@ -72,6 +72,7 @@ from .services.registration import (
 )
 
 from .services.heartbeat import HeartbeatSender
+from .services.https_client import tls_diagnostics, urlopen
 from .services.economic_data import get_all_indicators, generate_summary_report
 from .network.ws_server import handle_client_connection, broadcast_message, force_disconnect_all_clients
 
@@ -376,7 +377,7 @@ async def api_await_approval(request_id: str = Query(...)):
         try:
             req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
             resp = await loop.run_in_executor(
-                None, lambda: urllib.request.urlopen(req, timeout=3600)
+                None, lambda: urlopen(req, timeout=3600)
             )
             while True:
                 raw_line = await loop.run_in_executor(None, resp.readline)
@@ -657,6 +658,15 @@ async def on_startup():
 
     init_logging("INFO")
     log = logging.getLogger("trader_server.main")
+
+    tls_status = tls_diagnostics()
+    log.info(
+        "TLS trust store ready: certifi=%s custom_ca=%s hostname_check=%s certificate_required=%s",
+        tls_status["certifi_cafile"],
+        tls_status["custom_cafile"] or "(none)",
+        tls_status["hostname_check"],
+        tls_status["certificate_required"],
+    )
 
     try:
         from .services.ib_registration_validation import start_pending_ib_validation_worker

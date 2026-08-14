@@ -18,6 +18,8 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
+from .https_client import describe_connection_error, urlopen
+
 from ..config import (
     state, save_config, save_register_state,
     load_register_state, clear_register_state,
@@ -47,7 +49,7 @@ def test_connection() -> tuple[bool, str]:
     log.info(f"Testing connection: {url}")
     try:
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if data.get("status") == "pong":
                 log.info(f"Connection OK: {data}")
@@ -59,7 +61,7 @@ def test_connection() -> tuple[bool, str]:
         return False, f"HTTP {e.code}: {body[:80]}"
     except Exception as e:
         log.error(f"Ping failed: {e}")
-        return False, str(e)
+        return False, describe_connection_error(e)
 
 
 # ── Step B: Submit Registration ───────────────────────────────────────
@@ -140,7 +142,7 @@ def submit_registration(
     req = urllib.request.Request(url, data=json_payload, headers=headers, method="POST")
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode("utf-8"))
 
             if result.get("ok") and result.get("request_id"):
@@ -197,7 +199,7 @@ def cancel_registration_request(
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urlopen(req, timeout=10) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             if result.get("ok"):
                 clear_register_state()
@@ -208,7 +210,7 @@ def cancel_registration_request(
         return {"ok": False, "error": f"HTTP {e.code}: {body[:120]}"}
     except Exception as e:
         log.error(f"cancel_registration_request failed: {e}")
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": describe_connection_error(e)}
 
 
 # ── Step C: SSE Wait for Approval ─────────────────────────────────────
@@ -251,7 +253,7 @@ def await_approval(
     buffer = ""
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urlopen(req, timeout=timeout) as resp:
             while True:
                 # 检查关闭信号
                 if shutdown_check and shutdown_check():

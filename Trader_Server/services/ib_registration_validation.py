@@ -12,6 +12,7 @@ import urllib.request
 
 from ..api.interactive_brokers import IBBroker
 from ..config import load_register_state
+from .https_client import urlopen
 
 log = logging.getLogger("trader_server.ib_registration_validation")
 
@@ -52,7 +53,7 @@ def _json_request(url: str, secret: str, payload: dict, timeout: int) -> dict:
     request.add_header("Content-Type", "application/json")
     request.add_header("Accept", "application/json")
     request.add_header("Authorization", f"Bearer {secret}")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 

@@ -14,6 +14,7 @@ from typing import Any, Callable
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import state
+from ..services.https_client import urlopen
 log = logging.getLogger("trader_server.ws_server")
 
 _connections: dict[WebSocket, dict[str, Any]] = {}
@@ -122,7 +123,7 @@ async def _notify_sm_connection_closed(conn: dict[str, Any]) -> bool:
     req.add_header('Authorization', f'Bearer {state.token}')
 
     def release_request() -> dict[str, Any]:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urlopen(req, timeout=8) as resp:
             return json.loads(resp.read().decode('utf-8'))
 
     for attempt, delay in enumerate(_RELEASE_RETRY_DELAYS, start=1):
@@ -385,7 +386,7 @@ async def _validate_client_token(
     req.add_header('Authorization', f'Bearer {state.token}')
 
     def verify_request() -> dict[str, Any]:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urlopen(req, timeout=8) as resp:
             return json.loads(resp.read().decode('utf-8'))
 
     try:

@@ -6,6 +6,8 @@ import ipaddress
 import json
 import urllib.request
 
+from .https_client import urlopen
+
 
 PUBLIC_IP_ENDPOINTS = (
     ("https://api.ipify.org?format=json", "json"),
@@ -29,7 +31,7 @@ def detect_public_ipv4(timeout: float = 4.0) -> str:
     for url, response_type in PUBLIC_IP_ENDPOINTS:
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as response:
+            with urlopen(req, timeout=timeout) as response:
                 text = response.read(256).decode("utf-8", errors="replace").strip()
             if response_type == "json":
                 text = str(json.loads(text).get("ip") or "").strip()
