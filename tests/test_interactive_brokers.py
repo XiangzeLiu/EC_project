@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import unittest
 from types import SimpleNamespace
@@ -5,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from Client.services import trading_session as trading_session_module
 from Client.services.trading_session import TradingSession
+from Trader_Server.api import interactive_brokers as ib_module
 from Trader_Server.api.factory import BrokerFactory
 from Trader_Server.api.interactive_brokers import (
     IBBroker,
@@ -14,7 +16,7 @@ from Trader_Server.api.interactive_brokers import (
     _tif_from_ib,
     _tif_to_ib,
 )
-from Trader_Server.services import config_sync, ib_registration_validation
+from Trader_Server.services import config_sync, ib_registration_validation, trading_svc
 
 
 class InteractiveBrokersAdapterTests(unittest.TestCase):
@@ -23,6 +25,8 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
         broker = IBBroker()
         broker._ib_app = app
         broker._connected = True
+        broker._runtime_state = "ready"
+        broker._connection_generation = 1
         broker._account_id = account_id
         broker._managed_accounts = [account_id]
         broker._account_verified = True
@@ -122,8 +126,220 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
             config_sync._current_broker_type = original[1]
             config_sync._last_connect_error = original[2]
 
+    def test_degraded_runtime_status_disables_public_trading_capabilities(self):
+        class FakeApp:
+            @staticmethod
+            def isConnected():
+                return True
+
+        broker = self._ready_broker(FakeApp())
+        broker._transition_runtime_state(
+            "degraded_waiting",
+            code="1100",
+            message="IB upstream connectivity lost",
+            publish=False,
+        )
+        original = (config_sync._current_broker, config_sync._current_broker_type)
+        try:
+            config_sync._current_broker = broker
+            config_sync._current_broker_type = broker.broker_type
+            status = config_sync.get_broker_status(public=True)
+        finally:
+            config_sync._current_broker = original[0]
+            config_sync._current_broker_type = original[1]
+
+        self.assertFalse(status["connected"])
+        self.assertFalse(status["capabilities"]["orders"])
+        self.assertFalse(status["capabilities"]["quotes"])
+        self.assertEqual(status["error"]["code"], "TRADING_SERVICE_UNAVAILABLE")
+
 
 class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_2176_fractional_size_warning_does_not_fail_quote_request(self):
+        if not hasattr(ib_module, "_IBApp"):
+            self.skipTest("ibapi is not installed")
+
+        loop = asyncio.get_running_loop()
+        app = ib_module._IBApp(loop, asyncio.Queue())
+        pending = loop.create_future()
+        app._quote_waiters[1003] = pending
+        app._symbol_req_id["QQQ"] = 1003
+        app._req_id_symbol[1003] = "QQQ"
+
+        app._on_error(
+            1003,
+            2176,
+            "API version does not support fractional share size fields",
+        )
+
+        self.assertFalse(pending.done())
+        self.assertEqual(app.last_error["code"], 2176)
+        self.assertEqual(app._symbol_req_id["QQQ"], 1003)
+
+        app._on_error(1003, 10089, "Requested market data requires subscription")
+        with self.assertRaises(IBRequestError) as raised:
+            await pending
+        self.assertEqual(raised.exception.code, "10089")
+
+    async def test_1100_marks_inflight_order_unknown_and_emits_runtime_event(self):
+        if not hasattr(ib_module, "_IBApp"):
+            self.skipTest("ibapi is not installed")
+        events = []
+        loop = asyncio.get_running_loop()
+        app = ib_module._IBApp(
+            loop,
+            asyncio.Queue(),
+            runtime_event_callback=events.append,
+        )
+        pending = loop.create_future()
+        app._submit_waiters[71] = pending
+
+        app._on_error(-1, 1100, "Connectivity between IB and Trader Workstation has been lost")
+
+        with self.assertRaises(IBRequestError) as raised:
+            await pending
+        self.assertEqual(raised.exception.code, "IB_ORDER_STATUS_UNKNOWN")
+        self.assertEqual(events[0]["code"], "1100")
+        self.assertEqual(events[0]["state"], "degraded_waiting")
+
+    async def test_runtime_state_blocks_operations_and_ignores_stale_generation(self):
+        class FakeApp:
+            @staticmethod
+            def isConnected():
+                return True
+
+        broker = InteractiveBrokersAdapterTests._ready_broker(FakeApp())
+        events = []
+        broker.set_runtime_status_callback(events.append)
+        broker._handle_app_runtime_event(
+            1,
+            {"code": "1100", "state": "degraded_waiting", "message": "lost"},
+        )
+
+        self.assertEqual(broker.runtime_health()["state"], "degraded_waiting")
+        self.assertFalse(broker.runtime_health()["operational"])
+        self.assertFalse(broker.effective_capabilities()["orders"])
+        with self.assertRaisesRegex(RuntimeError, "Unable to connect"):
+            broker._require_app()
+
+        broker._handle_app_runtime_event(
+            0,
+            {"code": "1102", "state": "restored_data_maintained", "message": "stale"},
+        )
+        self.assertEqual(broker.runtime_health()["state"], "degraded_waiting")
+        self.assertEqual(len(events), 1)
+
+    async def test_1101_revalidates_account_restarts_streams_and_restores_quotes(self):
+        class FakeApp:
+            def __init__(self):
+                self.reset_count = 0
+                self.restart_accounts = []
+                self.open_order_requests = 0
+                self.subscriptions = []
+
+            @staticmethod
+            def isConnected():
+                return True
+
+            async def revalidate_session(self):
+                return ["U123"]
+
+            def reset_lost_market_data_subscriptions(self):
+                self.reset_count += 1
+
+            def restart_account_updates(self, account_id):
+                self.restart_accounts.append(account_id)
+
+            async def request_open_orders(self):
+                self.open_order_requests += 1
+                return []
+
+            async def subscribe_market_data(self, symbol, contract):
+                self.subscriptions.append((symbol, contract))
+
+        app = FakeApp()
+        broker = InteractiveBrokersAdapterTests._ready_broker(app)
+        broker._runtime_state = "restoring"
+        broker._connected = False
+        contract = SimpleNamespace(symbol="AAPL", secType="STK", currency="USD")
+        broker._contract_cache["AAPL"] = contract
+
+        prepared = await broker.prepare_runtime_recovery(data_lost=True)
+        await broker.restore_quote_subscriptions(["AAPL"])
+        completed = broker.complete_runtime_recovery()
+
+        self.assertTrue(prepared)
+        self.assertTrue(completed)
+        self.assertEqual(app.reset_count, 1)
+        self.assertEqual(app.restart_accounts, ["U123"])
+        self.assertEqual(app.open_order_requests, 1)
+        self.assertEqual(app.subscriptions, [("AAPL", contract)])
+        self.assertTrue(await broker.is_connected())
+
+    async def test_1102_revalidates_without_resetting_data_streams(self):
+        class FakeApp:
+            def __init__(self):
+                self.reset_count = 0
+                self.restart_count = 0
+
+            @staticmethod
+            def isConnected():
+                return True
+
+            async def revalidate_session(self):
+                return ["U123"]
+
+            def reset_lost_market_data_subscriptions(self):
+                self.reset_count += 1
+
+            def restart_account_updates(self, _account_id):
+                self.restart_count += 1
+
+            async def request_open_orders(self):
+                return []
+
+        app = FakeApp()
+        broker = InteractiveBrokersAdapterTests._ready_broker(app)
+        broker._runtime_state = "restoring"
+        broker._connected = False
+
+        self.assertTrue(await broker.prepare_runtime_recovery(data_lost=False))
+        self.assertTrue(broker.complete_runtime_recovery())
+        self.assertEqual(app.reset_count, 0)
+        self.assertEqual(app.restart_count, 0)
+
+    async def test_unknown_ib_order_status_is_not_returned_as_retryable_failure(self):
+        class FakeBroker:
+            @staticmethod
+            def effective_capabilities():
+                return {"orders": True}
+
+            async def place_order(self, _params):
+                raise IBRequestError(
+                    "IB_ORDER_STATUS_UNKNOWN",
+                    "connection changed after submission",
+                )
+
+        with (
+            patch.object(trading_svc, "ensure_broker_connected", AsyncMock(return_value=True)),
+            patch.object(trading_svc, "get_current_broker", return_value=FakeBroker()),
+        ):
+            result = await trading_svc.place_order(
+                {
+                    "symbol": "RUNTIME",
+                    "qty": 1,
+                    "price": 10,
+                    "action": "Buy to Open",
+                    "order_type": "limit",
+                    "tif": "Day",
+                },
+                session_id="runtime-test",
+            )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["code"], "ORDER_RESPONSE_INVALID")
+        self.assertFalse(result["retryable"])
+
     async def test_routes_come_from_contract_details_and_hidden_reaches_ib_order(self):
         confirmed_contract = SimpleNamespace(
             conId=265598,
@@ -834,6 +1050,9 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         "_auto_retry_paused",
         "_auto_retry_pause_reason",
         "_last_connect_error",
+        "_broker_lifecycle_lock",
+        "_broker_runtime_task",
+        "_broker_runtime_watchdog_task",
     )
 
     def setUp(self):
@@ -845,6 +1064,9 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         config_sync._current_broker_type = ""
         config_sync._local_config_version = 0
         config_sync._auto_reconnect_task = None
+        config_sync._broker_runtime_task = None
+        config_sync._broker_runtime_watchdog_task = None
+        config_sync._broker_lifecycle_lock = asyncio.Lock()
         config_sync._reset_connect_retry_state()
 
     def tearDown(self):
@@ -971,6 +1193,121 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Gateway API", private["error"]["message"])
         self.assertEqual(public["error"]["code"], "TRADING_SERVICE_UNAVAILABLE")
         self.assertEqual(public["error"]["message"], "交易服务暂不可用")
+
+    async def test_1101_runtime_recovery_restores_quotes_before_reconnect_broadcast(self):
+        calls = []
+
+        class FakeBroker:
+            broker_type = "interactive_brokers"
+
+            @staticmethod
+            def runtime_health():
+                return {"state": "restoring", "generation": 4}
+
+            async def prepare_runtime_recovery(self, *, data_lost):
+                calls.append(("prepare", data_lost))
+                return True
+
+            @staticmethod
+            def complete_runtime_recovery():
+                calls.append(("complete", True))
+                return True
+
+            async def start_account_events(self):
+                calls.append(("events", True))
+
+        broker = FakeBroker()
+        config_sync._current_broker = broker
+        config_sync._current_broker_type = broker.broker_type
+        with (
+            patch.object(
+                config_sync,
+                "_restore_quote_subscriptions",
+                AsyncMock(return_value={"success": True}),
+            ) as restore,
+            patch.object(config_sync, "_broadcast_status") as broadcast,
+        ):
+            await config_sync._run_runtime_recovery(broker, 4, data_lost=True)
+
+        self.assertEqual(calls, [("prepare", True), ("complete", True), ("events", True)])
+        restore.assert_awaited_once_with(broker)
+        broadcast.assert_called_once_with("interactive_brokers", "reconnected")
+
+    async def test_1102_runtime_recovery_does_not_resubscribe_quotes(self):
+        class FakeBroker:
+            broker_type = "interactive_brokers"
+
+            @staticmethod
+            def runtime_health():
+                return {"state": "restoring", "generation": 5}
+
+            async def prepare_runtime_recovery(self, *, data_lost):
+                self.data_lost = data_lost
+                return True
+
+            @staticmethod
+            def complete_runtime_recovery():
+                return True
+
+            async def start_account_events(self):
+                return None
+
+        broker = FakeBroker()
+        config_sync._current_broker = broker
+        config_sync._current_broker_type = broker.broker_type
+        with (
+            patch.object(config_sync, "_restore_quote_subscriptions", AsyncMock()) as restore,
+            patch.object(config_sync, "_broadcast_status"),
+        ):
+            await config_sync._run_runtime_recovery(broker, 5, data_lost=False)
+
+        self.assertFalse(broker.data_lost)
+        restore.assert_not_awaited()
+
+    async def test_ensure_does_not_full_reload_while_ib_waits_for_upstream(self):
+        class FakeBroker:
+            async def is_connected(self):
+                return False
+
+            @staticmethod
+            def runtime_health():
+                return {
+                    "state": "degraded_waiting",
+                    "operational": False,
+                    "waiting_for_upstream": True,
+                    "reconnect_required": False,
+                }
+
+        config_sync._current_broker = FakeBroker()
+        with patch.object(config_sync, "_do_hot_reload", AsyncMock()) as reload_broker:
+            connected = await config_sync.ensure_broker_connected()
+
+        self.assertFalse(connected)
+        reload_broker.assert_not_awaited()
+
+    async def test_1300_runtime_reconnect_uses_existing_hot_reload_path(self):
+        class FakeBroker:
+            broker_type = "interactive_brokers"
+
+            @staticmethod
+            def runtime_health():
+                return {
+                    "state": "reconnect_required",
+                    "generation": 6,
+                    "reconnect_required": True,
+                }
+
+        broker = FakeBroker()
+        config_sync._current_broker = broker
+        config_sync._current_broker_type = broker.broker_type
+        with patch.object(
+            config_sync,
+            "_do_hot_reload_locked",
+            AsyncMock(return_value=True),
+        ) as reload_broker:
+            await config_sync._run_runtime_reconnect(broker, 6, "1300")
+
+        reload_broker.assert_awaited_once_with(trigger="runtime")
 
 
 class InteractiveBrokersRegistrationWorkerTests(unittest.TestCase):

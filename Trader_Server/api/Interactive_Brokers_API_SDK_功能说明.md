@@ -229,7 +229,7 @@ app.run()
 python -c "from ibapi.client import EClient; from ibapi.wrapper import EWrapper; print('ibapi import ok')"
 ```
 
-当前项目的 `Trader_Server/requirements.txt` 中 `ibapi` 仍是注释状态，正式接入 IB 前需要根据选定的官方发行包版本固定依赖和安装方式。不能只安装 SM 的依赖，因为真正连接 IB Gateway/TWS 的代码运行在 TS。
+当前项目的 `Trader_Server/requirements.txt` 已固定使用 IB 官方 TWS API 10.49.2 的 Python 客户端，依赖通过官方压缩包的 `source/pythonclient` 子目录安装。不能只安装 SM 的依赖，因为真正连接 IB Gateway/TWS 的代码运行在 TS。
 
 ### 4.3 是否使用 ib_insync
 
@@ -443,7 +443,7 @@ TS Windows
 - `Trader_Server/api/factory.py`：已注册 `ib`、`interactive_brokers` 别名。
 - `Trader_Server/api/interactive_brokers.py`：使用官方 `ibapi`，实现 TWS 行情连接和转发。
 - `Trader_Server/api/base.py`：提供统一券商抽象，但还没有账户验证和账户选择的通用方法。
-- `Trader_Server/requirements.txt`：`ibapi` 当前仍为注释依赖，需要正式接入时固定版本和安装包。
+- `Trader_Server/requirements.txt`：固定 IB 官方 TWS API 10.49.2，并通过官方 URL 安装 Python 客户端。
 - `Server_manager/main.py`：目前 IB 可以录入 `host/port/client_id`，但 SM 没有 IB API 实连验证。
 - `Server_manager/templates/dashboard.html`：已有 IB Host、Port、Client ID 输入项，但审批验证流程仍主要针对 tastytrade。
 
@@ -552,7 +552,7 @@ TWS/Gateway 可能因每日维护、重新认证、网络断开或人工退出�
 
 | 阶段 | 目标 | 主要文件/范围 |
 |---|---|---|
-| IB-1 | 固定官方 `ibapi` 版本和安装方式 | `Trader_Server/requirements.txt`、打包脚本 |
+| IB-1 | 固定官方 `ibapi` 版本和安装方式 | `Trader_Server/requirements.txt` 已完成；打包脚本仍需单独验收 |
 | IB-2 | TWS/Gateway 连接健康检查 | `Trader_Server/api/interactive_brokers.py` |
 | IB-3 | 账户列表和账户选择 | `Trader_Server/api/base.py`、IB 适配器、SM 验证链路 |
 | IB-4 | 合约解析和实时行情增强 | IB 适配器、TS 行情服务 |

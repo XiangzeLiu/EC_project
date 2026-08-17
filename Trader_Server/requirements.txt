@@ -7,5 +7,7 @@ certifi>=2025.0.0
 
 # 券商 SDK
 tastytrade>=12.3,<14  # Tastytrade 券商支持（已按 12/13 系列接口验证）
-ibapi  # Interactive Brokers 官方 TWS API
+# Interactive Brokers 官方 TWS API 10.49.2。PyPI ibapi 9.81.x 的客户端协议
+# 低于当前 Gateway 的 fractional-size 要求，因此固定使用官方 Python client。
+ibapi @ https://interactivebrokers.github.io/downloads/twsapi_macunix.1049.02.zip#subdirectory=IBJts/source/pythonclient
 PySide6>=6.7

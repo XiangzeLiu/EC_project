@@ -41,7 +41,11 @@ except ImportError:
 
 
 _INFO_CODES = {2104, 2106, 2107, 2108, 2119, 2158}
+# IB 2176 is a compatibility warning about fractional size fields. It does
+# not mean that the market-data request failed and must not cancel a quote.
+_NON_FATAL_WARNING_CODES = {2176}
 _CONNECTION_CODES = {326, 502, 504, 1100, 1101, 1102, 1300}
+_RUNTIME_CONNECTION_CODES = {1100, 1101, 1102, 1300}
 _MARKET_DATA_CODES = {354, 10089, 10167, 10168}
 _ACTION_TO_IB = {
     "Buy to Open": "BUY",
@@ -183,6 +187,7 @@ if _IB_AVAILABLE:
             quote_queue: asyncio.Queue,
             order_event_queue: asyncio.Queue | None = None,
             position_event_queue: asyncio.Queue | None = None,
+            runtime_event_callback: Callable[[dict[str, Any]], None] | None = None,
         ):
             EWrapper.__init__(self)
             EClient.__init__(self, self)
@@ -190,6 +195,7 @@ if _IB_AVAILABLE:
             self._quote_queue = quote_queue
             self._order_event_queue = order_event_queue
             self._position_event_queue = position_event_queue
+            self._runtime_event_callback = runtime_event_callback
             self.ready_event = asyncio.Event()
             self.accounts_event = asyncio.Event()
             self.closed_event = asyncio.Event()
@@ -220,6 +226,7 @@ if _IB_AVAILABLE:
             self._account_updates_persistent = False
             self._account_updates_account = ""
             self._account_updates_initializing = ""
+            self._intentional_disconnect = False
 
         def _soon(self, callback: Callable, *args: Any) -> None:
             self._loop.call_soon_threadsafe(callback, *args)
@@ -230,6 +237,23 @@ if _IB_AVAILABLE:
                 or self._completed_orders_waiter
                 or self._loop.time() < self._order_event_suppressed_until
             )
+
+        def mark_intentional_disconnect(self) -> None:
+            self._intentional_disconnect = True
+
+        def _emit_runtime_event(self, code: int | str, state: str, message: str) -> None:
+            callback = self._runtime_event_callback
+            if not callback:
+                return
+            try:
+                callback({
+                    "code": str(code),
+                    "state": state,
+                    "message": str(message or ""),
+                    "at": _iso_now(),
+                })
+            except Exception as exc:
+                log.warning("IB runtime event callback failed: %s", exc)
 
         @staticmethod
         def _resolve(future: asyncio.Future | None, value: Any = None, error: Exception | None = None) -> None:
@@ -275,6 +299,24 @@ if _IB_AVAILABLE:
         def _on_connection_closed(self) -> None:
             self.closed_event.set()
             error = IBRequestError("IB_CONNECTION_CLOSED", "IB Gateway connection closed")
+            order_error = IBRequestError(
+                "IB_ORDER_STATUS_UNKNOWN",
+                "IB connection closed while an order request was in flight",
+            )
+            self._fail_pending_requests(error, order_error=order_error)
+            if not self._intentional_disconnect:
+                self._emit_runtime_event(
+                    "IB_CONNECTION_CLOSED",
+                    "reconnect_required",
+                    error.message,
+                )
+
+        def _fail_pending_requests(
+            self,
+            error: IBRequestError,
+            *,
+            order_error: IBRequestError | None = None,
+        ) -> None:
             for _, future in self._contract_waiters.values():
                 self._resolve(future, error=error)
             for _, future in self._summary_waiters.values():
@@ -289,10 +331,12 @@ if _IB_AVAILABLE:
                 self._resolve(self._open_orders_waiter[1], error=error)
             if self._completed_orders_waiter:
                 self._resolve(self._completed_orders_waiter[1], error=error)
+            for future in self._quote_waiters.values():
+                self._resolve(future, error=error)
             for future in self._submit_waiters.values():
-                self._resolve(future, error=error)
+                self._resolve(future, error=order_error or error)
             for future in self._cancel_waiters.values():
-                self._resolve(future, error=error)
+                self._resolve(future, error=order_error or error)
 
         def error(
             self,
@@ -315,8 +359,27 @@ if _IB_AVAILABLE:
             error = IBRequestError(code, message)
             self.last_error = {"req_id": req_id, "code": code, "message": message, "at": _iso_now()}
             log.warning("IB error reqId=%s code=%s: %s", req_id, code, message)
+            if code in _NON_FATAL_WARNING_CODES:
+                log.warning("IB non-fatal warning reqId=%s code=%s; request remains active", req_id, code)
+                return
             if code in _CONNECTION_CODES:
                 self.connection_error = error
+            if code in {1100, 1300}:
+                order_error = IBRequestError(
+                    "IB_ORDER_STATUS_UNKNOWN",
+                    "IB connection changed while an order request was in flight",
+                )
+                self._fail_pending_requests(error, order_error=order_error)
+            if code == 1300:
+                self.closed_event.set()
+            if code in _RUNTIME_CONNECTION_CODES:
+                runtime_state = {
+                    1100: "degraded_waiting",
+                    1101: "restored_data_lost",
+                    1102: "restored_data_maintained",
+                    1300: "reconnect_required",
+                }[code]
+                self._emit_runtime_event(code, runtime_state, message)
             if req_id in self._contract_waiters:
                 self._resolve(self._contract_waiters[req_id][1], error=error)
             if req_id in self._summary_waiters:
@@ -329,6 +392,49 @@ if _IB_AVAILABLE:
                 self._resolve(self._submit_waiters[req_id], error=error)
             if req_id in self._cancel_waiters:
                 self._resolve(self._cancel_waiters[req_id], error=error)
+
+        async def revalidate_session(self, timeout: float = 8.0) -> list[str]:
+            self.ready_event.clear()
+            self.accounts_event.clear()
+            self.reqIds(-1)
+            self.reqManagedAccts()
+            identity_task = asyncio.gather(
+                self.ready_event.wait(),
+                self.accounts_event.wait(),
+            )
+            closed_task = asyncio.create_task(self.closed_event.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {identity_task, closed_task},
+                    timeout=timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if closed_task in done and self.closed_event.is_set():
+                    raise IBRequestError(
+                        "IB_CONNECTION_CLOSED",
+                        "IB Gateway connection closed during recovery validation",
+                    )
+                if identity_task not in done:
+                    raise asyncio.TimeoutError
+                await identity_task
+            finally:
+                for task in (identity_task, closed_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(identity_task, closed_task, return_exceptions=True)
+            return list(self.managed_accounts)
+
+        def reset_lost_market_data_subscriptions(self) -> None:
+            error = IBRequestError(
+                "IB_MARKET_DATA_RESET",
+                "IB reported that market data subscriptions were lost",
+            )
+            for future in self._quote_waiters.values():
+                self._resolve(future, error=error)
+            self._quote_waiters.clear()
+            self._symbol_req_id.clear()
+            self._req_id_symbol.clear()
+            self._quotes.clear()
 
         def contractDetails(self, reqId: int, contractDetails: Any) -> None:
             self._soon(self._on_contract_details, int(reqId), contractDetails)
@@ -532,6 +638,18 @@ if _IB_AVAILABLE:
             self._portfolio_cache[account] = {}
             self._portfolio_signatures[account] = {}
             self.reqAccountUpdates(True, account)
+
+        def restart_account_updates(self, account: str) -> None:
+            previous = self._account_updates_account
+            if previous:
+                try:
+                    self.reqAccountUpdates(False, previous)
+                except Exception:
+                    pass
+            self._account_updates_persistent = False
+            self._account_updates_account = ""
+            self._account_updates_initializing = ""
+            self.start_account_updates(account)
 
         def stop_account_updates(self) -> None:
             account = self._account_updates_account
@@ -868,6 +986,96 @@ class IBBroker(BaseBrokerAPI):
         self._positions_lock = asyncio.Lock()
         self._orders_lock = asyncio.Lock()
         self._order_id_lock = asyncio.Lock()
+        self._runtime_state = "disconnected"
+        self._runtime_recovery_code = ""
+        self._runtime_status_callback: Callable[[dict[str, Any]], None] | None = None
+        self._connection_generation = 0
+        self._recovery_lock = asyncio.Lock()
+
+    def set_runtime_status_callback(
+        self,
+        callback: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        self._runtime_status_callback = callback
+
+    def runtime_health(self) -> dict[str, Any]:
+        state = self._runtime_state
+        return {
+            "state": state,
+            "operational": bool(state == "ready" and self._connected),
+            "waiting_for_upstream": state in {"degraded_waiting", "restoring"},
+            "reconnect_required": state == "reconnect_required",
+            "generation": self._connection_generation,
+            "recovery_code": self._runtime_recovery_code,
+        }
+
+    def _publish_runtime_event(self, event: dict[str, Any]) -> None:
+        callback = self._runtime_status_callback
+        if not callback:
+            return
+        try:
+            callback(dict(event))
+        except Exception as exc:
+            log.warning("IB broker runtime callback failed: %s", exc)
+
+    def _transition_runtime_state(
+        self,
+        state: str,
+        *,
+        code: str,
+        message: str,
+        publish: bool = True,
+        data_lost: bool = False,
+    ) -> bool:
+        previous = self._runtime_state
+        if previous == state and self._runtime_recovery_code == str(code):
+            return False
+        self._runtime_state = state
+        self._runtime_recovery_code = str(code or "")
+        self._connected = state == "ready"
+        if state == "ready":
+            self.clear_connection_error()
+        else:
+            self.set_connection_error(str(code or "IB_RUNTIME_UNAVAILABLE"), message, retryable=True)
+        if publish:
+            self._publish_runtime_event({
+                "code": str(code or ""),
+                "state": state,
+                "previous_state": previous,
+                "message": str(message or ""),
+                "data_lost": bool(data_lost),
+                "generation": self._connection_generation,
+                "at": _iso_now(),
+            })
+        return True
+
+    def _handle_app_runtime_event(self, generation: int, event: dict[str, Any]) -> None:
+        if generation != self._connection_generation or self._ib_app is None:
+            log.info(
+                "Ignoring stale IB runtime event generation=%s current=%s code=%s",
+                generation,
+                self._connection_generation,
+                event.get("code", ""),
+            )
+            return
+        code = str(event.get("code") or "")
+        message = str(event.get("message") or "IB runtime connection changed")
+        source_state = str(event.get("state") or "")
+        if source_state == "degraded_waiting":
+            target_state = "degraded_waiting"
+            data_lost = False
+        elif source_state in {"restored_data_lost", "restored_data_maintained"}:
+            target_state = "restoring"
+            data_lost = source_state == "restored_data_lost"
+        else:
+            target_state = "reconnect_required"
+            data_lost = False
+        self._transition_runtime_state(
+            target_state,
+            code=code,
+            message=message,
+            data_lost=data_lost,
+        )
 
     def normalize_credentials(self, credentials: dict | None) -> dict:
         data = super().normalize_credentials(credentials)
@@ -914,12 +1122,25 @@ class IBBroker(BaseBrokerAPI):
         self._account_verified = False
         self._contract_cache.clear()
         self._contract_routes.clear()
+        self._connection_generation += 1
+        generation = self._connection_generation
+        self._runtime_state = "connecting"
+        self._runtime_recovery_code = ""
 
         loop = asyncio.get_running_loop()
         self._quote_queue = asyncio.Queue()
         self._order_event_queue = asyncio.Queue()
         self._position_event_queue = asyncio.Queue()
-        app = _IBApp(loop, self._quote_queue, self._order_event_queue, self._position_event_queue)
+        app = _IBApp(
+            loop,
+            self._quote_queue,
+            self._order_event_queue,
+            self._position_event_queue,
+            runtime_event_callback=lambda event, current=generation: self._handle_app_runtime_event(
+                current,
+                event,
+            ),
+        )
         self._ib_app = app
 
         try:
@@ -944,6 +1165,8 @@ class IBBroker(BaseBrokerAPI):
                 )
 
             self._account_verified = bool(self._account_id)
+            self._runtime_state = "ready"
+            self._runtime_recovery_code = ""
             self._connected = True
             self._start_quote_forwarder()
             log.info(
@@ -986,6 +1209,9 @@ class IBBroker(BaseBrokerAPI):
         self._ib_app = None
         self._ib_thread = None
         if app:
+            mark_intentional = getattr(app, "mark_intentional_disconnect", None)
+            if callable(mark_intentional):
+                mark_intentional()
             for symbol in list(getattr(app, "_symbol_req_id", {}).keys()):
                 app.unsubscribe_market_data(symbol)
             try:
@@ -996,6 +1222,8 @@ class IBBroker(BaseBrokerAPI):
             await asyncio.to_thread(thread.join, 2.0)
 
         self._connected = False
+        self._runtime_state = "disconnected"
+        self._runtime_recovery_code = ""
         self._account_verified = False
         self._managed_accounts = []
         self._contract_cache.clear()
@@ -1004,7 +1232,7 @@ class IBBroker(BaseBrokerAPI):
         self._position_event_queue = None
 
     async def start_account_events(self) -> None:
-        if not self._connected or not self._account_id:
+        if self._runtime_state != "ready" or not self._connected or not self._account_id:
             return
         if self._order_event_queue is not None and (
             self._order_event_task is None or self._order_event_task.done()
@@ -1108,13 +1336,30 @@ class IBBroker(BaseBrokerAPI):
 
     async def is_connected(self) -> bool:
         app = self._ib_app
-        connected = bool(self._connected and app and app.isConnected() and not app.closed_event.is_set())
+        closed_event = getattr(app, "closed_event", None) if app else None
+        closed = bool(closed_event and closed_event.is_set())
+        transport_connected = bool(app and app.isConnected() and not closed)
+        connected = bool(
+            self._runtime_state == "ready"
+            and self._connected
+            and transport_connected
+        )
         if not connected:
             self._connected = False
+            if self._runtime_state == "ready" and not transport_connected:
+                self._transition_runtime_state(
+                    "reconnect_required",
+                    code="IB_CONNECTION_CLOSED",
+                    message="IB Gateway transport connection is unavailable",
+                )
         return connected
 
     def effective_capabilities(self) -> dict[str, bool]:
         capabilities = dict(self.capabilities())
+        if self._runtime_state in {"connecting", "degraded_waiting", "restoring", "reconnect_required"}:
+            for key in ("quotes", "orders", "cancel_order", "positions", "order_query"):
+                capabilities[key] = False
+            return capabilities
         account_ready = bool(self._account_id and self._account_verified)
         if not account_ready:
             capabilities["orders"] = False
@@ -1125,6 +1370,7 @@ class IBBroker(BaseBrokerAPI):
 
     def status_detail(self) -> dict[str, Any]:
         return {
+            "runtime_state": self._runtime_state,
             "gateway": {"host": self._host, "port": self._port, "client_id": self._client_id},
             "account": {
                 "account_id": self._account_id,
@@ -1162,9 +1408,12 @@ class IBBroker(BaseBrokerAPI):
             "supported_tifs": list(self.supported_tifs()),
         }
 
-    def _require_app(self, require_account: bool = False) -> Any:
+    def _require_app(self, require_account: bool = False, *, allow_recovering: bool = False) -> Any:
         app = self._ib_app
-        if not self._connected or not app or not app.isConnected():
+        allowed_states = {"ready", "restoring"} if allow_recovering else {"ready"}
+        closed_event = getattr(app, "closed_event", None) if app else None
+        closed = bool(closed_event and closed_event.is_set())
+        if self._runtime_state not in allowed_states or not app or not app.isConnected() or closed:
             raise RuntimeError("Unable to connect to IB Gateway")
         if require_account and not self._account_verified:
             raise RuntimeError("IB account is not selected or managed by this Gateway")
@@ -1196,8 +1445,8 @@ class IBBroker(BaseBrokerAPI):
         contract.currency = "USD"
         return contract
 
-    async def _resolve_stock_contract(self, symbol: str) -> Any:
-        app = self._require_app(require_account=False)
+    async def _resolve_stock_contract(self, symbol: str, *, allow_recovering: bool = False) -> Any:
+        app = self._require_app(require_account=False, allow_recovering=allow_recovering)
         normalized = str(symbol or "").strip().upper()
         if not normalized:
             raise ValueError("symbol is required")
@@ -1254,6 +1503,65 @@ class IBBroker(BaseBrokerAPI):
                 continue
             contract = await self._resolve_stock_contract(normalized)
             await app.subscribe_market_data(normalized, contract)
+
+    async def restore_quote_subscriptions(self, symbols: list[str]) -> None:
+        app = self._require_app(require_account=False, allow_recovering=True)
+        for symbol in symbols or []:
+            normalized = str(symbol or "").strip().upper()
+            if not normalized:
+                continue
+            contract = await self._resolve_stock_contract(
+                normalized,
+                allow_recovering=True,
+            )
+            await app.subscribe_market_data(normalized, contract)
+
+    async def prepare_runtime_recovery(self, *, data_lost: bool) -> bool:
+        async with self._recovery_lock:
+            if self._runtime_state != "restoring":
+                return False
+            app = self._require_app(require_account=False, allow_recovering=True)
+            accounts = await app.revalidate_session()
+            self._managed_accounts = list(accounts)
+            if not self._managed_accounts:
+                raise IBRequestError(
+                    "IB_NO_MANAGED_ACCOUNTS",
+                    "IB Gateway returned no managed accounts after recovery",
+                )
+            if self._account_id and self._account_id not in self._managed_accounts:
+                raise IBRequestError(
+                    "IB_ACCOUNT_NOT_MANAGED",
+                    "Configured account is no longer managed after IB recovery",
+                )
+            self._account_verified = bool(self._account_id)
+            if data_lost:
+                app.reset_lost_market_data_subscriptions()
+                if self._account_id:
+                    app.restart_account_updates(self._account_id)
+            if self._account_id:
+                async with self._orders_lock:
+                    await app.request_open_orders()
+            return True
+
+    def complete_runtime_recovery(self) -> bool:
+        app = self._ib_app
+        closed_event = getattr(app, "closed_event", None) if app else None
+        closed = bool(closed_event and closed_event.is_set())
+        if self._runtime_state != "restoring" or not app or not app.isConnected() or closed:
+            return False
+        self._runtime_state = "ready"
+        self._runtime_recovery_code = ""
+        self._connected = True
+        self.clear_connection_error()
+        return True
+
+    def mark_runtime_reconnect_required(self, code: str, message: str) -> None:
+        self._transition_runtime_state(
+            "reconnect_required",
+            code=code,
+            message=message,
+            publish=False,
+        )
 
     async def unsubscribe_quotes(self, symbols: list[str]) -> None:
         app = self._ib_app

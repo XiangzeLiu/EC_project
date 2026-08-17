@@ -143,7 +143,11 @@ async def restore_subscriptions(broker=None) -> dict:
             return {"success": False, "code": "BROKER_OFFLINE", "restored": [], "message": safe_client_message("BROKER_OFFLINE")}
         target = get_current_broker()
 
-    if not target or not await _is_broker_ok(target):
+    if not target:
+        return {"success": False, "code": "BROKER_OFFLINE", "restored": [], "message": safe_client_message("BROKER_OFFLINE")}
+
+    runtime_restorer = getattr(target, "restore_quote_subscriptions", None)
+    if not callable(runtime_restorer) and not await _is_broker_ok(target):
         return {"success": False, "code": "BROKER_OFFLINE", "restored": [], "message": safe_client_message("BROKER_OFFLINE")}
 
     caps_fn = getattr(target, "capabilities", None)
@@ -157,7 +161,10 @@ async def restore_subscriptions(broker=None) -> dict:
         }
 
     try:
-        await target.subscribe_quotes(symbols)
+        if callable(runtime_restorer):
+            await runtime_restorer(symbols)
+        else:
+            await target.subscribe_quotes(symbols)
     except Exception as e:
         log.error("Quote subscription restore failed: %s", e)
         return {"success": False, "code": "QUOTE_SUBSCRIBE_FAILED", "restored": [], "message": "行情订阅失败"}

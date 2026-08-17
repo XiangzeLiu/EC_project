@@ -47,6 +47,9 @@ _auto_retry_pause_reason: str = ""
 _last_connect_error: dict[str, object] = {"code": "", "message": "", "retryable": True}
 _runtime_loop: asyncio.AbstractEventLoop | None = None
 _broker_lifecycle_lock = asyncio.Lock()
+_broker_runtime_task: asyncio.Task | None = None
+_broker_runtime_watchdog_task: asyncio.Task | None = None
+_runtime_recovery_grace_seconds: float = 120.0
 
 
 # ── 公共接口 ────────────────────────────────────────────────────
@@ -76,18 +79,29 @@ def get_broker_status(public: bool = False) -> dict:
             "error": dict(_last_connect_error),
         }
         return _client_status(status) if public else status
+    runtime_health_fn = getattr(_current_broker, "runtime_health", None)
+    runtime_health = runtime_health_fn() if callable(runtime_health_fn) else {}
+    connected = bool(
+        runtime_health.get("operational")
+        if isinstance(runtime_health, dict) and "operational" in runtime_health
+        else _current_broker._connected
+    )
     capabilities_fn = getattr(_current_broker, "effective_capabilities", None)
     capabilities = capabilities_fn() if callable(capabilities_fn) else _current_broker.capabilities()
     detail_fn = getattr(_current_broker, "status_detail", None)
     detail = detail_fn() if callable(detail_fn) else {}
     status = {
         "broker_type": _current_broker.broker_type,
-        "connected": _current_broker._connected,
+        "connected": connected,
         "config_version": _local_config_version,
         "last_action": "active",
         "capabilities": capabilities,
-        "error": {} if _current_broker._connected else dict(_last_connect_error),
+        "error": {},
     }
+    if not connected:
+        broker_error_fn = getattr(_current_broker, "get_connection_error", None)
+        broker_error = broker_error_fn() if callable(broker_error_fn) else {}
+        status["error"] = dict(broker_error or _last_connect_error)
     if isinstance(detail, dict):
         status.update(detail)
     return _client_status(status) if public else status
@@ -181,15 +195,21 @@ def _can_attempt_connect(trigger: str) -> bool:
     return True
 
 
-async def _restore_quote_subscriptions(broker: BaseBrokerAPI) -> None:
+async def _restore_quote_subscriptions(broker: BaseBrokerAPI) -> dict:
     try:
         from .quote_provider import restore_subscriptions
 
         result = await restore_subscriptions(broker)
         if not result.get("success"):
             log.warning("Quote subscription restore skipped: %s", result.get("message", "unknown error"))
+        return result
     except Exception as exc:
         log.warning("Quote subscription restore failed: %s", exc)
+        return {
+            "success": False,
+            "code": "QUOTE_SUBSCRIBE_FAILED",
+            "message": str(exc),
+        }
 
 
 async def _bind_broker_events(broker: BaseBrokerAPI) -> None:
@@ -202,6 +222,19 @@ async def _bind_broker_events(broker: BaseBrokerAPI) -> None:
     set_position_callback = getattr(broker, "set_position_event_callback", None)
     if callable(set_position_callback):
         set_position_callback(_on_position_event_from_broker)
+    set_runtime_callback = getattr(broker, "set_runtime_status_callback", None)
+    if callable(set_runtime_callback):
+        set_runtime_callback(_on_runtime_status_from_broker)
+        health = _runtime_health(broker)
+        state_name = str(health.get("state") or "")
+        if state_name in {"degraded_waiting", "restoring", "reconnect_required"}:
+            recovery_code = str(health.get("recovery_code") or "")
+            _on_runtime_status_from_broker({
+                "code": recovery_code,
+                "state": state_name,
+                "data_lost": recovery_code == "1101",
+                "generation": int(health.get("generation") or 0),
+            })
     start_events = getattr(broker, "start_account_events", None)
     if not callable(start_events):
         return
@@ -261,6 +294,185 @@ def _on_position_event_from_broker(event: dict) -> None:
     })
 
 
+def _runtime_health(broker: BaseBrokerAPI | None) -> dict[str, object]:
+    health_fn = getattr(broker, "runtime_health", None) if broker else None
+    if not callable(health_fn):
+        return {}
+    try:
+        health = health_fn()
+    except Exception:
+        return {}
+    return dict(health) if isinstance(health, dict) else {}
+
+
+def _cancel_runtime_watchdog() -> None:
+    global _broker_runtime_watchdog_task
+    task = _broker_runtime_watchdog_task
+    _broker_runtime_watchdog_task = None
+    if task and not task.done():
+        task.cancel()
+
+
+def _start_runtime_task(coro) -> bool:
+    global _broker_runtime_task
+    if _broker_runtime_task and not _broker_runtime_task.done():
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
+        return False
+    task = asyncio.create_task(coro, name="broker-runtime-recovery")
+    _broker_runtime_task = task
+
+    def clear(completed: asyncio.Task) -> None:
+        global _broker_runtime_task
+        if _broker_runtime_task is completed:
+            _broker_runtime_task = None
+
+    task.add_done_callback(clear)
+    return True
+
+
+def _start_runtime_watchdog(broker: BaseBrokerAPI, generation: int) -> None:
+    global _broker_runtime_watchdog_task
+    _cancel_runtime_watchdog()
+    _broker_runtime_watchdog_task = asyncio.create_task(
+        _runtime_recovery_watchdog(broker, generation),
+        name="broker-runtime-watchdog",
+    )
+
+
+async def _runtime_recovery_watchdog(broker: BaseBrokerAPI, generation: int) -> None:
+    try:
+        await asyncio.sleep(_runtime_recovery_grace_seconds)
+        if broker is not _current_broker:
+            return
+        health = _runtime_health(broker)
+        if int(health.get("generation") or 0) != generation:
+            return
+        if str(health.get("state") or "") != "degraded_waiting":
+            return
+        log.warning(
+            "IB runtime recovery timed out after %ss; escalating to full reconnect",
+            int(_runtime_recovery_grace_seconds),
+        )
+        marker = getattr(broker, "mark_runtime_reconnect_required", None)
+        if callable(marker):
+            marker("IB_RUNTIME_RECOVERY_TIMEOUT", "IB runtime recovery timed out")
+        _start_runtime_task(_run_runtime_reconnect(broker, generation, "watchdog_timeout"))
+    except asyncio.CancelledError:
+        return
+
+
+def _on_runtime_status_from_broker(event: dict) -> None:
+    loop = _runtime_loop
+    if not loop or not loop.is_running():
+        log.warning("Broker runtime loop unavailable, dropping runtime event")
+        return
+
+    def submit() -> None:
+        broker = _current_broker
+        if not broker:
+            return
+        payload = dict(event or {})
+        generation = int(payload.get("generation") or 0)
+        health = _runtime_health(broker)
+        if generation and int(health.get("generation") or 0) != generation:
+            return
+        state_name = str(payload.get("state") or "")
+        code = str(payload.get("code") or "")
+        log.warning(
+            "Broker runtime event: type=%s state=%s code=%s generation=%s",
+            broker.broker_type,
+            state_name,
+            code,
+            generation,
+        )
+        if state_name == "degraded_waiting":
+            _broadcast_status(broker.broker_type, "disconnected")
+            _start_runtime_watchdog(broker, generation)
+            return
+        _cancel_runtime_watchdog()
+        if state_name == "restoring":
+            _start_runtime_task(
+                _run_runtime_recovery(
+                    broker,
+                    generation,
+                    data_lost=bool(payload.get("data_lost")),
+                )
+            )
+            return
+        if state_name == "reconnect_required":
+            _broadcast_status(broker.broker_type, "disconnected")
+            _start_runtime_task(_run_runtime_reconnect(broker, generation, code or "runtime_disconnect"))
+
+    loop.call_soon_threadsafe(submit)
+
+
+async def _run_runtime_recovery(
+    broker: BaseBrokerAPI,
+    generation: int,
+    *,
+    data_lost: bool,
+) -> None:
+    async with _broker_lifecycle_lock:
+        if broker is not _current_broker:
+            return
+        health = _runtime_health(broker)
+        if int(health.get("generation") or 0) != generation:
+            return
+        prepare = getattr(broker, "prepare_runtime_recovery", None)
+        complete = getattr(broker, "complete_runtime_recovery", None)
+        if not callable(prepare) or not callable(complete):
+            return
+        try:
+            prepared = await prepare(data_lost=data_lost)
+            if not prepared:
+                raise RuntimeError("Broker runtime recovery was not prepared")
+            if data_lost:
+                await _restore_quote_subscriptions(broker)
+            if not complete():
+                raise RuntimeError("Broker runtime recovery could not be completed")
+            start_events = getattr(broker, "start_account_events", None)
+            if callable(start_events):
+                await start_events()
+            _reset_connect_retry_state()
+            _broadcast_status(broker.broker_type, "reconnected")
+            log.info(
+                "Broker runtime recovery completed: type=%s generation=%s data_lost=%s",
+                broker.broker_type,
+                generation,
+                data_lost,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error("Broker runtime recovery failed: %s", exc)
+            marker = getattr(broker, "mark_runtime_reconnect_required", None)
+            if callable(marker):
+                marker("IB_RUNTIME_RECOVERY_FAILED", str(exc))
+            await _do_hot_reload_locked(trigger="runtime")
+
+
+async def _run_runtime_reconnect(
+    broker: BaseBrokerAPI,
+    generation: int,
+    reason: str,
+) -> None:
+    async with _broker_lifecycle_lock:
+        if broker is not _current_broker:
+            return
+        health = _runtime_health(broker)
+        if generation and int(health.get("generation") or 0) != generation:
+            return
+        log.warning(
+            "Broker runtime full reconnect: type=%s generation=%s reason=%s",
+            broker.broker_type,
+            generation,
+            reason,
+        )
+        await _do_hot_reload_locked(trigger="runtime")
+
+
 async def ensure_broker_connected() -> bool:
     """
     业务触发前保障券商已连接。
@@ -271,6 +483,12 @@ async def ensure_broker_connected() -> bool:
         try:
             if await _current_broker.is_connected():
                 return True
+            health = _runtime_health(_current_broker)
+            if health and (
+                bool(health.get("waiting_for_upstream"))
+                or bool(health.get("reconnect_required"))
+            ):
+                return False
         except Exception:
             pass
 
@@ -619,6 +837,14 @@ async def _auto_reconnect_loop():
                 announced_disconnect = False
                 continue
 
+            health = _runtime_health(_current_broker)
+            if bool(health.get("waiting_for_upstream")):
+                announced_disconnect = True
+                continue
+            if _broker_runtime_task and not _broker_runtime_task.done():
+                announced_disconnect = True
+                continue
+
             if not announced_disconnect:
                 log.warning("Auto-reconnect: %s disconnected", _current_broker_type)
                 _broadcast_status(_current_broker_type, "disconnected")
@@ -715,6 +941,7 @@ def _broadcast_status(broker_type: str, status: str):
 async def shutdown():
     """Shutdown config_sync tasks and broker resources."""
     global _reconnect_enabled, _auto_reconnect_task, _config_event_task
+    global _broker_runtime_task, _broker_runtime_watchdog_task
 
     _reconnect_enabled = False
 
@@ -725,6 +952,12 @@ async def shutdown():
     if _auto_reconnect_task and not _auto_reconnect_task.done():
         _auto_reconnect_task.cancel()
         tasks.append(_auto_reconnect_task)
+    if _broker_runtime_task and not _broker_runtime_task.done():
+        _broker_runtime_task.cancel()
+        tasks.append(_broker_runtime_task)
+    if _broker_runtime_watchdog_task and not _broker_runtime_watchdog_task.done():
+        _broker_runtime_watchdog_task.cancel()
+        tasks.append(_broker_runtime_watchdog_task)
 
     if tasks:
         try:
@@ -737,6 +970,8 @@ async def shutdown():
 
     _config_event_task = None
     _auto_reconnect_task = None
+    _broker_runtime_task = None
+    _broker_runtime_watchdog_task = None
 
     await _destroy_broker()
     log.info("Config sync service shut down")
