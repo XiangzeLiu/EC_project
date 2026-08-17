@@ -155,6 +155,30 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
 
 
 class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_error_callback_normalizes_current_and_legacy_ibapi_signatures(self):
+        if not hasattr(ib_module, "_IBApp"):
+            self.skipTest("ibapi is not installed")
+
+        loop = asyncio.get_running_loop()
+        app = ib_module._IBApp(loop, asyncio.Queue())
+
+        app.error(
+            -1,
+            1786992101262,
+            504,
+            "Not connected",
+            "",
+        )
+        await asyncio.sleep(0)
+        self.assertEqual(app.last_error["code"], 504)
+        self.assertEqual(app.last_error["message"], "Not connected")
+        self.assertEqual(app.connection_error.code, "504")
+
+        app.error(1003, 10089, "Requested market data requires subscription")
+        await asyncio.sleep(0)
+        self.assertEqual(app.last_error["req_id"], 1003)
+        self.assertEqual(app.last_error["code"], 10089)
+
     async def test_2176_fractional_size_warning_does_not_fail_quote_request(self):
         if not hasattr(ib_module, "_IBApp"):
             self.skipTest("ibapi is not installed")

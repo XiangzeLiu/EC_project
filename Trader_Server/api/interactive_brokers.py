@@ -338,14 +338,34 @@ if _IB_AVAILABLE:
             for future in self._cancel_waiters.values():
                 self._resolve(future, error=order_error or error)
 
-        def error(
-            self,
-            reqId: int,
-            errorCode: int,
-            errorString: str,
-            advancedOrderRejectJson: str = "",
-        ) -> None:
-            self._soon(self._on_error, int(reqId), int(errorCode), str(errorString or ""))
+        def error(self, reqId: int, *args: Any) -> None:
+            """Accept both legacy and current IB API error callback layouts.
+
+            Recent ibapi releases pass ``errorTime`` before ``errorCode`` and
+            may append ``advancedOrderRejectJson``. Older releases omit the
+            timestamp. The adapter only needs the request id, code, and text,
+            but must normalize both layouts before scheduling the asyncio
+            handler.
+            """
+            if len(args) >= 3 and isinstance(args[1], int) and not isinstance(args[1], bool):
+                _, error_code, error_string = args[:3]
+            elif len(args) >= 2:
+                error_code, error_string = args[:2]
+            else:
+                log.warning("IB error callback received incomplete arguments reqId=%s args=%r", reqId, args)
+                return
+            try:
+                normalized_req_id = int(reqId)
+                normalized_code = int(error_code)
+            except (TypeError, ValueError):
+                log.warning("IB error callback received invalid arguments reqId=%r args=%r", reqId, args)
+                return
+            self._soon(
+                self._on_error,
+                normalized_req_id,
+                normalized_code,
+                str(error_string or ""),
+            )
 
         def _on_error(self, req_id: int, code: int, message: str) -> None:
             if code in _INFO_CODES:
