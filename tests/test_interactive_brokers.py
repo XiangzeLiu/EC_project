@@ -179,6 +179,29 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.last_error["req_id"], 1003)
         self.assertEqual(app.last_error["code"], 10089)
 
+    async def test_cancel_order_uses_current_ibapi_order_cancel_request(self):
+        if not hasattr(ib_module, "_IBApp") or ib_module.OrderCancel is None:
+            self.skipTest("current ibapi OrderCancel is not installed")
+
+        loop = asyncio.get_running_loop()
+        app = ib_module._IBApp(loop, asyncio.Queue())
+        captured = []
+
+        def fake_cancel_order(order_id, cancel_request):
+            captured.append((order_id, cancel_request))
+            app._resolve(
+                app._cancel_waiters.get(order_id),
+                {"order_id": order_id, "status": "Cancelled"},
+            )
+
+        app.cancelOrder = fake_cancel_order
+        result = await app.cancel_order_and_wait(42)
+
+        self.assertEqual(result, {"order_id": 42, "status": "Cancelled"})
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0][0], 42)
+        self.assertIsInstance(captured[0][1], ib_module.OrderCancel)
+
     async def test_2176_fractional_size_warning_does_not_fail_quote_request(self):
         if not hasattr(ib_module, "_IBApp"):
             self.skipTest("ibapi is not installed")

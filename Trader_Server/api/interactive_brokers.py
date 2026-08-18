@@ -28,6 +28,7 @@ try:
     from ibapi.contract import Contract
     from ibapi.execution import ExecutionFilter
     from ibapi.order import Order
+    from ibapi.order_cancel import OrderCancel
     from ibapi.wrapper import EWrapper
 
     _IB_AVAILABLE = True
@@ -36,6 +37,7 @@ except ImportError:
     EWrapper = object  # type: ignore[assignment,misc]
     Contract = Any  # type: ignore[assignment,misc]
     Order = Any  # type: ignore[assignment,misc]
+    OrderCancel = None  # type: ignore[assignment,misc]
     ExecutionFilter = Any  # type: ignore[assignment,misc]
     log.warning("ibapi not installed, IBBroker will be unavailable")
 
@@ -953,10 +955,15 @@ if _IB_AVAILABLE:
             future = self._loop.create_future()
             self._cancel_waiters[order_id] = future
             try:
-                try:
-                    self.cancelOrder(order_id, "")
-                except TypeError:
+                if OrderCancel is None:
                     self.cancelOrder(order_id)
+                else:
+                    try:
+                        self.cancelOrder(order_id, OrderCancel())
+                    except TypeError:
+                        # Compatibility with older ibapi clients that only
+                        # expose cancelOrder(orderId).
+                        self.cancelOrder(order_id)
                 return await asyncio.wait_for(future, timeout=timeout)
             finally:
                 self._cancel_waiters.pop(order_id, None)
