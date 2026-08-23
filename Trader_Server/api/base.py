@@ -223,6 +223,15 @@ class BaseBrokerAPI(ABC):
         """取消订阅行情数据"""
         ...
 
+    async def refresh_quote(
+        self,
+        symbol: str,
+        price_source: str,
+        timeout: float = 5.0,
+    ) -> dict:
+        """Return a quote confirmed after this refresh request started."""
+        raise NotImplementedError("Quote refresh is not supported by this broker adapter")
+
     def set_quote_callback(self, callback: Callable[[dict], None]) -> None:
         """
         注册行情数据回调函数

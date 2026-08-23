@@ -125,6 +125,7 @@ class TastytradeBroker(BaseBrokerAPI):
         self._quote_stream_error: Exception | None = None
         self._subscribed_symbols: set[str] = set()
         self._quote_lock = asyncio.Lock()
+        self._quote_refresh_waiters: dict[str, list[tuple[str, asyncio.Future]]] = {}
         self._quote_stream_started_at = 0.0
         self._account_streamer: Any | None = None
         self._account_streamer_cm: Any | None = None
@@ -730,6 +731,43 @@ class TastytradeBroker(BaseBrokerAPI):
             self._subscribed_symbols.difference_update(remove_syms)
             log.info(f"TT quote unsubscribed: {remove_syms}")
 
+    async def refresh_quote(
+        self,
+        symbol: str,
+        price_source: str,
+        timeout: float = 5.0,
+    ) -> dict:
+        """Wait for a post-request quote event without rebuilding DXLink."""
+        normalized = str(symbol or "").strip().upper()
+        source = str(price_source or "").strip().lower()
+        if not normalized or source not in {"bid", "ask"}:
+            raise ValueError("Invalid quote refresh parameters")
+        if normalized not in self._subscribed_symbols:
+            await self.subscribe_quotes([normalized])
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        async with self._quote_lock:
+            self._quote_refresh_waiters.setdefault(normalized, []).append((source, future))
+            try:
+                await self._ensure_quote_streamer_locked(start_consumer=True)
+            except Exception:
+                waiters = self._quote_refresh_waiters.get(normalized, [])
+                self._quote_refresh_waiters[normalized] = [
+                    item for item in waiters if item[1] is not future
+                ]
+                if not self._quote_refresh_waiters[normalized]:
+                    self._quote_refresh_waiters.pop(normalized, None)
+                raise
+        try:
+            return dict(await asyncio.wait_for(asyncio.shield(future), timeout=max(0.1, float(timeout))))
+        finally:
+            waiters = self._quote_refresh_waiters.get(normalized, [])
+            self._quote_refresh_waiters[normalized] = [
+                item for item in waiters if item[1] is not future
+            ]
+            if not self._quote_refresh_waiters[normalized]:
+                self._quote_refresh_waiters.pop(normalized, None)
+
     async def _ensure_quote_streamer_locked(self, start_consumer: bool = True) -> None:
         if self._quote_owner_task is None or self._quote_owner_task.done():
             self._quote_stop_event = asyncio.Event()
@@ -822,6 +860,11 @@ class TastytradeBroker(BaseBrokerAPI):
             await self._stop_quote_stream_locked()
 
     async def _stop_quote_stream_locked(self) -> None:
+        for waiters in self._quote_refresh_waiters.values():
+            for _source, future in waiters:
+                if not future.done():
+                    future.set_exception(RuntimeError("TT quote stream stopped"))
+        self._quote_refresh_waiters.clear()
         owner = self._quote_owner_task
         if owner and not owner.done():
             self._quote_stop_event.set()
@@ -871,8 +914,7 @@ class TastytradeBroker(BaseBrokerAPI):
                     else:
                         event = await waitable
                     quote = self._normalize_quote_event(event)
-                    if quote and self._quote_callback:
-                        self._quote_callback(quote)
+                    self._publish_quote(quote)
                     continue
 
                 if hasattr(self._quote_streamer, "listen"):
@@ -881,8 +923,7 @@ class TastytradeBroker(BaseBrokerAPI):
                         if not self._connected:
                             return
                         quote = self._normalize_quote_event(event)
-                        if quote and self._quote_callback:
-                            self._quote_callback(quote)
+                        self._publish_quote(quote)
                     continue
 
                 log.error("TT quote streamer has no supported consume API")
@@ -903,6 +944,18 @@ class TastytradeBroker(BaseBrokerAPI):
                     name="tt-quote-stream-restart",
                 )
                 return
+
+    def _publish_quote(self, quote: dict | None) -> None:
+        if not quote:
+            return
+        symbol = str(quote.get("symbol") or "").strip().upper()
+        if not symbol:
+            return
+        for source, future in list(self._quote_refresh_waiters.get(symbol, [])):
+            if not future.done() and float(quote.get(source, 0) or 0) > 0:
+                future.set_result(dict(quote))
+        if self._quote_callback:
+            self._quote_callback(quote)
 
     async def _streamer_subscribe(self, symbols: list[str]) -> None:
         fn = getattr(self._quote_streamer, "subscribe", None)

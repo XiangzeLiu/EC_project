@@ -478,6 +478,8 @@ class FakeTradingSession:
         self.orders = []
         self.order_details = []
         self.order_queries = []
+        self.refresh_quote_calls = []
+        self.refresh_quote_result = (False, {}, "行情刷新超时，IOC订单未提交")
         self.broker_status_queries = 0
         self.cancelled = []
         self.symbol_options = {}
@@ -518,6 +520,10 @@ class FakeTradingSession:
     def broker_status_query(self):
         self.broker_status_queries += 1
         return True, self.broker_detail, "ok"
+
+    def refresh_quote(self, symbol, price_source, timeout=5.0):
+        self.refresh_quote_calls.append((symbol, price_source, timeout))
+        return self.refresh_quote_result
 
     def symbol_order_options(self, symbol):
         return dict(self.symbol_options.get(str(symbol).strip().upper()) or {})
@@ -1335,7 +1341,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._on_price_enter(1)
         self.window._on_price_enter(1)
 
-        self.assertEqual(self.session.orders, [("AAPL", 100, 185.10, "Sell to Close", "limit", "Day")])
+        self.assertEqual(self.session.orders, [("AAPL", 100, 185.30, "Sell to Close", "limit", "Day")])
         self.assertEqual(self.window.slots[1].pending_action, "")
 
     def test_pending_order_has_no_price_or_side_button_selection_frame(self):
@@ -1379,7 +1385,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(self.window.slots[1].price.text(), "190.20")
 
-    def test_stale_quote_is_not_used_for_limit_preparation(self):
+    def test_stale_quote_is_still_displayed_for_limit_preparation(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
@@ -1388,7 +1394,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "received_monotonic": time.monotonic() - 30,
         }
         self.window._prepare_limit_order("buy", 1, "ask")
-        self.assertEqual(self.window.slots[1].price.text(), "")
+        self.assertEqual(self.window.slots[1].price.text(), "185.10")
         self.assertEqual(self.window.slots[1].pending_action, "Buy to Open")
 
     def test_panel_quantity_and_price_actions_are_isolated(self):
@@ -1540,7 +1546,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         )
         self.assertEqual(self.window.slots[1].pending_action, "")
 
-    def test_configured_limit_sell_uses_bid_and_waits_for_confirmation(self):
+    def test_configured_limit_sell_uses_ask_and_waits_for_confirmation(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
@@ -1554,12 +1560,12 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "tif": "Day",
             "route": "DEFAULT",
         }, 1)
-        self.assertEqual(self.window.slots[1].price.text(), "185.10")
+        self.assertEqual(self.window.slots[1].price.text(), "185.30")
         self.assertEqual(self.session.orders, [])
         self.window._confirm_pending_order(1)
         self.assertEqual(
             self.session.orders[-1],
-            ("AAPL", 100, 185.10, "Sell to Close", "limit", "Day"),
+            ("AAPL", 100, 185.30, "Sell to Close", "limit", "Day"),
         )
 
     def test_limit_ioc_accepts_quote_within_five_seconds(self):
@@ -1582,7 +1588,35 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             ("AAPL", 100, 185.30, "Buy to Open", "limit", "IOC"),
         )
 
-    def test_limit_ioc_does_not_submit_with_quote_older_than_five_seconds(self):
+    def test_limit_ioc_refreshes_quote_older_than_five_seconds(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic() - 5.1,
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.session.refresh_quote_result = (
+            True,
+            {
+                "symbol": "AAPL",
+                "bid": 186.10,
+                "ask": 186.30,
+                "last": 186.20,
+            },
+            "行情刷新成功",
+        )
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+        self.assertEqual(self.session.refresh_quote_calls[0][1], "ask")
+        self.assertEqual(self.session.orders[-1], ("AAPL", 100, 186.30, "Buy to Open", "limit", "IOC"))
+
+    def test_limit_ioc_does_not_submit_when_refresh_times_out(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
@@ -1599,7 +1633,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         }, 1)
         self.assertEqual(self.session.orders, [])
         self.assertEqual(self.window.slots[1].pending_action, "")
-        self.assertEqual(self.window.slots[1].price.text(), "")
+        self.assertEqual(self.window.slots[1].price.text(), "185.30")
 
     def test_limit_ioc_does_not_submit_quote_from_previous_connection(self):
         self.window.current_quote["AAPL"] = {

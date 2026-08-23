@@ -173,10 +173,10 @@ class ShortcutController(QObject):
             return False
         if event_type not in (QEvent.KeyPress, QEvent.KeyRelease):
             return False
+        key = self._event_sequence(event)
         if QApplication.activeWindow() is not self._window:
             return False
 
-        key = self._event_sequence(event)
         candidates = self._by_key.get(key, ())
         matches = [item for item in candidates if self._context_matches(item)]
         binding = max(matches, key=lambda item: _CONTEXT_PRIORITY.get(item.context, 0), default=None)

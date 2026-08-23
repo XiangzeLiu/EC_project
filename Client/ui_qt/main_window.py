@@ -65,7 +65,11 @@ from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt.order_refresh_coordinator import OrderRefreshCoordinator
 from Client.ui_qt.quote_subscription_coordinator import QuoteSubscriptionCoordinator
 from Client.ui_qt.ts_connection_coordinator import TSConnectionCoordinator
-from Client.ui_qt.hotkey_config_store import HotkeyConfigLoadResult, load_hotkey_config, save_hotkey_config
+from Client.ui_qt.hotkey_config_store import (
+    HotkeyConfigLoadResult,
+    load_hotkey_config,
+    save_hotkey_config,
+)
 from Client.ui_qt.settings_overlay import ORDER_TIFS, SettingsOverlay, set_combo_item_enabled
 from Client.ui_qt.hotkey_config import (
     BATCH_CANCEL_POLICY,
@@ -73,10 +77,10 @@ from Client.ui_qt.hotkey_config import (
     ENTER_INPUT_GUARD_MS,
     HOTKEY_BINDINGS,
     IDENTICAL_ORDER_COOLDOWN_MS,
+    IOC_QUOTE_REFRESH_TIMEOUT_MS,
     LIMIT_IOC_QUOTE_FRESHNESS_MS,
     ORDER_CANCEL_POLICY,
     ORDER_SUBMIT_POLICY,
-    QUOTE_FRESHNESS_MS,
     REFRESH_POLICY,
     HotkeyAction,
     HotkeyBinding,
@@ -552,6 +556,8 @@ class TradingTerminalQt(QMainWindow):
         self._quote_subscriptions.subscriptions_changed.connect(self._handle_quote_subscriptions_changed)
         self._canceling_order_ids: set[str] = set()
         self._batch_canceling_symbols: set[str] = set()
+        self._ioc_refresh_requests: dict[int, str] = {}
+        self._ioc_refresh_serial = 0
         self._log_rows: list[tuple[str, str, str]] = []
         self._main_ui_built = False
         self._init_ready = False
@@ -2812,6 +2818,123 @@ class TradingTerminalQt(QMainWindow):
             submit_immediately=tif.strip().upper() == "IOC",
         )
 
+    @staticmethod
+    def _quote_price_source(side: str, *, immediate: bool) -> str:
+        if immediate:
+            return "ask" if side == "buy" else "bid"
+        return "bid" if side == "buy" else "ask"
+
+    def _start_ioc_quote_refresh(
+        self,
+        *,
+        pid: int,
+        symbol: str,
+        side: str,
+        order_type: str,
+        tif: str,
+        route: str,
+        hidden: bool,
+        price_offset: float,
+        price_source: str,
+    ) -> None:
+        if pid in self._ioc_refresh_requests:
+            self._log_user_error_once("当前 IOC 行情正在刷新，请稍候", "warn", window_seconds=1.0)
+            return
+        self._ioc_refresh_serial += 1
+        token = f"ioc_quote_{self._ioc_refresh_serial}"
+        generation = self._se_generation
+        session = self.session
+        self._ioc_refresh_requests[pid] = token
+
+        def refresh_bg() -> None:
+            try:
+                refresh = getattr(session, "refresh_quote", None) if session else None
+                if not callable(refresh):
+                    ok, quote, message = False, {}, "行情刷新暂不可用"
+                else:
+                    ok, quote, message = refresh(
+                        symbol,
+                        price_source,
+                        timeout=IOC_QUOTE_REFRESH_TIMEOUT_MS / 1000,
+                    )
+            except Exception:
+                ok, quote, message = False, {}, "行情刷新失败，IOC订单未提交"
+            self._ui(
+                lambda: self._finish_ioc_quote_refresh(
+                    token,
+                    pid,
+                    symbol,
+                    side,
+                    order_type,
+                    tif,
+                    route,
+                    hidden,
+                    price_offset,
+                    price_source,
+                    generation,
+                    bool(ok),
+                    dict(quote or {}) if isinstance(quote, dict) else {},
+                    str(message or ""),
+                )
+            )
+
+        self._run_bg(refresh_bg)
+
+    def _finish_ioc_quote_refresh(
+        self,
+        token: str,
+        pid: int,
+        symbol: str,
+        side: str,
+        order_type: str,
+        tif: str,
+        route: str,
+        hidden: bool,
+        price_offset: float,
+        price_source: str,
+        generation: int,
+        ok: bool,
+        quote: dict,
+        message: str,
+    ) -> None:
+        if self._ioc_refresh_requests.get(pid) != token:
+            return
+        self._ioc_refresh_requests.pop(pid, None)
+        slot = self.slots.get(pid)
+        if generation != self._se_generation or not slot or slot.symbol_text() != symbol or slot.current_symbol != symbol:
+            return
+        if not ok:
+            self._log_user_error_once(message or "行情刷新失败，IOC订单未提交", "warn")
+            return
+        quote_value = float(quote.get(price_source, 0) or 0)
+        if quote_value <= 0:
+            self._log_user_error_once("未获取到有效行情，IOC订单未提交", "warn")
+            return
+        self._ts_connection._cache_quote_message({"payload": quote}, generation)
+        confirmed = self._latest_quote_snapshot(symbol)
+        self._handle_quote_payload(confirmed)
+        quote_value = float(confirmed.get(price_source, 0) or 0)
+        if quote_value <= 0:
+            self._log_user_error_once("未获取到有效行情，IOC订单未提交", "warn")
+            return
+        adjusted = Decimal(str(quote_value)) + Decimal(str(price_offset or 0.0))
+        quote_value = float(max(Decimal("0"), adjusted).quantize(Decimal("0.01")))
+        if slot.price:
+            slot.price.setEnabled(order_type != "market")
+            if order_type != "market":
+                slot.price.setText(f"{quote_value:.2f}")
+        action = "Buy to Open" if side == "buy" else "Sell to Close"
+        self._place_order(
+            action,
+            pid,
+            order_type_override=order_type,
+            price_override=0.0 if order_type == "market" else quote_value,
+            tif_override=tif,
+            route_override=route,
+            hidden_override=hidden,
+            source="hotkey",
+        )
+
     def _prepare_order_entry(
         self,
         *,
@@ -2827,6 +2950,7 @@ class TradingTerminalQt(QMainWindow):
     ) -> None:
         if side not in {"buy", "sell"} or pid not in self.slots:
             return
+        slot = self.slots[pid]
         if not self.session or not self._trade_controls_enabled():
             message = self.session.broker_unavailable_message("orders") if self.session else "交易服务不可用"
             self._log_user_error_once(message, "warn")
@@ -2856,23 +2980,22 @@ class TradingTerminalQt(QMainWindow):
             slot.hidden_order.setChecked(effective_hidden)
 
         quote_price = 0.0
+        quote_needs_refresh = False
         if normalized_type == "limit":
             quote = self._latest_quote_snapshot(symbol)
             received_at = float(quote.get("received_monotonic", 0) or 0)
-            freshness_ms = LIMIT_IOC_QUOTE_FRESHNESS_MS if submit_immediately else QUOTE_FRESHNESS_MS
-            generation_matches = (
-                not submit_immediately
-                or int(quote.get("connection_generation", -1)) == self._se_generation
-            )
+            source = self._quote_price_source(side, immediate=submit_immediately)
+            quote_price = float(quote.get(source, 0) or 0)
+            quote_age_ms = round((time.monotonic() - received_at) * 1000) if received_at > 0 else None
+            generation_matches = int(quote.get("connection_generation", -1)) == self._se_generation
             fresh = (
                 received_at > 0
                 and generation_matches
-                and (time.monotonic() - received_at) * 1000 <= freshness_ms
+                and quote_age_ms is not None
+                and quote_age_ms <= LIMIT_IOC_QUOTE_FRESHNESS_MS
             )
-            # Regular limit hotkeys use BID as the default displayed price;
-            # IOC remains aggressive and uses ASK for buys.
-            source = "ask" if submit_immediately and side == "buy" else "bid"
-            quote_price = float(quote.get(source, 0) or 0) if fresh else 0.0
+            if submit_immediately and (not fresh or quote_price <= 0):
+                quote_needs_refresh = True
             if quote_price > 0:
                 adjusted = Decimal(str(quote_price)) + Decimal(str(price_offset or 0.0))
                 quote_price = float(max(Decimal("0"), adjusted).quantize(Decimal("0.01")))
@@ -2883,6 +3006,19 @@ class TradingTerminalQt(QMainWindow):
                 slot.price.setFocus()
                 slot.price.selectAll()
         if submit_immediately:
+            if normalized_type == "limit" and quote_needs_refresh:
+                self._start_ioc_quote_refresh(
+                    pid=pid,
+                    symbol=symbol,
+                    side=side,
+                    order_type=normalized_type,
+                    tif=tif,
+                    route=resolved_route,
+                    hidden=effective_hidden,
+                    price_offset=price_offset,
+                    price_source=self._quote_price_source(side, immediate=True),
+                )
+                return
             if normalized_type == "limit" and quote_price <= 0:
                 self._log_user_error_once("IOC 订单未提交：行情不可用或已过期", "warn")
                 return
@@ -2963,6 +3099,7 @@ class TradingTerminalQt(QMainWindow):
 
     def _reset_runtime_action_state(self) -> None:
         self._cancel_all_pending_orders()
+        self._ioc_refresh_requests.clear()
         self._action_limiter.reset()
         self._order_refresh.reset()
         self._canceling_order_ids.clear()

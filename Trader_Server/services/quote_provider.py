@@ -18,6 +18,7 @@ Quote Provider Service — 统一行情入口
   Client B ◄── (如果 Client B 也订阅了 AAPL)
 """
 
+import asyncio
 import logging
 import time
 from collections import defaultdict
@@ -80,7 +81,15 @@ async def _collect_symbol_order_options(broker, symbols: list[str]) -> dict[str,
     return result
 
 
-async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
+async def handle_subscribe(
+    symbols: list[str],
+    session_id: str,
+    *,
+    force_refresh: bool = False,
+    price_source: str = "",
+    timeout_ms: int = 5000,
+    deadline_ms: int = 0,
+) -> dict:
     """
     处理订阅请求
     """
@@ -89,11 +98,12 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
     new_syms = [s for s in valid_symbols if s not in existing]
 
     if not new_syms:
-        result = await restore_subscriptions()
-        if not result.get("success"):
-            result.setdefault("subscribed", [])
-            return result
-        return {
+        if not force_refresh:
+            result = await restore_subscriptions()
+            if not result.get("success"):
+                result.setdefault("subscribed", [])
+                return result
+        response = {
             "success": True,
             "subscribed": [],
             "message": "Already subscribed",
@@ -101,33 +111,113 @@ async def handle_subscribe(symbols: list[str], session_id: str) -> dict:
                 get_current_broker(), valid_symbols
             ),
         }
-
-    added_global = [s for s in new_syms if s not in _aggregated_symbols]
-    broker = get_current_broker()
-    if added_global:
-        ok = await ensure_broker_connected()
+    else:
+        added_global = [s for s in new_syms if s not in _aggregated_symbols]
         broker = get_current_broker()
-        if not ok or not broker or not await _is_broker_ok(broker):
-            return {"success": False, "code": "BROKER_OFFLINE", "subscribed": [], "message": safe_client_message("BROKER_OFFLINE")}
-        caps_fn = getattr(broker, "capabilities", None)
-        caps = caps_fn() if callable(caps_fn) else {}
-        if caps and not bool(caps.get("quotes", False)):
-            return {"success": False, "code": "QUOTE_NOT_SUPPORTED", "subscribed": [], "message": "当前交易通道不支持行情订阅"}
-        try:
-            await broker.subscribe_quotes(added_global)
-        except Exception as e:
-            log.error(f"[{session_id}] SUBSCRIBE error: {e}")
-            return {"success": False, "code": "QUOTE_SUBSCRIBE_FAILED", "subscribed": [], "message": "行情订阅失败"}
+        if added_global:
+            ok = await ensure_broker_connected()
+            broker = get_current_broker()
+            if not ok or not broker or not await _is_broker_ok(broker):
+                return {"success": False, "code": "BROKER_OFFLINE", "subscribed": [], "message": safe_client_message("BROKER_OFFLINE")}
+            caps_fn = getattr(broker, "capabilities", None)
+            caps = caps_fn() if callable(caps_fn) else {}
+            if caps and not bool(caps.get("quotes", False)):
+                return {"success": False, "code": "QUOTE_NOT_SUPPORTED", "subscribed": [], "message": "当前交易通道不支持行情订阅"}
+            try:
+                await broker.subscribe_quotes(added_global)
+            except Exception as e:
+                log.error(f"[{session_id}] SUBSCRIBE error: {e}")
+                return {"success": False, "code": "QUOTE_SUBSCRIBE_FAILED", "subscribed": [], "message": "行情订阅失败"}
 
-    existing.update(new_syms)
-    _aggregated_symbols.update(new_syms)
-    log.info(f"[{session_id}] SUBSCRIBED: {new_syms} (global new: {added_global})")
+        existing.update(new_syms)
+        _aggregated_symbols.update(new_syms)
+        log.info(f"[{session_id}] SUBSCRIBED: {new_syms} (global new: {added_global})")
+        response = {
+            "success": True,
+            "subscribed": new_syms,
+            "total_subscribed": len(existing),
+            "message": f"Subscribed {len(new_syms)} symbols",
+            "symbol_order_options": await _collect_symbol_order_options(broker, valid_symbols),
+        }
+
+    if not force_refresh:
+        return response
+    if len(valid_symbols) != 1:
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_INVALID",
+            "quote_confirmed": False,
+            "message": "单次行情刷新仅支持一个股票代码",
+        }
+
+    source = str(price_source or "").strip().lower()
+    if source not in {"bid", "ask"}:
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_INVALID",
+            "quote_confirmed": False,
+            "message": "行情刷新参数无效",
+        }
+    broker = get_current_broker()
+    refresh_fn = getattr(broker, "refresh_quote", None) if broker else None
+    if not callable(refresh_fn):
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_UNSUPPORTED",
+            "quote_confirmed": False,
+            "message": "当前交易通道暂不支持行情刷新",
+        }
+    requested_ms = max(100, min(int(timeout_ms or 5000), 5000))
+    remaining_ms = int(deadline_ms or 0) - int(time.time() * 1000) if deadline_ms else requested_ms
+    if deadline_ms and remaining_ms <= 0:
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_TIMEOUT",
+            "quote_confirmed": False,
+            "message": "行情刷新超时，IOC订单未提交",
+        }
+    bounded_ms = max(1, min(requested_ms, remaining_ms)) if deadline_ms else requested_ms
+    try:
+        quote = await asyncio.wait_for(
+            refresh_fn(valid_symbols[0], source, bounded_ms / 1000),
+            timeout=bounded_ms / 1000,
+        )
+    except asyncio.TimeoutError:
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_TIMEOUT",
+            "quote_confirmed": False,
+            "message": "行情刷新超时，IOC订单未提交",
+        }
+    except Exception as exc:
+        log.warning("[%s] QUOTE_REFRESH error: %s", session_id, exc)
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_FAILED",
+            "quote_confirmed": False,
+            "message": "行情刷新失败，IOC订单未提交",
+        }
+    if not isinstance(quote, dict) or float(quote.get(source, 0) or 0) <= 0:
+        return {
+            **response,
+            "success": False,
+            "code": "QUOTE_REFRESH_EMPTY",
+            "quote_confirmed": False,
+            "message": "未获取到有效行情，IOC订单未提交",
+        }
     return {
+        **response,
         "success": True,
-        "subscribed": new_syms,
-        "total_subscribed": len(existing),
-        "message": f"Subscribed {len(new_syms)} symbols",
-        "symbol_order_options": await _collect_symbol_order_options(broker, valid_symbols),
+        "quote_confirmed": True,
+        "quote": dict(quote),
+        "refresh_source": source,
+        "message": "行情刷新成功",
     }
 
 

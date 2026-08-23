@@ -219,6 +219,7 @@ if _IB_AVAILABLE:
             self._submit_waiters: dict[int, asyncio.Future] = {}
             self._cancel_waiters: dict[int, asyncio.Future] = {}
             self._quote_waiters: dict[int, asyncio.Future] = {}
+            self._quote_snapshot_waiters: dict[int, tuple[dict, str, asyncio.Future]] = {}
             self._symbol_req_id: dict[str, int] = {}
             self._req_id_symbol: dict[int, str] = {}
             self._quotes: dict[str, dict] = {}
@@ -454,6 +455,7 @@ if _IB_AVAILABLE:
             for future in self._quote_waiters.values():
                 self._resolve(future, error=error)
             self._quote_waiters.clear()
+            self._quote_snapshot_waiters.clear()
             self._symbol_req_id.clear()
             self._req_id_symbol.clear()
             self._quotes.clear()
@@ -691,6 +693,20 @@ if _IB_AVAILABLE:
             symbol = self._req_id_symbol.get(req_id)
             if not symbol or price <= 0:
                 return
+            snapshot_waiter = self._quote_snapshot_waiters.get(req_id)
+            if snapshot_waiter:
+                snapshot, required_source, future = snapshot_waiter
+                if tick_type == 1:
+                    snapshot["bid"] = price
+                elif tick_type == 2:
+                    snapshot["ask"] = price
+                elif tick_type in {4, 9}:
+                    snapshot["last"] = price
+                else:
+                    return
+                if float(snapshot.get(required_source, 0) or 0) > 0:
+                    self._resolve(future, {"symbol": symbol, **snapshot, "ts": _iso_now()})
+                return
             quote = self._quotes.setdefault(symbol, {"bid": 0.0, "ask": 0.0, "last": 0.0, "volume": 0})
             if tick_type == 1:
                 quote["bid"] = price
@@ -734,6 +750,37 @@ if _IB_AVAILABLE:
                 raise
             finally:
                 self._quote_waiters.pop(req_id, None)
+
+        async def request_quote_snapshot(
+            self,
+            symbol: str,
+            contract: Any,
+            price_source: str,
+            timeout: float = 5.0,
+        ) -> dict:
+            source = str(price_source or "").strip().lower()
+            if source not in {"bid", "ask"}:
+                raise ValueError("Invalid quote source")
+            req_id = self.next_request_id()
+            future = self._loop.create_future()
+            self._quote_waiters[req_id] = future
+            self._quote_snapshot_waiters[req_id] = (
+                {"bid": 0.0, "ask": 0.0, "last": 0.0, "volume": 0},
+                source,
+                future,
+            )
+            self._req_id_symbol[req_id] = symbol
+            self.reqMktData(req_id, contract, "", True, False, [])
+            try:
+                return dict(await asyncio.wait_for(asyncio.shield(future), timeout=max(0.1, float(timeout))))
+            finally:
+                self._quote_waiters.pop(req_id, None)
+                self._quote_snapshot_waiters.pop(req_id, None)
+                self._req_id_symbol.pop(req_id, None)
+                try:
+                    self.cancelMktData(req_id)
+                except Exception:
+                    pass
 
         def unsubscribe_market_data(self, symbol: str) -> None:
             req_id = self._symbol_req_id.pop(symbol, None)
@@ -1530,6 +1577,22 @@ class IBBroker(BaseBrokerAPI):
                 continue
             contract = await self._resolve_stock_contract(normalized)
             await app.subscribe_market_data(normalized, contract)
+
+    async def refresh_quote(
+        self,
+        symbol: str,
+        price_source: str,
+        timeout: float = 5.0,
+    ) -> dict:
+        app = self._require_app(require_account=False)
+        normalized = str(symbol or "").strip().upper()
+        contract = await self._resolve_stock_contract(normalized)
+        return await app.request_quote_snapshot(
+            normalized,
+            contract,
+            price_source,
+            timeout=timeout,
+        )
 
     async def restore_quote_subscriptions(self, symbols: list[str]) -> None:
         app = self._require_app(require_account=False, allow_recovering=True)

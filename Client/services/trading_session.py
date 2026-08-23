@@ -290,6 +290,37 @@ class TradingSession:
             return True, sanitize(payload.get("message", "行情订阅成功"))
         return False, sanitize(payload.get("message", "行情订阅失败"))
 
+    def refresh_quote(
+        self,
+        symbol: str,
+        price_source: str,
+        timeout: float = 5.0,
+    ) -> tuple[bool, dict, str]:
+        """Request a broker-confirmed quote for one immediate order."""
+        if not self._can_use_se():
+            return False, {}, "交易服务未连接"
+        normalized_symbol = str(symbol or "").strip().upper()
+        source = str(price_source or "").strip().lower()
+        if not normalized_symbol or source not in {"bid", "ask"}:
+            return False, {}, "行情刷新参数无效"
+        bounded_timeout = max(0.1, float(timeout or 0.0))
+        timeout_ms = max(100, int(bounded_timeout * 1000))
+        payload = {
+            "action": "subscribe",
+            "symbols": [normalized_symbol],
+            "force_refresh": True,
+            "price_source": source,
+            "timeout_ms": timeout_ms,
+            "deadline_ms": int(time.time() * 1000) + timeout_ms,
+        }
+        resp = self._request_se("QUOTE_SUBSCRIBE", payload, timeout=bounded_timeout)
+        response_payload = (resp or {}).get("payload", {}) if isinstance(resp, dict) else {}
+        quote = response_payload.get("quote")
+        if response_payload.get("success") and response_payload.get("quote_confirmed") and isinstance(quote, dict):
+            self._store_symbol_order_options(response_payload)
+            return True, dict(quote), sanitize(response_payload.get("message", "行情刷新成功"))
+        return False, {}, sanitize(response_payload.get("message", "行情刷新失败"))
+
     def unsubscribe_quotes(self, symbols: list[str], timeout: float = 6.0) -> tuple[bool, str]:
         """通过 SE 取消行情订阅"""
         if not self._can_use_se():

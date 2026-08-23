@@ -1791,6 +1791,110 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             ts_quote_provider.ensure_broker_connected = original_connected
             ts_quote_provider.get_current_broker = original_current
 
+    async def test_force_quote_refresh_returns_confirmed_quote_for_existing_subscription(self):
+        original_connected = ts_quote_provider.ensure_broker_connected
+        original_current = ts_quote_provider.get_current_broker
+
+        class FakeBroker:
+            @staticmethod
+            def capabilities():
+                return {"quotes": True}
+
+            @staticmethod
+            async def is_connected():
+                return True
+
+            @staticmethod
+            async def subscribe_quotes(_symbols):
+                raise AssertionError("existing subscription must not be recreated")
+
+            @staticmethod
+            async def refresh_quote(symbol, price_source, timeout=5.0):
+                return {
+                    "symbol": symbol,
+                    "bid": 99.90,
+                    "ask": 100.00,
+                    "last": 99.95,
+                    "confirmed_source": price_source,
+                }
+
+        broker = FakeBroker()
+        ts_quote_provider._session_subscriptions["session-refresh"].add("AAPL")
+        ts_quote_provider._aggregated_symbols.add("AAPL")
+        try:
+            async def fake_connected():
+                return True
+
+            ts_quote_provider.ensure_broker_connected = fake_connected
+            ts_quote_provider.get_current_broker = lambda: broker
+            response = await ts_ws_server._handle_quote_subscribe(
+                {
+                    "id": "q-refresh",
+                    "payload": {
+                        "action": "subscribe",
+                        "symbols": ["AAPL"],
+                        "force_refresh": True,
+                        "price_source": "ask",
+                        "timeout_ms": 5000,
+                    },
+                },
+                "session-refresh",
+            )
+        finally:
+            ts_quote_provider.ensure_broker_connected = original_connected
+            ts_quote_provider.get_current_broker = original_current
+
+        self.assertTrue(response["payload"]["success"])
+        self.assertTrue(response["payload"]["quote_confirmed"])
+        self.assertEqual(response["payload"]["quote"]["ask"], 100.00)
+
+    async def test_force_quote_refresh_timeout_does_not_report_quote_confirmed(self):
+        original_connected = ts_quote_provider.ensure_broker_connected
+        original_current = ts_quote_provider.get_current_broker
+
+        class FakeBroker:
+            @staticmethod
+            def capabilities():
+                return {"quotes": True}
+
+            @staticmethod
+            async def is_connected():
+                return True
+
+            @staticmethod
+            async def refresh_quote(_symbol, _price_source, timeout=5.0):
+                await asyncio.sleep(timeout + 0.05)
+
+        broker = FakeBroker()
+        ts_quote_provider._session_subscriptions["session-timeout"].add("AAPL")
+        ts_quote_provider._aggregated_symbols.add("AAPL")
+        try:
+            async def fake_connected():
+                return True
+
+            ts_quote_provider.ensure_broker_connected = fake_connected
+            ts_quote_provider.get_current_broker = lambda: broker
+            response = await ts_ws_server._handle_quote_subscribe(
+                {
+                    "id": "q-timeout",
+                    "payload": {
+                        "action": "subscribe",
+                        "symbols": ["AAPL"],
+                        "force_refresh": True,
+                        "price_source": "bid",
+                        "timeout_ms": 100,
+                    },
+                },
+                "session-timeout",
+            )
+        finally:
+            ts_quote_provider.ensure_broker_connected = original_connected
+            ts_quote_provider.get_current_broker = original_current
+
+        self.assertFalse(response["payload"]["success"])
+        self.assertFalse(response["payload"]["quote_confirmed"])
+        self.assertEqual(response["payload"]["code"], "QUOTE_REFRESH_TIMEOUT")
+
     async def test_quote_ack_includes_symbol_specific_order_options(self):
         original_connected = ts_quote_provider.ensure_broker_connected
         original_current = ts_quote_provider.get_current_broker

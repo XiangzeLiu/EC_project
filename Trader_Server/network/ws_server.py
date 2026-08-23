@@ -690,7 +690,14 @@ async def _handle_quote_subscribe(msg: dict[str, Any], sid: str, trace_id: str =
     payload = msg.get('payload', {})
     action = payload.get('action', 'subscribe')
     symbols = payload.get('symbols', [])
-    result = await handle_unsubscribe(symbols=symbols, session_id=sid) if action == 'unsubscribe' else await handle_subscribe(symbols=symbols, session_id=sid)
+    result = await handle_unsubscribe(symbols=symbols, session_id=sid) if action == 'unsubscribe' else await handle_subscribe(
+        symbols=symbols,
+        session_id=sid,
+        force_refresh=bool(payload.get('force_refresh', False)),
+        price_source=str(payload.get('price_source') or ''),
+        timeout_ms=int(payload.get('timeout_ms') or 5000),
+        deadline_ms=int(payload.get('deadline_ms') or 0),
+    )
     if isinstance(result, dict) and 'trace_id' not in result:
         result['trace_id'] = trace_id
     return {
