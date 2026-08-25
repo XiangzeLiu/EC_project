@@ -120,6 +120,25 @@ SM_COOKIE_SAMESITE = os.environ.get("SM_COOKIE_SAMESITE", "lax").strip().lower()
 # Production client authentication lifetime. Keep overridable for controlled tests.
 CLIENT_TOKEN_TTL_SECONDS = max(60, int(os.environ.get("CLIENT_TOKEN_TTL_SECONDS", "86400")))
 
+# Software center artifacts are stored outside the packaged application when
+# configured for production. The data-directory fallback is kept for local use.
+SM_SOFTWARE_STORAGE_DIR = Path(
+    os.environ.get("SM_SOFTWARE_STORAGE_DIR", str(DATA_DIR / "software"))
+).expanduser()
+SM_SOFTWARE_MAX_UPLOAD_BYTES = max(
+    1 * 1024 * 1024,
+    int(os.environ.get("SM_SOFTWARE_MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024))),
+)
+SM_SOFTWARE_RETENTION_COUNT = max(
+    1,
+    int(os.environ.get("SM_SOFTWARE_RETENTION_COUNT", "3")),
+)
+SM_SOFTWARE_SESSION_MAX_AGE = max(
+    300,
+    int(os.environ.get("SM_SOFTWARE_SESSION_MAX_AGE", "7200")),
+)
+SM_SOFTWARE_ALLOWED_EXTENSIONS = frozenset({".exe", ".zip", ".msi"})
+
 # Used only when a fresh database has no super administrator. Existing accounts
 # are never reset from these values during startup.
 SM_BOOTSTRAP_ADMIN_USERNAME = (

@@ -421,6 +421,7 @@ class TradingSlot:
         self.buy: QPushButton | None = None
         self.sell: QPushButton | None = None
         self.pending_action = ""
+        self.enter_target = "NONE"
         self.pending_symbol = ""
         self.pending_order_type = ""
         self.pending_route = ""
@@ -572,6 +573,7 @@ class TradingTerminalQt(QMainWindow):
         self._reconnect_failed = False
         self._auth_warning_shown = False
         self._auth_exit_started = False
+        self._logout_in_progress = False
         self._connection_status_label = "OFFLINE"
         self._orders_raw: list[dict] = []
         self._positions_raw: list[dict] = []
@@ -962,16 +964,25 @@ class TradingTerminalQt(QMainWindow):
         for pid, slot in self.slots.items():
             if self._widget_is_within(current, slot.container):
                 self._activate_panel(pid)
+                if slot.symbol and (current is slot.symbol or current is slot.symbol.lineEdit()):
+                    self._set_enter_target(pid, "SYMBOL")
                 return
 
     def _setup_shortcuts(self) -> None:
         self._teardown_shortcuts()
-        load_result = load_hotkey_config(HOTKEY_BINDINGS)
-        self._hotkey_config_result = load_result
-        self._hotkey_config = load_result.config
-        self._hotkey_bindings = load_result.bindings
-        if load_result.errors:
-            self._append_log("快捷键配置无效，已恢复默认配置", "warn", dedupe=True)
+        scope_id = self._active_config_scope()
+        if scope_id:
+            load_result = load_hotkey_config(HOTKEY_BINDINGS, scope_id=scope_id)
+            self._hotkey_config_result = load_result
+            self._hotkey_config = load_result.config
+            self._hotkey_bindings = load_result.bindings
+            if load_result.errors:
+                self._append_log("快捷键配置无效，已恢复默认配置", "warn", dedupe=True)
+        else:
+            # This is only reachable in tests or before a completed SM login.
+            self._hotkey_config_result = None
+            self._hotkey_config = DEFAULT_HOTKEY_CONFIG
+            self._hotkey_bindings = HOTKEY_BINDINGS
         controller = ShortcutController(
             self,
             self._hotkey_bindings,
@@ -1036,8 +1047,15 @@ class TradingTerminalQt(QMainWindow):
                 self._settings_overlay.set_error(message)
             self._show_weak_tip(f"快捷键配置未保存：{message}", "warn")
             return
+        scope_id = self._active_config_scope()
+        if not scope_id:
+            message = "当前登录信息未准备完成，快捷键配置未保存"
+            if self._settings_overlay:
+                self._settings_overlay.set_error(message)
+            self._show_weak_tip(message, "warn")
+            return
         try:
-            save_hotkey_config(config)
+            save_hotkey_config(config, scope_id=scope_id)
         except Exception as exc:
             message = "快捷键配置保存失败，请检查文件权限或稍后重试"
             if self._settings_overlay:
@@ -1049,6 +1067,11 @@ class TradingTerminalQt(QMainWindow):
         self._append_log("快捷键配置已保存", "ok")
         self._show_weak_tip("快捷键配置已保存", "ok")
         self._close_settings_overlay()
+
+    def _active_config_scope(self) -> str:
+        session = self.session
+        scope_id = str(getattr(session, "config_scope", "") or "").strip().lower()
+        return scope_id if re.fullmatch(r"[a-f0-9]{64}", scope_id) else ""
 
     def _sync_settings_overlay_geometry(self) -> None:
         if self._settings_overlay is None:
@@ -1107,7 +1130,9 @@ class TradingTerminalQt(QMainWindow):
         elif action == HotkeyAction.ORDER_CONFIRM_PENDING:
             self._confirm_pending_order(panel_id)
         elif action == HotkeyAction.ORDER_CANCEL_PENDING:
-            self._cancel_pending_order(panel_id, log=True)
+            self._cancel_pending_order(panel_id, log=True, clear_enter_target=True)
+        elif action == HotkeyAction.ENTER_TARGET:
+            self._handle_enter_target(panel_id)
         elif action == HotkeyAction.ORDER_CANCEL_SELECTED:
             self._cancel_selected_order()
         elif action == HotkeyAction.ORDER_CANCEL_SYMBOL_LIVE:
@@ -1161,12 +1186,22 @@ class TradingTerminalQt(QMainWindow):
         status_layout.addWidget(self.read_only_label)
         layout.addWidget(status)
 
+        self.latency_label = make_label("--ms", color=theme.TEXT_LOW, font=theme.mono_font(9))
+        layout.addWidget(self.latency_label)
+
         layout.addStretch(1)
         self.settings_btn = SettingsGearButton()
         self.settings_btn.clicked.connect(self._open_settings_overlay)
         layout.addWidget(self.settings_btn)
-        self.latency_label = make_label("--ms", color=theme.TEXT_LOW, font=theme.mono_font(9))
-        layout.addWidget(self.latency_label)
+        self.logout_btn = make_button("退出登录", min_width=80)
+        self.logout_btn.setMinimumHeight(28)
+        self.logout_btn.setMaximumHeight(28)
+        self.logout_btn.setStyleSheet(
+            f"background: {theme.PANEL_ALT_BG}; color: {theme.TEXT_DIM}; border: 1px solid {theme.BORDER}; "
+            "border-radius: 7px; padding: 3px 10px; font-size: 11px; font-weight: 700;"
+        )
+        self.logout_btn.clicked.connect(self._confirm_logout)
+        layout.addWidget(self.logout_btn)
 
         clock = QWidget()
         clock_layout = QHBoxLayout(clock)
@@ -1283,7 +1318,7 @@ class TradingTerminalQt(QMainWindow):
         slot_grid.addWidget(right_config, 1, 1)
 
         slot.price = make_input(price, field_type=TradePriceInput)
-        slot.price.returnPressed.connect(lambda pid=idx: self._on_price_enter(pid))
+        slot.price.returnPressed.connect(lambda pid=idx: self._handle_enter_target(pid))
         slot_grid.addWidget(self._control_block("PRICE", slot.price), 2, 0)
 
         buttons = QWidget()
@@ -1297,6 +1332,8 @@ class TradingTerminalQt(QMainWindow):
         button_row_layout.setSpacing(14)
         slot.buy = make_button("BUY", object_name="buyButton")
         slot.sell = make_button("SELL", object_name="sellButton")
+        slot.buy.setFocusPolicy(Qt.NoFocus)
+        slot.sell.setFocusPolicy(Qt.NoFocus)
         slot.buy.setMinimumHeight(44)
         slot.sell.setMinimumHeight(44)
         slot.buy.clicked.connect(lambda _checked=False, pid=idx: self._place_order_from_panel("Buy to Open", pid))
@@ -1672,6 +1709,61 @@ class TradingTerminalQt(QMainWindow):
         self._append_log("交易服务器重连失败，正在释放占用并返回登录界面", "err", dedupe=True)
         self._run_bg(self._recover_to_login_after_reconnect_failure_bg)
 
+    def _confirm_logout(self) -> None:
+        if not self._main_ui_built or self._logout_in_progress:
+            return
+        dialog = SessionActionDialog(
+            self,
+            title="退出登录",
+            message="退出后将断开当前交易服务连接，并返回登录界面。",
+            confirm_text="确认退出",
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        self._logout_in_progress = True
+        self._teardown_shortcuts()
+        self._reset_runtime_action_state()
+        if self._settings_overlay is not None:
+            self._close_settings_overlay()
+        if hasattr(self, "logout_btn"):
+            self.logout_btn.setEnabled(False)
+        if hasattr(self, "settings_btn"):
+            self.settings_btn.setEnabled(False)
+        self._run_bg(self._logout_to_login_bg)
+
+    def _logout_to_login_bg(self) -> None:
+        session = self.session
+        try:
+            if session:
+                session.bind_se_client(None)
+            # The SM release call must run while the Client token is still valid.
+            self._ts_connection.shutdown(release=True, wait=True)
+            if session:
+                session.logout()
+        finally:
+            self._ui(self._finish_logout_to_login)
+
+    def _finish_logout_to_login(self) -> None:
+        if not self._logout_in_progress:
+            return
+        self._reset_to_login_page("已退出登录。")
+
+    def _return_to_login_after_force_disconnect(self) -> None:
+        if self._logout_in_progress or self.session is None:
+            return
+        self._auth_exit_started = True
+        self._teardown_shortcuts()
+        self._reset_runtime_action_state()
+        if self._settings_overlay is not None:
+            self._close_settings_overlay()
+        if self.session:
+            self.session.bind_se_client(None)
+            self.session.clear_local_auth()
+        # A forced disconnect can belong to a replacement session. Do not send a
+        # release request here because it could clear that replacement's lease.
+        self._ts_connection.abort(release=False, wait=False)
+        self._reset_to_login_page("当前会话已失效，请重新登录。")
+
     def _recover_to_login_after_reconnect_failure_bg(self) -> None:
         try:
             if self.session:
@@ -1691,6 +1783,11 @@ class TradingTerminalQt(QMainWindow):
     def _reset_to_login_page(self, hint: str = "", auth_notice: str = "") -> None:
         self._teardown_shortcuts()
         self._reset_runtime_action_state()
+        overlay = self._settings_overlay
+        self._settings_overlay = None
+        if overlay is not None:
+            overlay.hide()
+            overlay.deleteLater()
         self.session = None
         self._main_ui_built = False
         self._init_ready = False
@@ -1705,11 +1802,13 @@ class TradingTerminalQt(QMainWindow):
         self._reconnect_failed = False
         self._auth_warning_shown = False
         self._auth_exit_started = False
+        self._logout_in_progress = False
         self._order_refresh.set_order_mode("live", refresh=False)
         self._orders_raw = []
         self._positions_raw = []
         self.current_quote = {}
         self.slots = {}
+        self._clock = None
         self._ts_connection.reset()
         self._quote_subscriptions.reset(clear_desired=True)
         self._log_rows = []
@@ -2348,7 +2447,7 @@ class TradingTerminalQt(QMainWindow):
             return
 
         if state == "force_disconnected":
-            self._set_ts_connection_state("offline")
+            self._return_to_login_after_force_disconnect()
 
     def _on_ts_validation_started(self, generation: int) -> None:
         if generation == self._se_generation:
@@ -2455,8 +2554,7 @@ class TradingTerminalQt(QMainWindow):
         elif msg_type == "POSITION_INVALIDATED":
             self._order_refresh.handle_position_event(payload)
         elif msg_type == "FORCE_DISCONNECT":
-            self._log_user_error_once("交易服务连接已被管理员断开", "warn")
-            self._se_disconnect()
+            self._return_to_login_after_force_disconnect()
         elif msg_type == "ERROR":
             message = localize_user_message(payload.get("message", ""))
             self._log_user_error_once(f"交易服务错误：{message or '操作失败，请稍后重试'}")
@@ -2515,6 +2613,7 @@ class TradingTerminalQt(QMainWindow):
         if self._init_ready:
             return
         self._init_ready = True
+        self._logout_in_progress = False
         if self._se_client:
             if self.session:
                 self.session.bind_se_client(self._se_client)
@@ -2616,6 +2715,7 @@ class TradingTerminalQt(QMainWindow):
         slot = self.slots.get(pid)
         if not slot:
             return
+        self._set_enter_target(pid, "SYMBOL")
         if slot.symbol_pending:
             return
         self._activate_panel(pid)
@@ -2633,6 +2733,7 @@ class TradingTerminalQt(QMainWindow):
         self._quote_subscriptions.request_symbol(pid, sym)
 
     def _on_symbol_query_requested(self, pid: int) -> None:
+        self._set_enter_target(pid, "SYMBOL")
         self._on_symbol_enter(pid)
 
     def _on_symbol_text_changed(self, pid: int) -> None:
@@ -2643,6 +2744,7 @@ class TradingTerminalQt(QMainWindow):
         if symbol == slot.current_symbol and not slot.symbol_pending:
             return
         self._cancel_pending_order(pid)
+        self._set_enter_target(pid, "NONE")
         if symbol != slot.current_symbol:
             slot.current_symbol = ""
             slot.clear_quote()
@@ -2720,6 +2822,7 @@ class TradingTerminalQt(QMainWindow):
         is_market = slot.order_type.currentText() == "Market" if slot.order_type else False
         if is_market:
             self._cancel_pending_order(pid)
+            self._set_enter_target(pid, "NONE")
         if slot.price:
             slot.price.setEnabled(not is_market)
             if is_market:
@@ -2756,22 +2859,49 @@ class TradingTerminalQt(QMainWindow):
 
     def _place_order_from_panel(self, action: str, pid: int) -> None:
         self._activate_panel(pid)
+        self._set_enter_target(pid, "BUY" if action.startswith("Buy") else "SELL")
         self._cancel_pending_order(pid)
         self._place_order(action, pid)
 
     def _on_price_enter(self, pid: int) -> None:
+        self._handle_enter_target(pid)
+
+    def _set_enter_target(self, pid: int, target: str) -> None:
+        slot = self.slots.get(pid)
+        if not slot:
+            return
+        normalized = str(target or "NONE").upper()
+        if normalized not in {"NONE", "SYMBOL", "BUY", "SELL"}:
+            normalized = "NONE"
+        slot.enter_target = normalized
+        if slot.buy:
+            slot.buy.setProperty("enterSelected", normalized == "BUY")
+            self._repolish(slot.buy)
+        if slot.sell:
+            slot.sell.setProperty("enterSelected", normalized == "SELL")
+            self._repolish(slot.sell)
+
+    def _handle_enter_target(self, pid: int) -> None:
         if pid not in self.slots:
             return
         self._activate_panel(pid)
         slot = self.slots[pid]
+        focus = QApplication.focusWidget()
+        if slot.symbol and (focus is slot.symbol or focus is slot.symbol.lineEdit()):
+            self._set_enter_target(pid, "SYMBOL")
         now = time.monotonic()
         if now < slot.confirm_guard_until:
             return
         slot.confirm_guard_until = now + ENTER_INPUT_GUARD_MS / 1000
-        if slot.pending_action:
+        target = slot.enter_target
+        if target == "SYMBOL":
+            self._on_symbol_enter(pid)
+        elif target in {"BUY", "SELL"} and slot.pending_action:
             self._confirm_pending_order(pid)
-            return
-        self._place_order("Buy to Open", pid)
+        elif target == "BUY":
+            self._place_order("Buy to Open", pid)
+        elif target == "SELL":
+            self._place_order("Sell to Close", pid)
 
     def _shortcut_symbol(self, pid: int) -> str:
         slot = self.slots.get(pid)
@@ -2790,6 +2920,7 @@ class TradingTerminalQt(QMainWindow):
         if side not in {"buy", "sell"} or not self._shortcut_symbol(pid):
             return
         self._cancel_pending_order(pid)
+        self._set_enter_target(pid, "NONE")
         action = "Buy to Open" if side == "buy" else "Sell to Close"
         self._place_order(action, pid, order_type_override="market", price_override=0.0, source="hotkey")
 
@@ -2964,7 +3095,9 @@ class TradingTerminalQt(QMainWindow):
 
         self._activate_panel(pid)
         slot = self.slots[pid]
-        self._cancel_pending_order(pid)
+        self._cancel_pending_order(pid, clear_enter_target=True)
+        if submit_immediately:
+            self._set_enter_target(pid, "NONE")
         normalized_type = "market" if str(order_type).lower() == "market" else "limit"
         if slot.order_type:
             slot.order_type.setCurrentText("Market" if normalized_type == "market" else "Limit")
@@ -3020,7 +3153,7 @@ class TradingTerminalQt(QMainWindow):
                 )
                 return
             if normalized_type == "limit" and quote_price <= 0:
-                self._log_user_error_once("IOC 订单未提交：行情不可用或已过期", "warn")
+                self._log_user_error_once("行情不可用，IOC订单未提交", "warn")
                 return
             action = "Buy to Open" if side == "buy" else "Sell to Close"
             self._place_order(
@@ -3035,6 +3168,7 @@ class TradingTerminalQt(QMainWindow):
             )
             return
         slot.pending_action = "Buy to Open" if side == "buy" else "Sell to Close"
+        self._set_enter_target(pid, "BUY" if side == "buy" else "SELL")
         slot.pending_symbol = symbol
         slot.pending_order_type = normalized_type
         slot.pending_route = resolved_route
@@ -3075,7 +3209,7 @@ class TradingTerminalQt(QMainWindow):
             source="hotkey",
         )
 
-    def _cancel_pending_order(self, pid: int, log: bool = False) -> None:
+    def _cancel_pending_order(self, pid: int, log: bool = False, clear_enter_target: bool = False) -> None:
         slot = self.slots.get(pid)
         if not slot or not slot.pending_action:
             return
@@ -3085,6 +3219,8 @@ class TradingTerminalQt(QMainWindow):
         slot.pending_route = ""
         slot.pending_hidden = False
         slot.pending_created_at = 0.0
+        if clear_enter_target:
+            self._set_enter_target(pid, "NONE")
         if slot.price:
             is_market = bool(slot.order_type and slot.order_type.currentText() == "Market")
             slot.price.setEnabled(not is_market)
@@ -3099,6 +3235,8 @@ class TradingTerminalQt(QMainWindow):
 
     def _reset_runtime_action_state(self) -> None:
         self._cancel_all_pending_orders()
+        for pid in self.slots:
+            self._set_enter_target(pid, "NONE")
         self._ioc_refresh_requests.clear()
         self._action_limiter.reset()
         self._order_refresh.reset()
@@ -3644,29 +3782,69 @@ class TradingTerminalQt(QMainWindow):
         self.update()
 
 
-class DuplicateLoginDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None):
+class SessionActionDialog(QDialog):
+    """Small confirmation dialog aligned with the Client's main window controls."""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        title: str,
+        message: str,
+        confirm_text: str,
+    ):
         super().__init__(parent)
-        self.setWindowTitle("登录接管")
+        self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(420)
+        self.setMaximumWidth(460)
         self.setStyleSheet(theme.APP_QSS)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(18)
-        title = make_label("账号已在其他位置登录", color=theme.TEXT_PRIMARY, font=theme.ui_font(15, bold=True))
-        message = make_label("是否使旧登录失效，并在当前 Client 继续登录？", color=theme.TEXT_DIM, font=theme.ui_font(11))
-        message.setWordWrap(True)
-        layout.addWidget(title)
-        layout.addWidget(message)
+        layout.setContentsMargins(26, 24, 26, 22)
+        layout.setSpacing(14)
+        heading = make_label(title, color=theme.TEXT_PRIMARY, font=theme.ui_font(16, bold=True))
+        heading.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        body = make_label(message, color=theme.TEXT_DIM, font=theme.ui_font(11))
+        body.setWordWrap(True)
+        body.setMinimumHeight(42)
+        layout.addWidget(heading)
+        layout.addWidget(body)
+        layout.addSpacing(4)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
-        buttons.button(QDialogButtonBox.Ok).setText("确认接管")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(10)
+        actions.addStretch(1)
+        cancel = make_button("取消", min_width=92)
+        cancel.setMinimumHeight(32)
+        cancel.setMaximumHeight(32)
+        cancel.setStyleSheet(
+            f"background: {theme.PANEL_ALT_BG}; color: {theme.TEXT_DIM}; border: 1px solid {theme.BORDER}; "
+            "border-radius: 7px; padding: 5px 14px; font-size: 12px; font-weight: 700;"
+        )
+        confirm = make_button(confirm_text, min_width=96)
+        confirm.setMinimumHeight(32)
+        confirm.setMaximumHeight(32)
+        confirm.setStyleSheet(
+            f"background: {theme.ACCENT_BLUE}; color: #07121B; border: 1px solid {theme.ACCENT_BLUE}; "
+            "border-radius: 7px; padding: 5px 14px; font-size: 12px; font-weight: 700;"
+        )
+        cancel.clicked.connect(self.reject)
+        confirm.clicked.connect(self.accept)
+        actions.addWidget(cancel)
+        actions.addWidget(confirm)
+        layout.addLayout(actions)
+
+
+class DuplicateLoginDialog(SessionActionDialog):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(
+            parent,
+            title="账号已在其他位置登录",
+            message="确认后，旧会话将失效，并在当前 Client 继续登录。",
+            confirm_text="确认接管",
+        )
 
 
 class ManagerLoginDialog(QDialog):

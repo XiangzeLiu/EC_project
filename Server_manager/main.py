@@ -31,6 +31,7 @@ if _SCRIPT_DIR not in sys.path:
 import asyncio
 import logging
 import re
+import secrets
 import uuid
 
 
@@ -42,7 +43,7 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -63,7 +64,8 @@ from address_utils import address_candidates, endpoint_matches_node, ts_api_url
 from database import init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
-from services import dns_config_service, tastytrade_validation
+from routers.software_router import router as software_router
+from services import dns_config_service, software_release_service, tastytrade_validation
 
 
 
@@ -106,6 +108,7 @@ app.add_middleware(
 # 注册 API 路由
 app.include_router(auth_router)
 app.include_router(position_router)
+app.include_router(software_router)
 
 
 # ── Web 管理后台（Jinja2 模板）───────────────────────────────────────
@@ -255,6 +258,7 @@ async def admin_login_submit(request: Request):
             "username": admin.get("username"),
             "role": admin.get("role"),
             "created_at": __import__("time").time(),
+            "csrf_token": secrets.token_urlsafe(24),
         }
         log.info(f"Admin logged in: {username} role={admin.get('role')}")
         resp = RedirectResponse(url="/admin/dashboard", status_code=302)
@@ -300,6 +304,7 @@ async def admin_dashboard(request: Request):
         "admin_username": admin_username,
         "admin_role": admin_role,
         "is_super_admin": admin_role == "super_admin",
+        "admin_csrf_token": sess.get("csrf_token", ""),
         "server_mode": server_mode,
         "sdk_status": sdk_status,
         "public_base_url": SM_PUBLIC_BASE_URL,
@@ -327,6 +332,157 @@ async def admin_product_docs_content(request: Request):
             },
         )
     return templates.TemplateResponse(request, "product_docs_fragment.html", {})
+
+
+def _software_admin_session(request: Request, require_csrf: bool = False) -> dict | None:
+    session = _get_admin_session(request)
+    if not session:
+        return None
+    if require_csrf and request.headers.get("X-SM-CSRF") != session.get("csrf_token"):
+        return None
+    return session
+
+
+def _software_release_for_api(release: dict) -> dict:
+    result = {key: value for key, value in release.items() if key != "artifacts"}
+    result["artifacts"] = [
+        {key: value for key, value in artifact.items() if key != "storage_key"}
+        for artifact in release.get("artifacts") or []
+    ]
+    return result
+
+
+@app.get("/admin/software")
+async def admin_software_page(request: Request):
+    if not _software_admin_session(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return RedirectResponse(url="/admin/dashboard#software", status_code=302)
+
+
+@app.get("/admin/software/content")
+async def admin_software_content(request: Request):
+    if not _software_admin_session(request):
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "code": "ADMIN_AUTH_REQUIRED", "redirect": "/admin/login"},
+        )
+    return templates.TemplateResponse(request, "software_center_fragment.html", {})
+
+
+@app.get("/api/admin/software/releases")
+async def admin_software_releases(request: Request):
+    if not _software_admin_session(request):
+        return JSONResponse(status_code=401, content={"ok": False, "code": "ADMIN_AUTH_REQUIRED"})
+    product_type = str(request.query_params.get("product") or "").strip().lower()
+    if product_type not in {"", "client", "ts"}:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "软件类型不正确"})
+    releases = database.list_software_releases(product_type, include_deleted=False)
+    return {"ok": True, "data": [_software_release_for_api(item) for item in releases]}
+
+
+@app.post("/api/admin/software/upload")
+async def admin_software_upload(
+    request: Request,
+    product_type: str = Form("client"),
+    version: str = Form(""),
+    artifact_type: str = Form("installer"),
+    platform: str = Form("windows-x64"),
+    file: UploadFile = File(...),
+):
+    session = _software_admin_session(request, require_csrf=True)
+    if not session:
+        return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
+    try:
+        release = await software_release_service.save_uploaded_file(
+            file,
+            product_type=product_type,
+            version=version,
+            artifact_type=artifact_type,
+            platform=platform,
+            created_by=str(session.get("username") or "admin"),
+        )
+    except software_release_service.SoftwareReleaseError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except Exception as exc:
+        log.warning(f"software upload failed: {exc}")
+        return JSONResponse(status_code=500, content={"ok": False, "error": "软件上传失败"})
+    _record_admin_event(request, "SOFTWARE_UPLOAD", "software_release", f"Uploaded {release['release_id']}")
+    return {"ok": True, "data": _software_release_for_api(release)}
+
+
+@app.post("/api/admin/software/{release_id}/status")
+async def admin_software_status(request: Request, release_id: str):
+    session = _software_admin_session(request, require_csrf=True)
+    if not session:
+        return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
+    body = await request.json() if await request.body() else {}
+    status = str(body.get("status") or "").strip().lower()
+    release = database.set_software_release_status(release_id, status)
+    if not release:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "版本状态变更失败"})
+    archived = database.archive_old_client_releases() if status == "published" and release.get("product_type") == "client" else []
+    _record_admin_event(request, "SOFTWARE_STATUS", "software_release", f"{release_id} -> {status}")
+    return {"ok": True, "data": _software_release_for_api(release), "archived": archived}
+
+
+@app.post("/api/admin/software/{release_id}/visibility")
+async def admin_software_visibility(request: Request, release_id: str):
+    session = _software_admin_session(request, require_csrf=True)
+    if not session:
+        return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
+    body = await request.json() if await request.body() else {}
+    release = database.set_software_release_visibility(release_id, bool(body.get("visible")))
+    if not release:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "交易员可见状态变更失败"})
+    _record_admin_event(request, "SOFTWARE_VISIBILITY", "software_release", f"{release_id} visible={bool(body.get('visible'))}")
+    return {"ok": True, "data": _software_release_for_api(release)}
+
+
+@app.post("/api/admin/software/{release_id}/default")
+async def admin_software_default(request: Request, release_id: str):
+    session = _software_admin_session(request, require_csrf=True)
+    if not session:
+        return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
+    release = database.set_default_software_release(release_id)
+    if not release:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "默认版本设置失败"})
+    _record_admin_event(request, "SOFTWARE_DEFAULT", "software_release", f"Default client {release_id}")
+    return {"ok": True, "data": _software_release_for_api(release)}
+
+
+@app.delete("/api/admin/software/{release_id}")
+async def admin_software_delete(request: Request, release_id: str):
+    session = _software_admin_session(request, require_csrf=True)
+    if not session:
+        return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
+    release = database.mark_software_release_deleted(release_id)
+    if not release:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "只能删除已下架且非默认版本"})
+    try:
+        software_release_service.delete_release_files(release)
+    except Exception as exc:
+        log.warning(f"software release file cleanup failed: {release_id}: {exc}")
+    _record_admin_event(request, "SOFTWARE_DELETE", "software_release", f"Deleted {release_id}")
+    return {"ok": True}
+
+
+@app.get("/admin/software/releases/{release_id}/download")
+async def admin_software_download(request: Request, release_id: str):
+    session = _software_admin_session(request)
+    if not session:
+        return RedirectResponse(url="/admin/login", status_code=302)
+    artifact_id = str(request.query_params.get("artifact_id") or "").strip()
+    try:
+        release, artifact, path = software_release_service.resolve_artifact(release_id, artifact_id)
+    except FileNotFoundError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "软件文件不存在"})
+    _record_admin_event(request, "SOFTWARE_DOWNLOAD", "software_release", f"Downloaded {release_id}")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=str(artifact.get("file_name") or "software-package"),
+        headers={"Cache-Control": "private, no-store", "X-SHA256": str(artifact.get("sha256") or "")},
+    )
 
 
 @app.get("/admin/product-docs/download")
@@ -1010,6 +1166,12 @@ async def node_heartbeat(request: Request):
 
     sid = node_info["server_id"]
     ok, msg = node_state.manager.update_heartbeat(sid, current_ip)
+    broker_health = body.get("broker_health")
+    if isinstance(broker_health, dict):
+        broker_health = dict(broker_health)
+        broker_health.setdefault("schema_version", body.get("health_schema_version", 1))
+        if not node_state.manager.update_broker_health(sid, broker_health):
+            log.warning("Heartbeat broker health ignored: invalid payload server_id=%s", sid)
     if not ok:
         log.warning(f"Hebeat from unknown/removed node: {sid}")
 
@@ -1329,6 +1491,7 @@ async def refresh_nodes_status(request: Request):
     offline = sum(1 for n in nodes if n["real_status"] == "offline")
     occupied = sum(1 for n in nodes if n["real_status"] == "occupied")
     suspended = sum(1 for n in nodes if n["real_status"] == "suspended")
+    degraded = sum(1 for n in nodes if n["real_status"] == "degraded")
 
     return {
         "ok": True,
@@ -1337,6 +1500,7 @@ async def refresh_nodes_status(request: Request):
         "offline": offline,
         "occupied": occupied,
         "suspended": suspended,
+        "degraded": degraded,
         "nodes": nodes,
     }
 
@@ -2237,6 +2401,7 @@ async def get_system_health(request: Request):
         "occupied": sum(1 for n in nodes if n.get("real_status") == "occupied"),
         "offline": sum(1 for n in nodes if n.get("real_status") == "offline"),
         "suspended": sum(1 for n in nodes if n.get("real_status") == "suspended"),
+        "degraded": sum(1 for n in nodes if n.get("real_status") == "degraded"),
     }
     accounts = database.get_all_accounts()
     error_lines = read_recent_error_lines(1000)

@@ -59,6 +59,64 @@ def get_current_broker() -> BaseBrokerAPI | None:
     return _current_broker
 
 
+def get_node_broker_health() -> dict[str, object]:
+    """Return a broker-neutral health snapshot for SM node monitoring."""
+    now = int(time.time())
+    broker = _current_broker
+    last_error = dict(_last_connect_error or {})
+    if broker is None:
+        if last_error.get("code"):
+            return {
+                "level": "degraded",
+                "code": str(last_error.get("code") or "BROKER_CONNECT_FAILED").upper()[:80],
+                "message": "券商连接异常",
+                "operational": False,
+                "checked_at": now,
+            }
+        return {
+            "level": "unknown",
+            "code": "BROKER_NOT_INITIALIZED",
+            "message": "券商状态未确认",
+            "operational": False,
+            "checked_at": now,
+        }
+
+    runtime = _runtime_health(broker)
+    runtime_state = str(runtime.get("state") or "").strip().lower()
+    operational = bool(
+        runtime.get("operational")
+        if "operational" in runtime
+        else getattr(broker, "_connected", False)
+    )
+    if operational:
+        return {
+            "level": "healthy",
+            "code": "",
+            "message": "券商功能正常",
+            "operational": True,
+            "checked_at": now,
+        }
+
+    code = str(
+        runtime.get("recovery_code")
+        or last_error.get("code")
+        or "BROKER_RUNTIME_UNAVAILABLE"
+    ).strip().upper()[:80]
+    message = "券商正在恢复" if runtime_state in {
+        "connecting",
+        "degraded_waiting",
+        "restoring",
+        "reconnect_required",
+    } else "券商连接异常"
+    return {
+        "level": "degraded",
+        "code": code,
+        "message": message,
+        "operational": False,
+        "checked_at": now,
+    }
+
+
 def get_broker_status(public: bool = False) -> dict:
     """
     获取当前券商连接状态摘要。能力字段用于上层判断当前券商是否支持行情、下单、撤单、持仓和订单查询。

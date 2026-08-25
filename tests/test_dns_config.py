@@ -110,7 +110,7 @@ class DNSConfigTests(unittest.TestCase):
         self.assertEqual(config.root_domain, "scjrdomain.com")
         conn = database._get_conn()
         try:
-            self.assertEqual(database._get_user_version(conn), 6)
+            self.assertEqual(database._get_user_version(conn), database.DB_SCHEMA_VERSION_V7)
             self.assertEqual(
                 conn.execute(
                     "SELECT COUNT(*) FROM dns_provider_config"
@@ -138,7 +138,7 @@ class DNSConfigTests(unittest.TestCase):
         ))
         conn = database._get_conn()
         try:
-            self.assertEqual(database._get_user_version(conn), 6)
+            self.assertEqual(database._get_user_version(conn), database.DB_SCHEMA_VERSION_V7)
             self.assertTrue(database._table_exists(conn, "dns_provider_config"))
         finally:
             conn.close()

@@ -82,8 +82,13 @@ def _run_package_self_test() -> int:
             raise RuntimeError("missing packaged build metadata")
         if not re.fullmatch(r"v_0_\d{14}", client_version()):
             raise RuntimeError("invalid packaged Client version")
-        config_path = hotkey_config_path()
-        if config_path.name != "hotkey.json" or config_path.parent.name != "SC Client":
+        config_path = hotkey_config_path("0" * 64)
+        if (
+            config_path.name != "hotkey.json"
+            or config_path.parent.name != "0" * 64
+            or config_path.parent.parent.name != "profiles"
+            or config_path.parent.parent.parent.name != "SC Client"
+        ):
             raise RuntimeError("invalid Client configuration path")
         del app
     except Exception as exc:

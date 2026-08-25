@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
@@ -26,6 +27,8 @@ CONFIG_VERSION = 3
 LEGACY_CONFIG_VERSION = 1
 APP_DIR_NAME = "SC Client"
 HOTKEY_FILE_NAME = "hotkey.json"
+PROFILE_DIR_NAME = "profiles"
+_CONFIG_SCOPE_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 
 @dataclass(frozen=True)
@@ -37,22 +40,37 @@ class HotkeyConfigLoadResult:
     config: HotkeyRuntimeConfig = DEFAULT_HOTKEY_CONFIG
 
 
-def hotkey_config_path() -> Path:
+def hotkey_config_root() -> Path:
     override_dir = os.environ.get("SC_CLIENT_CONFIG_DIR", "").strip()
     if override_dir:
-        return Path(override_dir) / HOTKEY_FILE_NAME
+        return Path(override_dir)
     appdata = os.environ.get("APPDATA", "").strip()
     base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
-    return base / APP_DIR_NAME / HOTKEY_FILE_NAME
+    return base / APP_DIR_NAME
+
+
+def normalize_config_scope_id(scope_id: str) -> str:
+    normalized = str(scope_id or "").strip().lower()
+    if not _CONFIG_SCOPE_PATTERN.fullmatch(normalized):
+        raise ValueError("invalid configuration scope")
+    return normalized
+
+
+def hotkey_config_path(scope_id: str) -> Path:
+    """Return the isolated shortcut configuration path for one login scope."""
+    return hotkey_config_root() / PROFILE_DIR_NAME / normalize_config_scope_id(scope_id) / HOTKEY_FILE_NAME
 
 
 def load_hotkey_config(
     default_bindings: Iterable[HotkeyBinding] = HOTKEY_BINDINGS,
     *,
     path: Path | str | None = None,
+    scope_id: str = "",
     default_config: HotkeyRuntimeConfig = DEFAULT_HOTKEY_CONFIG,
 ) -> HotkeyConfigLoadResult:
-    config_path = Path(path) if path is not None else hotkey_config_path()
+    if path is None and not scope_id:
+        raise ValueError("configuration scope is required")
+    config_path = Path(path) if path is not None else hotkey_config_path(scope_id)
     default_bindings_tuple = tuple(default_bindings)
     if not config_path.exists():
         return HotkeyConfigLoadResult(default_bindings_tuple, config_path, config=default_config)
@@ -102,8 +120,11 @@ def save_hotkey_config(
     config_or_bindings: HotkeyRuntimeConfig | Iterable[HotkeyBinding],
     *,
     path: Path | str | None = None,
+    scope_id: str = "",
 ) -> Path:
-    config_path = Path(path) if path is not None else hotkey_config_path()
+    if path is None and not scope_id:
+        raise ValueError("configuration scope is required")
+    config_path = Path(path) if path is not None else hotkey_config_path(scope_id)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(config_or_bindings, HotkeyRuntimeConfig):
         errors = validate_hotkey_config(config_or_bindings)

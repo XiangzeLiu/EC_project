@@ -1121,6 +1121,38 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         for name, value in self._globals.items():
             setattr(config_sync, name, value)
 
+    async def test_node_broker_health_snapshot_maps_runtime_state_without_secrets(self):
+        class FakeBroker:
+            def __init__(self, health):
+                self.health = health
+
+            def runtime_health(self):
+                return dict(self.health)
+
+        config_sync._current_broker = FakeBroker({
+            "operational": True,
+            "state": "ready",
+        })
+        healthy = config_sync.get_node_broker_health()
+        self.assertEqual(healthy["level"], "healthy")
+        self.assertTrue(healthy["operational"])
+
+        config_sync._current_broker.health = {
+            "operational": False,
+            "state": "degraded_waiting",
+            "recovery_code": "IB_API_HANDSHAKE_TIMEOUT",
+        }
+        degraded = config_sync.get_node_broker_health()
+        self.assertEqual(degraded["level"], "degraded")
+        self.assertEqual(degraded["code"], "IB_API_HANDSHAKE_TIMEOUT")
+        self.assertNotIn("password", str(degraded).lower())
+
+        config_sync._current_broker = None
+        config_sync._last_connect_error = {}
+        unknown = config_sync.get_node_broker_health()
+        self.assertEqual(unknown["level"], "unknown")
+        self.assertEqual(unknown["code"], "BROKER_NOT_INITIALIZED")
+
     async def test_config_sync_creates_normalizes_and_connects_ib_adapter(self):
         class FakeBroker:
             broker_type = "interactive_brokers"

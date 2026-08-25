@@ -24,6 +24,7 @@ DB_SCHEMA_VERSION_V3 = 3
 DB_SCHEMA_VERSION_V4 = 4
 DB_SCHEMA_VERSION_V5 = 5
 DB_SCHEMA_VERSION_V6 = 6
+DB_SCHEMA_VERSION_V7 = 7
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -211,6 +212,49 @@ CREATE TABLE IF NOT EXISTS dns_provider_config (
 );
 """
 
+V7_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS software_releases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    release_id TEXT NOT NULL UNIQUE,
+    product_type TEXT NOT NULL CHECK(product_type IN ('client', 'ts')),
+    version TEXT NOT NULL,
+    platform TEXT NOT NULL DEFAULT 'windows-x64',
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'offline', 'archived', 'deleted')),
+    trader_visible INTEGER NOT NULL DEFAULT 0,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    published_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    deleted_at TEXT NOT NULL DEFAULT '',
+    UNIQUE(product_type, version, platform)
+);
+
+CREATE TABLE IF NOT EXISTS software_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_id TEXT NOT NULL UNIQUE,
+    release_id TEXT NOT NULL,
+    artifact_type TEXT NOT NULL DEFAULT 'installer',
+    file_name TEXT NOT NULL DEFAULT '',
+    storage_key TEXT NOT NULL UNIQUE,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    sha256 TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(release_id) REFERENCES software_releases(release_id) ON DELETE CASCADE,
+    UNIQUE(release_id, artifact_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_software_releases_product_status
+ON software_releases(product_type, status, platform, published_at);
+
+CREATE INDEX IF NOT EXISTS idx_software_releases_trader_visible
+ON software_releases(product_type, trader_visible, status, published_at);
+
+CREATE INDEX IF NOT EXISTS idx_software_artifacts_release
+ON software_artifacts(release_id);
+"""
+
 V2_INDEXES_SQL = """
 CREATE INDEX IF NOT EXISTS idx_accounts_role_status
 ON accounts(role, status);
@@ -309,6 +353,10 @@ def _ensure_v6_schema(conn: sqlite3.Connection) -> None:
         "validation_token_hash",
         "validation_token_hash TEXT NOT NULL DEFAULT ''",
     )
+
+
+def _ensure_v7_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(V7_SCHEMA_SQL)
 
 
 def _has_v2_schema(conn: sqlite3.Connection) -> bool:
@@ -866,6 +914,12 @@ def migrate_v5_to_v6(conn: sqlite3.Connection) -> dict:
     return {"registration_validation_token_added": 1}
 
 
+def migrate_v6_to_v7(conn: sqlite3.Connection) -> dict:
+    _ensure_v7_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V7)
+    return {"software_release_tables_created": 1}
+
+
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
     _ensure_legacy_schema(conn)
@@ -874,6 +928,7 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     _ensure_v4_schema(conn)
     _ensure_v5_schema(conn)
     _ensure_v6_schema(conn)
+    _ensure_v7_schema(conn)
     version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
@@ -906,6 +961,12 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
         report = migrate_v5_to_v6(conn)
         report["from_version"] = version
         report["to_version"] = DB_SCHEMA_VERSION_V6
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V6
+    if version < DB_SCHEMA_VERSION_V7:
+        report = migrate_v6_to_v7(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V7
         reports.append(report)
     return reports
 
@@ -3303,5 +3364,312 @@ def cleanup_audit_logs(retention_days: int | None = None) -> int:
     except Exception as e:
         log.warning(f"cleanup_audit_logs failed: {e}")
         return 0
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Software release records
+# ---------------------------------------------------------------------------
+
+_SOFTWARE_STATUSES = {"draft", "published", "offline", "archived", "deleted"}
+
+
+def _software_release_dict(conn: sqlite3.Connection, row: sqlite3.Row | None) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    artifacts = conn.execute(
+        """
+        SELECT artifact_id, artifact_type, file_name, storage_key,
+               file_size, sha256, created_at
+        FROM software_artifacts
+        WHERE release_id = ?
+        ORDER BY id ASC
+        """,
+        (item["release_id"],),
+    ).fetchall()
+    item["trader_visible"] = bool(item.get("trader_visible"))
+    item["is_default"] = bool(item.get("is_default"))
+    item["artifacts"] = [dict(artifact) for artifact in artifacts]
+    return item
+
+
+def create_software_release_record(release: dict, artifact: dict) -> dict | None:
+    """Create one immutable release record and its uploaded artifact."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT * FROM software_releases WHERE product_type=? AND version=? AND platform=?",
+            (release["product_type"], release["version"], release.get("platform") or "windows-x64"),
+        ).fetchone()
+        release_id = str(existing["release_id"] if existing else release["release_id"])
+        now = datetime.now(timezone.utc).isoformat()
+        if not existing:
+            conn.execute(
+                """
+                INSERT INTO software_releases (
+                    release_id, product_type, version, platform, status,
+                    trader_visible, is_default, created_by, created_at,
+                    published_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, 'draft', 0, 0, ?, ?, '', ?, '')
+                """,
+                (
+                    release_id,
+                    release["product_type"],
+                    release["version"],
+                    release.get("platform") or "windows-x64",
+                    release.get("created_by") or "",
+                    release.get("created_at") or now,
+                    release.get("updated_at") or now,
+                ),
+            )
+        elif existing["status"] == "deleted":
+            conn.rollback()
+            return None
+        conn.execute(
+            """
+            INSERT INTO software_artifacts (
+                artifact_id, release_id, artifact_type, file_name,
+                storage_key, file_size, sha256, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                artifact["artifact_id"],
+                release_id,
+                artifact.get("artifact_type") or "installer",
+                artifact.get("file_name") or "",
+                artifact["storage_key"],
+                int(artifact.get("file_size") or 0),
+                artifact.get("sha256") or "",
+                artifact.get("created_at") or datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id = ?",
+            (release_id,),
+        ).fetchone()
+        return _software_release_dict(conn, row)
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return None
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"create_software_release_record failed: {exc}")
+        return None
+    finally:
+        conn.close()
+
+
+def find_software_release(product_type: str, version: str, platform: str = "windows-x64") -> dict | None:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM software_releases WHERE product_type=? AND version=? AND platform=? AND status != 'deleted'",
+            (product_type, version, platform),
+        ).fetchone()
+        return _software_release_dict(conn, row)
+    finally:
+        conn.close()
+
+
+def get_software_release(release_id: str, include_deleted: bool = False) -> dict | None:
+    conn = _get_conn()
+    try:
+        query = "SELECT * FROM software_releases WHERE release_id = ?"
+        args: list[object] = [release_id]
+        if not include_deleted:
+            query += " AND status != 'deleted'"
+        row = conn.execute(query, args).fetchone()
+        return _software_release_dict(conn, row)
+    finally:
+        conn.close()
+
+
+def list_software_releases(
+    product_type: str = "",
+    include_deleted: bool = False,
+    trader_visible_only: bool = False,
+) -> list[dict]:
+    conn = _get_conn()
+    try:
+        where = []
+        args: list[object] = []
+        if product_type:
+            where.append("product_type = ?")
+            args.append(product_type)
+        if not include_deleted:
+            where.append("status != 'deleted'")
+        if trader_visible_only:
+            where.extend(["product_type = 'client'", "status = 'published'", "trader_visible = 1"])
+        where_sql = f" WHERE {' AND '.join(where)}" if where else ""
+        rows = conn.execute(
+            """
+            SELECT * FROM software_releases
+            """ + where_sql + """
+            ORDER BY CASE WHEN published_at != '' THEN published_at ELSE created_at END DESC, id DESC
+            """,
+            args,
+        ).fetchall()
+        return [item for row in rows if (item := _software_release_dict(conn, row))]
+    finally:
+        conn.close()
+
+
+def set_software_release_status(release_id: str, status: str) -> dict | None:
+    status = str(status or "").strip().lower()
+    if status not in _SOFTWARE_STATUSES - {"deleted"}:
+        return None
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id = ? AND status != 'deleted'",
+            (release_id,),
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        if status == "published":
+            conn.execute(
+                "UPDATE software_releases SET status='published', published_at=CASE WHEN published_at='' THEN ? ELSE published_at END, updated_at=? WHERE release_id=?",
+                (now, now, release_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE software_releases SET status=?, trader_visible=0, is_default=0, updated_at=? WHERE release_id=?",
+                (status, now, release_id),
+            )
+        conn.commit()
+        return _software_release_dict(
+            conn,
+            conn.execute("SELECT * FROM software_releases WHERE release_id=?", (release_id,)).fetchone(),
+        )
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"set_software_release_status failed: {exc}")
+        return None
+    finally:
+        conn.close()
+
+
+def set_software_release_visibility(release_id: str, visible: bool) -> dict | None:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id = ? AND status != 'deleted'",
+            (release_id,),
+        ).fetchone()
+        if not row or row["product_type"] != "client":
+            conn.rollback()
+            return None
+        if visible and row["status"] != "published":
+            conn.rollback()
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE software_releases SET trader_visible=?, updated_at=? WHERE release_id=?",
+            (1 if visible else 0, now, release_id),
+        )
+        if not visible:
+            conn.execute(
+                "UPDATE software_releases SET is_default=0 WHERE release_id=?",
+                (release_id,),
+            )
+        conn.commit()
+        return _software_release_dict(
+            conn,
+            conn.execute("SELECT * FROM software_releases WHERE release_id=?", (release_id,)).fetchone(),
+        )
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"set_software_release_visibility failed: {exc}")
+        return None
+    finally:
+        conn.close()
+
+
+def set_default_software_release(release_id: str) -> dict | None:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id=? AND status='published' AND product_type='client' AND trader_visible=1",
+            (release_id,),
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("UPDATE software_releases SET is_default=0, updated_at=? WHERE product_type='client'", (now,))
+        conn.execute("UPDATE software_releases SET is_default=1, updated_at=? WHERE release_id=?", (now, release_id))
+        conn.commit()
+        return _software_release_dict(
+            conn,
+            conn.execute("SELECT * FROM software_releases WHERE release_id=?", (release_id,)).fetchone(),
+        )
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"set_default_software_release failed: {exc}")
+        return None
+    finally:
+        conn.close()
+
+
+def archive_old_client_releases(retention_count: int = 3) -> list[str]:
+    keep = max(1, int(retention_count or 3))
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            """
+            SELECT release_id FROM software_releases
+            WHERE product_type='client' AND status='published'
+            ORDER BY CASE WHEN published_at != '' THEN published_at ELSE created_at END DESC, id DESC
+            """,
+        ).fetchall()
+        archived = [row["release_id"] for row in rows[keep:]]
+        now = datetime.now(timezone.utc).isoformat()
+        for release_id in archived:
+            conn.execute(
+                "UPDATE software_releases SET status='archived', trader_visible=0, is_default=0, updated_at=? WHERE release_id=?",
+                (now, release_id),
+            )
+        conn.commit()
+        return archived
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"archive_old_client_releases failed: {exc}")
+        return []
+    finally:
+        conn.close()
+
+
+def mark_software_release_deleted(release_id: str) -> dict | None:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id=? AND status NOT IN ('deleted', 'published') AND trader_visible=0 AND is_default=0",
+            (release_id,),
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE software_releases SET status='deleted', deleted_at=?, updated_at=? WHERE release_id=?",
+            (now, now, release_id),
+        )
+        conn.commit()
+        return _software_release_dict(conn, row)
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"mark_software_release_deleted failed: {exc}")
+        return None
     finally:
         conn.close()

@@ -167,6 +167,27 @@
     .product-docs-load-error p { margin-bottom:14px; }
     body.sm-dark .product-docs-host { background:#17211d; }
 
+    .software-center-host { min-height: calc(100vh - 64px); padding: 24px; }
+    .software-toolbar { display:flex; gap:8px; padding:14px 24px; border-bottom:1px solid #eef0f6; }
+    .software-tab { padding:7px 16px; border:1px solid #dde1ec; border-radius:8px; background:#fff; color:#5b6480; cursor:pointer; font:500 13px inherit; }
+    .software-tab:hover { color:#2238ad; border-color:#93c5fd; }
+    .software-tab.active { background:#eef4ff; color:#2238ad; border-color:#93c5fd; }
+    .software-release-list { padding:0 24px 18px; }
+    .software-release-row { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:16px 0; border-bottom:1px solid #f0f2f7; }
+    .software-release-row:last-child { border-bottom:0; }
+    .software-release-main { min-width:0; flex:1; }
+    .software-release-title { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:#1d2236; }
+    .software-release-meta { margin-top:6px; color:#7c879f; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .software-release-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
+    .software-message { margin:14px 24px 0; padding:9px 12px; border-radius:8px; background:#eff6ff; color:#2563eb; font-size:12px; }
+    .software-upload-panel { padding-bottom:18px; }
+    .software-upload-form { padding:18px 24px 0; }
+    .software-form-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .software-form-grid label { display:flex; flex-direction:column; gap:6px; color:#5b6480; font-size:12px; }
+    .software-upload-actions { display:flex; justify-content:flex-end; margin-top:16px; }
+    @media (max-width:900px) { .software-form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:600px) { .software-center-host { padding:14px; } .software-release-row { align-items:flex-start; flex-direction:column; } .software-release-actions { justify-content:flex-start; } .software-form-grid { grid-template-columns:1fr; } }
+
     /* ═══ Badge / Tag ═══ */
     .badge {
       display: inline-flex; align-items: center; gap: 4px;
@@ -268,6 +289,10 @@
     .nc-occupied { background: linear-gradient(135deg,#faf5ff,#f3e8ff); border-color:#d8b4fe; }
     .nc-occupied:hover { box-shadow:0 4px 16px rgba(147,51,234,0.2); }
     .nc-occupied .nc-status-pill { background:#9333ea; box-shadow:0 2px 6px rgba(147,51,234,0.35); }
+    /* -- broker degraded -- */
+    .nc-degraded { background: #fffbeb; border-color:#fcd34d; }
+    .nc-degraded:hover { box-shadow: 0 4px 16px rgba(217,119,6,0.2); }
+    .nc-degraded .nc-status-pill { background:#d97706; box-shadow:0 2px 6px rgba(217,119,6,0.35); }
     /* -- pending -- */
     .nc-pending { background: #fff7ed; border-color:#fed7aa; }
     .nc-pending:hover { box-shadow:0 4px 12px rgba(249,115,22,0.15); }
@@ -538,6 +563,7 @@
     .ov-status-occupied { background:#f3e8ff; color:#9333ea; }
     .ov-status-active { background:#f0fdf4; color:#16a34a; }
     .ov-status-paused { background:#fff7ed; color:#d97706; }
+    .ov-status-degraded { background:#fffbeb; color:#b45309; }
     .ov-status-offline { background:#fef2f2; color:#dc2626; }
     .ov-status-other { background:#eef4ff; color:#3b63f6; }
     .audit-list { padding: 12px 16px 16px; display:flex; flex-direction:column; gap:10px; max-height:430px; overflow:auto; }
@@ -577,6 +603,12 @@
     body.sm-dark .dns-test-step { background:rgba(15,23,42,.65); border-color:rgba(148,163,184,.2); }
     body.sm-dark .domain-table th { background:rgba(15,23,42,.64); color:#94a3b8; }
     body.sm-dark .domain-table td { color:#d1d5db; }
+    body.sm-dark .software-toolbar, body.sm-dark .software-release-row { border-color:rgba(148,163,184,.18); }
+    body.sm-dark .software-tab { background:rgba(15,23,42,.72); color:#cbd5e1; border-color:rgba(148,163,184,.22); }
+    body.sm-dark .software-tab.active { background:rgba(59,99,246,.22); color:#a9c0ff; border-color:rgba(147,197,253,.55); }
+    body.sm-dark .software-release-title { color:#f8fafc; }
+    body.sm-dark .software-release-meta { color:#94a3b8; }
+    body.sm-dark .software-message { background:rgba(30,64,175,.25); color:#bfdbfe; }
     @media (max-width: 1180px) { .overview-grid.ov-main { grid-template-columns: 1fr; } }
 
     /* Responsive */
@@ -629,6 +661,9 @@
       </button>
       <button data-module="docs" class="nav-item" type="button">
         <i class="ri-file-text-line"></i><span>产品文档</span>
+      </button>
+      <button data-module="software" class="nav-item" type="button">
+        <i class="ri-download-cloud-2-line"></i><span>软件中心</span>
       </button>
     </nav>
 
@@ -919,6 +954,12 @@
         </div>
       </section>
 
+      <section id="mod-software" class="section">
+        <div id="software-center-host" class="software-center-host">
+          <div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>首次打开时加载软件中心</div></div>
+        </div>
+      </section>
+
     </main>
   </div>
 </div>
@@ -929,6 +970,7 @@
 <script>
 const CURRENT_ADMIN_ROLE = "{{ admin_role }}";
 const CURRENT_ADMIN_USERNAME = "{{ admin_username }}";
+const ADMIN_CSRF_TOKEN = "{{ admin_csrf_token }}";
 
 // ═══════════════════════════════════════════════════
 //  工具函数
@@ -1076,7 +1118,7 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
     _activeModule=target;
     document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
     this.classList.add('active');
-    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'TS 节点管理','domain-pool':'子域名池','audit':'日志信息','docs':'产品文档'};
+    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'TS 节点管理','domain-pool':'子域名池','audit':'日志信息','docs':'产品文档','software':'软件中心'};
     document.getElementById('page-title').textContent=titles[target]||'仪表盘';
     document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
     var el=document.getElementById('mod-'+target);
@@ -1086,6 +1128,10 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
     if(target==='docs'){
       loadProductDocs();
       if(location.hash.indexOf('#docs')!==0) history.replaceState(null,'','#docs');
+    }
+    if(target==='software'){
+      loadSoftwareCenter();
+      if(location.hash!=='#software') history.replaceState(null,'','#software');
     }
   });
 });
@@ -1249,9 +1295,140 @@ function loadProductDocs(force){
   return _productDocsLoading;
 }
 
+var _softwareProduct='client', _softwareLoaded=false, _softwareLoading=null, _softwareReleases=[];
+var _softwareStatusLabels={draft:'草稿',published:'已上架',offline:'已下架',archived:'已归档'};
+
+function _softwareSetMessage(text,error){
+  var el=document.getElementById('software-message');
+  if(!el) return;
+  el.textContent=text||'';
+  el.style.display=text?'block':'none';
+  el.style.background=error?'#fef2f2':'#eff6ff';
+  el.style.color=error?'#b91c1c':'#2563eb';
+}
+
+function loadSoftwareCenter(force){
+  var host=document.getElementById('software-center-host');
+  if(!host || (_softwareLoaded&&!force)) return _softwareLoading;
+  if(_softwareLoading) return _softwareLoading;
+  host.innerHTML='<div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>正在加载软件中心</div></div>';
+  _softwareLoading=fetch('/admin/software/content',{credentials:'same-origin',cache:'no-store'}).then(function(response){
+    if(response.status===401){window.location.href='/admin/login';return '';}
+    if(!response.ok) throw new Error('software center request failed');
+    return response.text();
+  }).then(function(html){
+    if(!html) return;
+    host.innerHTML=html;
+    _softwareLoaded=true;
+    switchSoftwareProduct(_softwareProduct);
+  }).catch(function(){
+    host.innerHTML='<div class="product-docs-load-error"><div class="product-docs-load-error-inner"><i class="ri-download-cloud-line"></i><strong>软件中心加载失败</strong><p>请检查管理服务连接后重试。</p><button class="btn-xs btn-pri" type="button" onclick="loadSoftwareCenter(true)"><i class="ri-refresh-line"></i> 重试</button></div></div>';
+  }).finally(function(){_softwareLoading=null;});
+  return _softwareLoading;
+}
+
+function switchSoftwareProduct(product){
+  _softwareProduct=(product==='ts')?'ts':'client';
+  document.querySelectorAll('[data-software-product]').forEach(function(button){
+    button.classList.toggle('active',button.getAttribute('data-software-product')===_softwareProduct);
+  });
+  var select=document.getElementById('software-upload-product');
+  if(select) select.value=_softwareProduct;
+  refreshSoftwareReleases();
+}
+
+function openSoftwareUpload(){
+  var panel=document.getElementById('software-upload-panel');
+  if(panel){panel.style.display='block'; panel.scrollIntoView({behavior:'smooth',block:'nearest'});}
+  var select=document.getElementById('software-upload-product');
+  if(select) select.value=_softwareProduct;
+}
+function closeSoftwareUpload(){
+  var panel=document.getElementById('software-upload-panel');
+  if(panel) panel.style.display='none';
+}
+function _softwareFormatBytes(value){
+  var size=Number(value||0);
+  if(size<1024) return size+' B';
+  if(size<1024*1024) return (size/1024).toFixed(1)+' KB';
+  if(size<1024*1024*1024) return (size/1024/1024).toFixed(1)+' MB';
+  return (size/1024/1024/1024).toFixed(2)+' GB';
+}
+function _softwareReleaseStatus(release){
+  return _softwareStatusLabels[release.status]||release.status||'-';
+}
+function renderSoftwareReleases(releases){
+  var host=document.getElementById('software-release-list');
+  if(!host) return;
+  releases=releases||[];
+  if(!releases.length){host.innerHTML='<div class="empty-state"><i class="ri-inbox-line"></i>暂无软件版本</div>';return;}
+  host.innerHTML=releases.map(function(release){
+    var artifacts=release.artifacts||[];
+    var artifact=artifacts[0]||{};
+    var rid=escapeHtml(release.release_id||'');
+    var product=release.product_type==='ts'?'TS':'Client';
+    var labels='<span class="badge" style="background:#eef4ff;color:#2563eb">'+_softwareReleaseStatus(release)+'</span>';
+    if(release.trader_visible) labels+='<span class="badge" style="background:#dcfce7;color:#15803d">交易员可见</span>';
+    if(release.is_default) labels+='<span class="badge" style="background:#fff7ed;color:#c2410c">默认版本</span>';
+    var actions='<a class="btn-xs btn-pri" href="/admin/software/releases/'+encodeURIComponent(release.release_id)+'/download?artifact_id='+encodeURIComponent(artifact.artifact_id||'')+'"><i class="ri-download-2-line"></i> 下载</a>';
+    if(release.status==='published') actions+='<button class="btn-xs btn-warn" onclick="softwareSetStatus(\''+rid+'\',\'offline\')">下架</button>';
+    else if(release.status!=='deleted') actions+='<button class="btn-xs btn-ok" onclick="softwareSetStatus(\''+rid+'\',\'published\')">上架</button>';
+    if(product==='Client'&&release.status==='published') actions+='<button class="btn-xs btn-pl" onclick="softwareSetVisibility(\''+rid+'\','+(release.trader_visible?'false':'true')+')">'+(release.trader_visible?'隐藏':'外显')+'</button>';
+    if(product==='Client'&&release.status==='published'&&release.trader_visible&&!release.is_default) actions+='<button class="btn-xs btn-pl" onclick="softwareSetDefault(\''+rid+'\')">设为默认</button>';
+    if(release.status!=='published'&&!release.trader_visible&&!release.is_default) actions+='<button class="btn-xs btn-del" onclick="softwareDelete(\''+rid+'\')"><i class="ri-delete-bin-line"></i> 删除</button>';
+    return '<div class="software-release-row"><div class="software-release-main"><div class="software-release-title">'+product+' · '+escapeHtml(release.version||'-')+' '+labels+'</div><div class="software-release-meta">'+escapeHtml(release.platform||'-')+' · '+escapeHtml(artifact.file_name||'-')+' · '+_softwareFormatBytes(artifact.file_size)+' · SHA256 '+escapeHtml(String(artifact.sha256||'').slice(0,16))+'...</div></div><div class="software-release-actions">'+actions+'</div></div>';
+  }).join('');
+}
+function refreshSoftwareReleases(){
+  var host=document.getElementById('software-release-list');
+  if(!host) return;
+  fetch('/api/admin/software/releases?product='+encodeURIComponent(_softwareProduct),{credentials:'same-origin',cache:'no-store'}).then(function(response){
+    if(response.status===401){window.location.href='/admin/login';return null;}
+    return response.json();
+  }).then(function(data){
+    if(!data) return;
+    if(!data.ok) throw new Error(data.error||'软件版本加载失败');
+    _softwareReleases=data.data||[]; renderSoftwareReleases(_softwareReleases);
+  }).catch(function(error){_softwareSetMessage(error.message||'软件版本加载失败',true);});
+}
+function submitSoftwareUpload(event){
+  event.preventDefault();
+  var file=document.getElementById('software-upload-file').files[0];
+  if(!file){_softwareSetMessage('请选择软件文件',true);return;}
+  var data=new FormData();
+  data.append('product_type',document.getElementById('software-upload-product').value);
+  data.append('version',document.getElementById('software-upload-version').value.trim());
+  data.append('artifact_type',document.getElementById('software-upload-artifact').value);
+  data.append('platform','windows-x64'); data.append('file',file);
+  _softwareSetMessage('正在上传软件，请稍候...',false);
+  fetch('/api/admin/software/upload',{method:'POST',body:data,credentials:'same-origin',headers:{'X-SM-CSRF':ADMIN_CSRF_TOKEN}}).then(function(response){return response.json().then(function(body){return {ok:response.ok,body:body};});}).then(function(result){
+    if(!result.ok||!result.body.ok) throw new Error(result.body.error||'软件上传失败');
+    _softwareSetMessage('软件已上传为草稿，请上架后再对外提供下载。',false);
+    document.getElementById('software-upload-form').reset();
+    switchSoftwareProduct(_softwareProduct);
+  }).catch(function(error){_softwareSetMessage(error.message||'软件上传失败',true);});
+}
+function _softwareJsonAction(url,method,payload,success){
+  fetch(url,{method:method,credentials:'same-origin',headers:{'Content-Type':'application/json','X-SM-CSRF':ADMIN_CSRF_TOKEN},body:payload?JSON.stringify(payload):undefined}).then(function(response){return response.json().then(function(body){return {ok:response.ok,body:body};});}).then(function(result){
+    if(!result.ok||!result.body.ok) throw new Error(result.body.error||'软件操作失败');
+    _softwareSetMessage(success||'软件操作成功',false); refreshSoftwareReleases();
+  }).catch(function(error){_softwareSetMessage(error.message||'软件操作失败',true);});
+}
+function softwareSetStatus(releaseId,status){_softwareJsonAction('/api/admin/software/'+encodeURIComponent(releaseId)+'/status','POST',{status:status},status==='published'?'版本已上架':'版本已下架');}
+function softwareSetVisibility(releaseId,visible){_softwareJsonAction('/api/admin/software/'+encodeURIComponent(releaseId)+'/visibility','POST',{visible:visible},visible?'已设置为交易员可见':'已取消交易员可见');}
+function softwareSetDefault(releaseId){_softwareJsonAction('/api/admin/software/'+encodeURIComponent(releaseId)+'/default','POST',null,'默认 Client 已更新');}
+function softwareDelete(releaseId){
+  if(!window.confirm('确认删除这个已下架的软件版本？删除后将无法恢复。')) return;
+  _softwareJsonAction('/api/admin/software/'+encodeURIComponent(releaseId),'DELETE',null,'软件版本已删除');
+}
+
 if(location.hash==='#docs' || location.hash.indexOf('#docs/')===0){
   var docsNav=document.querySelector('.nav-item[data-module="docs"]');
   if(docsNav) docsNav.click();
+}
+if(location.hash==='#software'){
+  var softwareNav=document.querySelector('.nav-item[data-module="software"]');
+  if(softwareNav) softwareNav.click();
 }
 
 // ═══════════════════════════════════════════════════
@@ -1327,10 +1504,11 @@ function renderNodes(nodes){
     b.style.display='none'; cb.textContent='0 个节点'; return;
   }
 
-  var oc=0,sc=0,olc=0,ac=0,occC=0;
+  var oc=0,sc=0,olc=0,dc=0,ac=0,occC=0;
   nodes.forEach(function(n){
     var rs=n.real_status||'';
     if(rs==='occupied') occC++;
+    else if(rs==='degraded') dc++;
     else if(rs==='suspended') sc++;
     else if(rs==='offline') olc++;
     else if(n.req_status==='suspended') sc++;
@@ -1340,20 +1518,22 @@ function renderNodes(nodes){
     else ac++;
   });
 
-  var total=oc+sc+olc+ac+occC;
+  var total=oc+sc+olc+dc+ac+occC;
   var parts=[oc+' 在线'];
   if(occC) parts.push(occC+' 已占用');
   if(sc) parts.push(sc+' 已暂停');
   if(olc) parts.push(olc+' 离线');
+  if(dc) parts.push(dc+' 功能异常');
   b.style.display=''; b.textContent=parts.join(' / ');
   cb.textContent=total+' 个节点';
 
   c.innerHTML=nodes.map(function(n){
-    var realSt=n.real_status||'', isOcc=(realSt==='occupied');
+    var realSt=n.real_status||'', isOcc=Boolean(n.occupied_by);
     var st = realSt ? realSt : (n.req_status||'approved');
 
     var cc,sl,ic;
-    if(isOcc){cc='nc-occupied'; sl='已占用'; ic='#9333ea';}
+    if(st==='degraded'){cc='nc-degraded'; sl='功能异常'; ic='#d97706';}
+    else if(isOcc){cc='nc-occupied'; sl='已占用'; ic='#9333ea';}
     else if(st==='online'){cc='nc-online'; sl='运行中'; ic='#16a34a';}
     else if(st==='suspended'){cc='nc-suspended'; sl='已暂停'; ic='#d97706';}
     else if(st==='offline'){cc='nc-offline'; sl='已离线'; ic='#dc2626';}
@@ -1374,7 +1554,7 @@ function renderNodes(nodes){
       ab=detailBtn+configBtn
         +'<button class="btn-xs btn-del" onclick="forceReleaseNode(\''+escapeHtml(n.server_id)+'\',\''+escapeHtml(n.occupied_by||'')+'\',this)"><i class="ri-scissors-cut-line"></i> 解除占用</button>'
         +'<span class="occupied-badge"><i class="ri-lock-line"></i> 被 '+escapeHtml(n.occupied_by)+' 占用</span>';
-    }else if(st==='online'){
+    }else if(st==='online' || st==='degraded'){
       ab=detailBtn+configBtn
         +'<button class="btn-xs btn-warn" onclick="suspendNode(\''+escapeHtml(n.server_id)+'\',this)" '+lk+'>暂停</button>'
         +'<button class="btn-xs btn-del" onclick="deleteNode(\''+escapeHtml(n.serverId||n.server_id)+'\',this)" '+lk+'>删除</button>';
@@ -1396,6 +1576,7 @@ function renderNodes(nodes){
       +'<span class="nc-status-pill" style="background:'+ic+'"><i class="ri-checkbox-circle-fill" style="margin-right:4px;font-size:11px"></i>'+sl+'</span>'
       +'<span class="nc-name">'+escapeHtml(n.node_name)+'</span></div></div>'
       +(isOcc?'<div class="nc-row" style="margin-bottom:10px"><span class="nc-label">占用者</span><span style="color:#9333ea;font-weight:600;font-size:13px">'+escapeHtml(n.occupied_by)+'</span></div>':'')
+      +(st==='degraded'?'<div class="nc-row" style="margin-bottom:10px"><span class="nc-label">功能告警</span><span style="color:#b45309;font-weight:600;font-size:13px">'+escapeHtml(n.broker_health_message||'券商状态异常')+'</span></div>':'')
       +'<div class="nc-info">'
       +'  <div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value-mono">'+escapeHtml(n.server_id||'-')+'</span></div>'
       +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
@@ -1780,10 +1961,10 @@ function showNodeDetail(sid){
     credsDisplay='<span style="color:#94a3b8">-</span>';
   }
 
-  var stMap={'online':'运行中','suspended':'已暂停','offline':'已离线','approved':'已批准','pending':'待审核','rejected':'已拒绝'};
-  var stLabel=stMap[n.req_status]||n.req_status;
   var ds=n.real_status||n.req_status||'approved';
-  var scMap={'occupied':'#9333ea','online':'#16a34a','approved':'#2563eb','suspended':'#d97706','offline':'#dc2626'};
+  var stMap={'online':'运行中','degraded':'功能异常','occupied':'已占用','suspended':'已暂停','offline':'已离线','approved':'已批准','pending':'待审核','rejected':'已拒绝'};
+  var stLabel=stMap[ds]||stMap[n.req_status]||n.req_status;
+  var scMap={'occupied':'#9333ea','online':'#16a34a','degraded':'#d97706','approved':'#2563eb','suspended':'#d97706','offline':'#dc2626'};
   var sc=scMap[ds]||'#1677ff';
 
   // 券商类型标签
@@ -1801,7 +1982,8 @@ function showNodeDetail(sid){
     +'    <div class="modal-body" style="max-height:60vh;overflow-y:auto"'
     // 基础信息区
     +'>'
-    +(ds==='occupied'?'<div class="detail-row"><span class="detail-label">占用状态</span><span style="color:#9333ea;font-weight:500;font-size:13px"><i class="ri-lock-line" style="margin-right:4px"></i> 已被 '+escapeHtml(n.occupied_by)+' 占用</span></div>':'')
+    +(n.occupied_by?'<div class="detail-row"><span class="detail-label">占用状态</span><span style="color:#9333ea;font-weight:500;font-size:13px"><i class="ri-lock-line" style="margin-right:4px"></i> 已被 '+escapeHtml(n.occupied_by)+' 占用</span></div>':'')
+    +(ds==='degraded'?'<div class="detail-row"><span class="detail-label">功能告警</span><span style="color:#b45309;font-weight:500;font-size:13px">'+escapeHtml(n.broker_health_message||'券商状态异常')+'</span></div><div class="detail-row"><span class="detail-label">错误码</span><span class="detail-val-mono">'+escapeHtml(n.broker_health_code||'-')+'</span></div>':'')
     +'<div class="detail-row"><span class="detail-label">Server ID</span><span class="detail-val-mono">'+escapeHtml(n.server_id)+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">节点名称</span><span class="detail-val">'+escapeHtml(n.node_name)+'</span></div>'
     +'<div class="detail-row"><span class="detail-label">状态</span><span style="display:inline-flex;padding:3px 12px;border-radius:999px;font-size:11px;color:#fff;background:'+sc+'"><i class="ri-checkbox-circle-fill" style="margin-right:4px;font-size:11px"></i>'+stLabel+'</span></div>'
@@ -2689,9 +2871,10 @@ function accountState(a, occMap){
 }
 function nodeState(n){
   var rs=n.real_status||n.req_status||'approved';
-  if(rs==='occupied'||n.occupied_by) return {rank:1,label:'占用中',cls:'ov-status-occupied'};
-  if(rs==='offline') return {rank:4,label:'离线',cls:'ov-status-offline'};
   if(rs==='suspended') return {rank:3,label:'异常/暂停',cls:'ov-status-paused'};
+  if(rs==='offline') return {rank:4,label:'离线',cls:'ov-status-offline'};
+  if(rs==='degraded') return {rank:3,label:'功能异常',cls:'ov-status-degraded'};
+  if(rs==='occupied'||n.occupied_by) return {rank:1,label:'占用中',cls:'ov-status-occupied'};
   return {rank:2,label:'在线',cls:'ov-status-active'};
 }
 function renderOverview(){

@@ -25,6 +25,7 @@ class LoginResponse(BaseModel):
     detail: str = Field(default="", description="附加信息")
     se_address: str = Field(default="", description="绑定的 Trade_Server 地址")
     allowed_brokers: list[str] = Field(default_factory=list, description="账户允许的券商列表")
+    config_scope: str = Field(default="", description="Client 本地配置隔离标识")
 
 
 class LogoutResponse(BaseModel):

@@ -3,6 +3,7 @@ Auth Router
 认证相关端点：登录、登出
 """
 
+import hashlib
 import logging
 from fastapi import APIRouter, HTTPException, Request
 
@@ -20,6 +21,16 @@ from auth import (
 
 
 router = APIRouter(prefix="/auth", tags=["认证管理"])
+
+
+def _client_config_scope(username: str, broker_tag: str) -> str:
+    """Return an opaque, stable profile key without exposing account metadata."""
+    material = "\x00".join((
+        "sc-client-config-v1",
+        str(username or "").strip(),
+        str(broker_tag or "").strip().casefold(),
+    ))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def _handle_duplicate_login(username: str, force: bool) -> None:
@@ -73,6 +84,10 @@ async def login(req: LoginRequest):
                 broker_list=[],
                 expires_in=CLIENT_TOKEN_TTL_SECONDS,
                 se_address=_se_addr,
+                config_scope=_client_config_scope(
+                    db_account.get("username") or req.username,
+                    db_account.get("broker_tag") or "",
+                ),
             )
     except HTTPException:
         raise

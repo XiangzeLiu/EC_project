@@ -130,9 +130,23 @@ class HeartbeatSender:
             return False, err_msg
 
         url = f"{state.manager_url.rstrip('/')}/nodes/heartbeat"
+        from .config_sync import get_node_broker_health
+
+        try:
+            broker_health = get_node_broker_health()
+        except Exception:
+            broker_health = {
+                "level": "unknown",
+                "code": "BROKER_HEALTH_UNAVAILABLE",
+                "message": "券商状态未确认",
+                "operational": False,
+                "checked_at": int(time.time()),
+            }
         payload = json.dumps({
             "ts": int(time.time()),
             "ip": state.public_ip,
+            "health_schema_version": 1,
+            "broker_health": broker_health,
         }).encode("utf-8")
 
         headers = {

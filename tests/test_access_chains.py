@@ -43,6 +43,37 @@ from Trader_Server.services import trading_svc as ts_trading_svc
 
 
 class AccessChainTests(unittest.TestCase):
+    def test_client_config_scope_is_stable_and_isolates_account_and_broker(self):
+        from Server_manager.routers.auth_router import _client_config_scope
+
+        reference = _client_config_scope("TraderA", "interactive_brokers")
+        self.assertRegex(reference, r"^[a-f0-9]{64}$")
+        self.assertEqual(reference, _client_config_scope("TraderA", "INTERACTIVE_BROKERS"))
+        self.assertNotEqual(reference, _client_config_scope("tradera", "interactive_brokers"))
+        self.assertNotEqual(reference, _client_config_scope("TraderA", "tastytrade"))
+
+    def test_login_returns_opaque_scope_for_its_account_and_broker(self):
+        from Server_manager.routers.auth_router import _client_config_scope
+
+        database.create_account(
+            "scope-trader",
+            "pw",
+            "wss://ts-01.example.com/ws",
+            "Interactive_Brokers",
+            role="trader",
+        )
+
+        response = self.client.post("/auth/login", json={
+            "username": "scope-trader",
+            "password": "pw",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["config_scope"],
+            _client_config_scope("scope-trader", "Interactive_Brokers"),
+        )
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         database._DB_PATH = str(Path(self.temp_dir.name) / "sm.db")
@@ -621,6 +652,7 @@ class AccessChainTests(unittest.TestCase):
                     "token": "client-token",
                     "se_address": "wss://ts.example.com/ws",
                     "expires_in": 300,
+                    "config_scope": "b" * 64,
                 }
 
         started = time.monotonic()
@@ -630,6 +662,7 @@ class AccessChainTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(session.auth_expires_in, 300)
+        self.assertEqual(session.config_scope, "b" * 64)
         self.assertGreaterEqual(session.auth_deadline_monotonic, started + 299)
         self.assertLessEqual(session.auth_seconds_remaining(), 300)
 
@@ -1101,6 +1134,98 @@ class AccessChainTests(unittest.TestCase):
             normalized, error = _validate_order_params({**base, "tif": tif})
             self.assertIsNone(error)
             self.assertEqual(normalized["tif"], tif)
+
+    def test_broker_health_is_independent_from_ts_status_and_occupation(self):
+        manager = node_state.NodeStateManager()
+        manager.register({
+            "server_id": "health-node",
+            "node_name": "Health node",
+            "req_status": "online",
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+        })
+        state = manager.get("health-node")
+        self.assertEqual(manager.compute_display_status(state), "online")
+
+        ok, error = manager.occupy("health-node", "trader-a", "token-a", "conn-a")
+        self.assertTrue(ok, error)
+        self.assertEqual(manager.compute_display_status(state), "occupied")
+
+        self.assertTrue(manager.update_broker_health("health-node", {
+            "level": "degraded",
+            "code": "IB_GATEWAY_UNAVAILABLE",
+            "message": "券商连接异常",
+            "checked_at": time.time(),
+            "schema_version": 1,
+        }))
+        self.assertEqual(state.status, "online")
+        self.assertEqual(manager.compute_display_status(state), "degraded")
+        self.assertEqual(manager.get_occupation_info("health-node")["occupied_by"], "trader-a")
+
+        self.assertTrue(manager.update_broker_health("health-node", {
+            "level": "healthy",
+            "checked_at": time.time(),
+            "schema_version": 1,
+        }))
+        self.assertEqual(manager.compute_display_status(state), "degraded")
+        self.assertTrue(manager.update_broker_health("health-node", {
+            "level": "healthy",
+            "checked_at": time.time(),
+            "schema_version": 1,
+        }))
+        self.assertEqual(manager.compute_display_status(state), "occupied")
+
+    def test_suspended_and_offline_take_priority_over_broker_degraded(self):
+        manager = node_state.NodeStateManager()
+        manager.register({
+            "server_id": "priority-node",
+            "node_name": "Priority node",
+            "req_status": "online",
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+        })
+        state = manager.get("priority-node")
+        manager.update_broker_health("priority-node", {
+            "level": "degraded",
+            "code": "BROKER_RUNTIME_UNAVAILABLE",
+            "checked_at": time.time(),
+        })
+        self.assertEqual(manager.compute_display_status(state), "degraded")
+
+        ok, error = manager.set_suspended("priority-node")
+        self.assertTrue(ok, error)
+        self.assertEqual(manager.compute_display_status(state), "suspended")
+
+        state.status = "online"
+        state.last_heartbeat = time.time() - node_state.HEARTBEAT_TIMEOUT - 1
+        self.assertEqual(manager.compute_display_status(state), "offline")
+
+    def test_missing_broker_health_becomes_degraded_only_after_stale_window(self):
+        manager = node_state.NodeStateManager()
+        manager.register({
+            "server_id": "legacy-node",
+            "node_name": "Legacy node",
+            "req_status": "online",
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+        })
+        state = manager.get("legacy-node")
+        self.assertEqual(manager.compute_display_status(state), "online")
+        state.last_heartbeat = time.time() - 41
+        self.assertEqual(manager.compute_display_status(state), "degraded")
+
+    def test_invalid_broker_health_does_not_change_ts_state(self):
+        manager = node_state.NodeStateManager()
+        manager.register({
+            "server_id": "invalid-health-node",
+            "node_name": "Invalid health node",
+            "req_status": "online",
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+        })
+        state = manager.get("invalid-health-node")
+        self.assertFalse(manager.update_broker_health("invalid-health-node", {
+            "level": "broken",
+            "code": "SECRET_SHOULD_NOT_BE_USED",
+        }))
+        self.assertEqual(state.status, "online")
+        self.assertEqual(state.broker_health_level, "unknown")
 
 
 class ClientConnectionLifecycleTests(unittest.TestCase):

@@ -124,6 +124,7 @@ class TradingSession:
         self.last_login_error: dict = {}
         self.auth_expires_in: int = 0
         self.auth_deadline_monotonic: float = 0.0
+        self.config_scope: str = ""
         self.broker_detail = self._default_broker_detail()
         # 登录后从 SM 获取的 TS 地址
         self.se_address: str = ""
@@ -353,6 +354,12 @@ class TradingSession:
         })
         if status == 200:
             self.http.token = resp.get("token", "")
+            config_scope = str(resp.get("config_scope") or "").strip().lower()
+            if not re.fullmatch(r"[a-f0-9]{64}", config_scope):
+                self.clear_local_auth()
+                self.last_login_error = {"code": "CONFIG_SCOPE_INVALID"}
+                return False, "登录响应无效，请稍后重试"
+            self.config_scope = config_scope
             try:
                 self.auth_expires_in = max(0, int(resp.get("expires_in") or 0))
             except (TypeError, ValueError):
@@ -390,6 +397,7 @@ class TradingSession:
         self.http.token = ""
         self.auth_expires_in = 0
         self.auth_deadline_monotonic = 0.0
+        self.config_scope = ""
         self.set_broker_detail(None)
         self.invalidate_order_cache()
         self.clear_symbol_order_options()

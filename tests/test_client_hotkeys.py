@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt import main_window as client_main_window
-from Client.ui_qt.hotkey_config_store import load_hotkey_config, save_hotkey_config
+from Client.ui_qt.hotkey_config_store import hotkey_config_path, load_hotkey_config, save_hotkey_config
 from Client.ui_qt.hotkey_config import (
     DEFAULT_QUANTITY_HOTKEY_IDS,
     DEFAULT_HOTKEY_CONFIG,
@@ -95,6 +95,35 @@ class ActionRateLimiterTests(unittest.TestCase):
 
 
 class HotkeyConfigTests(unittest.TestCase):
+    def test_scoped_hotkey_configs_are_stored_and_loaded_independently(self):
+        first_scope = "1" * 64
+        second_scope = "2" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            old_config_dir = os.environ.get("SC_CLIENT_CONFIG_DIR")
+            os.environ["SC_CLIENT_CONFIG_DIR"] = tmp
+            try:
+                first_config = replace(DEFAULT_HOTKEY_CONFIG, default_route="ARCA")
+                second_config = replace(DEFAULT_HOTKEY_CONFIG, default_route="SMART")
+                first_path = save_hotkey_config(first_config, scope_id=first_scope)
+                second_path = save_hotkey_config(second_config, scope_id=second_scope)
+
+                self.assertNotEqual(first_path, second_path)
+                self.assertEqual(first_path.name, "hotkey.json")
+                self.assertEqual(first_path.parent.parent.name, "profiles")
+                self.assertEqual(
+                    load_hotkey_config(scope_id=first_scope).config.default_route,
+                    "ARCA",
+                )
+                self.assertEqual(
+                    load_hotkey_config(scope_id=second_scope).config.default_route,
+                    "SMART",
+                )
+            finally:
+                if old_config_dir is None:
+                    os.environ.pop("SC_CLIENT_CONFIG_DIR", None)
+                else:
+                    os.environ["SC_CLIENT_CONFIG_DIR"] = old_config_dir
+
     def test_default_order_hotkeys_match_confirmed_table(self):
         rules = DEFAULT_HOTKEY_CONFIG.order_hotkeys
         self.assertEqual(len(rules), 12)
@@ -472,6 +501,7 @@ class ShortcutControllerTests(unittest.TestCase):
 class FakeTradingSession:
     def __init__(self):
         self.connected = True
+        self.config_scope = "a" * 64
         self.mock_mode = False
         self.auth_remaining = None
         self.local_auth_cleared = False
@@ -600,6 +630,124 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._on_price_enter(1)
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.25, "Buy to Open", "limit", "Day"))
         self.assertEqual(len(self.session.orders), 2)
+
+    def test_enter_target_starts_empty_and_mouse_buy_selects_buy(self):
+        slot = self.window.slots[1]
+        slot.set_trade_enabled(True)
+
+        self.assertEqual(slot.enter_target, "NONE")
+        self.window._handle_enter_target(1)
+        self.assertEqual(self.session.orders, [])
+
+        slot.buy.click()
+
+        self.assertEqual(self.session.orders[-1][3], "Buy to Open")
+        self.assertEqual(slot.enter_target, "BUY")
+        self.assertTrue(slot.buy.property("enterSelected"))
+        self.assertFalse(slot.sell.property("enterSelected"))
+
+    def test_mouse_sell_selects_sell_and_enter_reuses_direction(self):
+        slot = self.window.slots[1]
+        slot.set_trade_enabled(True)
+
+        slot.sell.click()
+        self.assertEqual(slot.enter_target, "SELL")
+        self.assertFalse(slot.buy.property("enterSelected"))
+        self.assertTrue(slot.sell.property("enterSelected"))
+
+        self.window._action_limiter.reset()
+        self.window._handle_enter_target(1)
+        self.assertEqual(self.session.orders[-1][3], "Sell to Close")
+
+    def test_symbol_target_queries_without_submitting_order(self):
+        slot = self.window.slots[1]
+        requested = []
+        self.window._quote_subscriptions.request_symbol = (
+            lambda panel_id, symbol: requested.append((panel_id, symbol)) or 1
+        )
+        slot.symbol.setCurrentText("MSFT")
+        slot.current_symbol = ""
+
+        self.window._set_enter_target(1, "SYMBOL")
+        self.window._handle_enter_target(1)
+
+        self.assertEqual(requested, [(1, "MSFT")])
+        self.assertEqual(self.session.orders, [])
+        self.assertFalse(slot.buy.property("enterSelected"))
+        self.assertFalse(slot.sell.property("enterSelected"))
+
+    def test_fixed_enter_binding_dispatches_symbol_query_inside_trade_panel(self):
+        slot = self.window.slots[1]
+        requested = []
+        self.window._quote_subscriptions.request_symbol = (
+            lambda panel_id, symbol: requested.append((panel_id, symbol)) or 1
+        )
+        slot.symbol.setCurrentText("MSFT")
+        slot.current_symbol = ""
+
+        self.window._setup_shortcuts()
+        self.window.show()
+        self.window.activateWindow()
+        slot.symbol.lineEdit().setFocus()
+        self.app.processEvents()
+        QTest.keyClick(slot.symbol.lineEdit(), Qt.Key_Return)
+        self.app.processEvents()
+        self.window._teardown_shortcuts()
+
+        self.assertEqual(requested, [(1, "MSFT")])
+        self.assertEqual(self.session.orders, [])
+
+    def test_pending_shortcut_selects_direction_and_enter_confirms_it(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+        slot = self.window.slots[1]
+
+        self.window._prepare_limit_order("sell", 1, "bid")
+
+        self.assertEqual(slot.pending_action, "Sell to Close")
+        self.assertEqual(slot.enter_target, "SELL")
+        self.assertTrue(slot.sell.property("enterSelected"))
+        self.assertFalse(slot.buy.property("enterSelected"))
+
+        self.window._handle_enter_target(1)
+        self.assertEqual(self.session.orders[-1][3], "Sell to Close")
+        self.assertEqual(slot.pending_action, "")
+
+    def test_ioc_hotkey_does_not_leave_enter_selection(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+        slot = self.window.slots[1]
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+        }, 1)
+
+        self.assertEqual(slot.pending_action, "")
+        self.assertEqual(slot.enter_target, "NONE")
+        self.assertFalse(slot.buy.property("enterSelected"))
+        self.assertFalse(slot.sell.property("enterSelected"))
+
+    def test_enter_target_isolated_between_trade_panels(self):
+        self.window._set_enter_target(1, "BUY")
+        self.window._set_enter_target(2, "SELL")
+
+        self.assertEqual(self.window.slots[1].enter_target, "BUY")
+        self.assertEqual(self.window.slots[2].enter_target, "SELL")
+        self.assertTrue(self.window.slots[1].buy.property("enterSelected"))
+        self.assertTrue(self.window.slots[2].sell.property("enterSelected"))
 
     def test_limit_hotkey_default_price_uses_bid_but_ioc_buy_keeps_ask(self):
         self.window.current_quote["AAPL"] = {
@@ -1218,7 +1366,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         )
         self.assertFalse(quantity.enabled)
         self.assertFalse(binding.enabled)
-        loaded = load_hotkey_config()
+        loaded = load_hotkey_config(scope_id=self.session.config_scope)
         self.assertTrue(loaded.used_local_config)
         self.assertFalse(next(item for item in loaded.config.quantity_hotkeys if item.key == "Num+1").enabled)
 
@@ -1311,7 +1459,9 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertNotIn("enabled binding", message)
 
     def test_corrupt_runtime_hotkey_config_logs_warning_and_uses_defaults(self):
-        with open(os.path.join(self._config_dir.name, "hotkey.json"), "w", encoding="utf-8") as fh:
+        path = hotkey_config_path(self.session.config_scope)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as fh:
             fh.write("{bad json")
 
         self.window._setup_shortcuts()
@@ -1323,6 +1473,19 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._submit_market_order("sell", 1)
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 0.0, "Sell to Close", "market", "Day"))
         self.assertEqual(self.window.slots[1].order_type.currentText(), "Limit")
+
+    def test_force_disconnect_clears_session_and_returns_to_login_root(self):
+        self.window._return_to_login_after_force_disconnect()
+
+        self.assertTrue(self.session.local_auth_cleared)
+        self.assertIsNone(self.window.session)
+        self.assertFalse(self.window._main_ui_built)
+        self.assertFalse(self.window._init_ready)
+        self.assertTrue(hasattr(self.window, "_login_user_entry"))
+
+        login_root = self.window.centralWidget()
+        self.window._return_to_login_after_force_disconnect()
+        self.assertIs(self.window.centralWidget(), login_root)
 
     def test_shortcut_trade_still_obeys_broker_capability(self):
         self.session.broker_detail["capabilities"]["orders"] = False

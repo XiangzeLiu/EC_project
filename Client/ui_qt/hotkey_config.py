@@ -18,6 +18,7 @@ class HotkeyAction(str, Enum):
     ORDER_CANCEL_PENDING = "order.cancel_pending"
     ORDER_CANCEL_SELECTED = "order.cancel_selected"
     ORDER_CANCEL_SYMBOL_LIVE = "order.cancel_symbol_live"
+    ENTER_TARGET = "enter.target"
     QUANTITY_SET = "quantity.set"
     QUANTITY_ADJUST = "quantity.adjust"
     PRICE_ADJUST = "price.adjust"
@@ -124,6 +125,7 @@ ACTION_POLICIES: dict[HotkeyAction, RateLimitPolicy] = {
     HotkeyAction.ORDER_PREPARE_LIMIT: RateLimitPolicy(cooldown_ms=150),
     HotkeyAction.ORDER_CANCEL_SELECTED: ORDER_CANCEL_POLICY,
     HotkeyAction.ORDER_CANCEL_SYMBOL_LIVE: BATCH_CANCEL_POLICY,
+    HotkeyAction.ENTER_TARGET: RateLimitPolicy(cooldown_ms=ENTER_INPUT_GUARD_MS),
     HotkeyAction.QUANTITY_ADJUST: RateLimitPolicy(
         allow_auto_repeat=True,
         repeat_delay_ms=300,
@@ -211,6 +213,7 @@ DEFAULT_HOTKEY_CONFIG = HotkeyRuntimeConfig(
 FIXED_HOTKEY_BINDINGS: tuple[HotkeyBinding, ...] = (
     _binding("panel_cycle", "Space", HotkeyAction.PANEL_CYCLE, HotkeyContext.MAIN_WINDOW),
     _binding("cancel_symbol_live", "Esc", HotkeyAction.ORDER_CANCEL_SYMBOL_LIVE, HotkeyContext.MAIN_WINDOW),
+    _binding("enter_target", "Enter", HotkeyAction.ENTER_TARGET, HotkeyContext.TRADE_PANEL),
     _binding("price_increase_large", "Up", HotkeyAction.PRICE_ADJUST, HotkeyContext.PRICE_INPUT, delta=0.05),
     _binding("price_decrease_large", "Down", HotkeyAction.PRICE_ADJUST, HotkeyContext.PRICE_INPUT, delta=-0.05),
     _binding("price_decrease_small", "Left", HotkeyAction.PRICE_ADJUST, HotkeyContext.PRICE_INPUT, delta=-0.01),

@@ -290,6 +290,11 @@ QPushButton#sellButton:pressed {{
     padding-bottom: 6px;
 }}
 
+QPushButton#buyButton[enterSelected="true"],
+QPushButton#sellButton[enterSelected="true"] {{
+    border: 1px solid #F5A623;
+}}
+
 QPushButton#buyButton:disabled,
 QPushButton#sellButton:disabled {{
     background: {PANEL_ALT_BG};

@@ -7,7 +7,7 @@ Node Runtime State Manager (内存节点状态管理)
   - 启动时从 DB 加载初始状态到内存
   - 定期同步节点状态；Client 占用永不作为重启恢复依据
 
-状态优先级: suspended > offline > occupied > online/approved
+展示状态优先级: suspended > offline > degraded > occupied > online/approved
 """
 
 import time
@@ -18,6 +18,17 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 log = logging.getLogger("node_state")
+
+BROKER_HEALTH_CONFIRMATIONS = 2
+BROKER_HEALTH_LEVELS = {"healthy", "degraded", "unknown"}
+BROKER_HEALTH_HARD_FAILURE_CODES = {
+    "IB_GATEWAY_UNAVAILABLE",
+    "IB_API_HANDSHAKE_TIMEOUT",
+    "IB_CONNECTION_CLOSED",
+    "IB_RUNTIME_UNAVAILABLE",
+    "BROKER_RUNTIME_UNAVAILABLE",
+    "BROKER_CONNECT_FAILED",
+}
 
 # ── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +48,15 @@ class NodeState:
     status: str = "approved"          # online / offline / suspended / approved
     last_heartbeat: float = 0.0       # Unix 时间戳（time.time()）
     current_ip: str = ""
+    broker_health_level: str = "unknown"
+    broker_health_code: str = ""
+    broker_health_message: str = ""
+    broker_health_checked_at: float = 0.0
+    broker_health_schema_version: int = 0
+    _broker_health_bad_streak: int = 0
+    _broker_health_good_streak: int = 0
+    _broker_health_unknown_streak: int = 0
+    _broker_health_seen: bool = False
 
     # ── 占用字段（Client 操作时更新）──
     occupied_by: str = ""             # 空字符串表示未被占用
@@ -105,6 +125,10 @@ class NodeState:
                 "_reservation_deadline",
                 "_occupied_hb_confirmed",
                 "_occupied_transition_until",
+                "_broker_health_bad_streak",
+                "_broker_health_good_streak",
+                "_broker_health_unknown_streak",
+                "_broker_health_seen",
             }:
                 continue
             if k.startswith("_"):
@@ -223,6 +247,62 @@ class NodeStateManager:
         return count
 
     # ── 心跳操作 ───────────────────────────────────────────────────────
+
+    def update_broker_health(self, server_id: str, payload: dict | None) -> bool:
+        state = self._states.get(server_id)
+        if not state or not isinstance(payload, dict):
+            return False
+        level = str(payload.get("level") or "unknown").strip().lower()
+        if level not in BROKER_HEALTH_LEVELS:
+            return False
+        now = time.time()
+        code = str(payload.get("code") or "").strip().upper()[:80]
+        message = str(payload.get("message") or "").strip()[:160]
+        checked_at = payload.get("checked_at")
+        try:
+            checked = float(checked_at) if checked_at is not None else now
+        except (TypeError, ValueError):
+            checked = now
+        if checked <= 0 or checked > now + 60:
+            checked = now
+
+        state.broker_health_schema_version = int(payload.get("schema_version") or 1)
+        state.broker_health_seen = True
+        state.broker_health_code = code
+        state.broker_health_message = message
+        state.broker_health_checked_at = checked
+        if level == "healthy":
+            state._broker_health_good_streak += 1
+            state._broker_health_bad_streak = 0
+            state._broker_health_unknown_streak = 0
+            if (
+                state.broker_health_level != "healthy"
+                and state._broker_health_good_streak < BROKER_HEALTH_CONFIRMATIONS
+            ):
+                return True
+        elif level == "degraded":
+            state._broker_health_bad_streak += 1
+            state._broker_health_good_streak = 0
+            state._broker_health_unknown_streak = 0
+            hard_failure = code in BROKER_HEALTH_HARD_FAILURE_CODES
+            if (
+                state.broker_health_level != "degraded"
+                and not hard_failure
+                and state._broker_health_bad_streak < BROKER_HEALTH_CONFIRMATIONS
+            ):
+                return True
+        else:
+            state._broker_health_unknown_streak += 1
+            state._broker_health_good_streak = 0
+            state._broker_health_bad_streak = 0
+            if state._broker_health_unknown_streak < BROKER_HEALTH_CONFIRMATIONS:
+                return True
+
+        state.broker_health_level = level
+        state.broker_health_message = message or (
+            "券商功能正常" if level == "healthy" else "券商状态未确认" if level == "unknown" else "券商连接异常"
+        )
+        return True
 
     def update_heartbeat(self, server_id: str, current_ip: str = "") -> tuple[bool, str]:
         """
@@ -686,7 +766,7 @@ class NodeStateManager:
         """
         计算节点的最终展示状态。
 
-        优先级: suspended(最高) > offline > occupied(需在线) > online/approved
+        优先级: suspended(最高) > offline > degraded > occupied(需在线) > online/approved
         
         关键规则: 占用状态只在节点实际在线时才生效，
                   离线节点即使有占用记录也显示离线。
@@ -695,6 +775,17 @@ class NodeStateManager:
             return "suspended"
         if not state.is_alive or state.status == "offline":
             return "offline"
+        health_age = time.time() - (
+            state.broker_health_checked_at or state.last_heartbeat
+        )
+        health_stale_after = max(10.0, state.heartbeat_timeout * 2 / 3)
+        health_degraded = state.broker_health_level == "degraded"
+        health_unknown_stale = (
+            state.broker_health_level == "unknown"
+            and health_age > health_stale_after
+        )
+        if health_degraded or health_unknown_stale:
+            return "degraded"
         if state.occupied_by:
             return "occupied"
         # 在线且未被占用

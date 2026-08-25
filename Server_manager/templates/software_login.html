@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SC 软件中心</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#f7f8fb; color:#1d2236; font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei","Segoe UI",sans-serif; }
+    .card { width:min(400px,calc(100vw - 32px)); background:#fff; border:1px solid #eef0f6; border-radius:12px; box-shadow:0 10px 30px rgba(20,30,80,.08); overflow:hidden; }
+    .head { padding:26px 28px 22px; background:linear-gradient(135deg,#3b63f6,#2238ad); color:#fff; }
+    .head h1 { margin:0; font-size:21px; font-weight:700; }
+    .head p { margin:7px 0 0; opacity:.82; font-size:13px; }
+    .body { padding:26px 28px 30px; }
+    label { display:block; margin:0 0 7px; color:#5b6480; font-size:13px; font-weight:500; }
+    .field { margin-bottom:18px; }
+    input { width:100%; height:42px; padding:9px 12px; border:1px solid #dde1ec; border-radius:8px; outline:none; font:inherit; }
+    input:focus { border-color:#93c5fd; box-shadow:0 0 0 3px rgba(59,99,246,.08); }
+    button { width:100%; height:42px; border:0; border-radius:8px; background:#3b63f6; color:#fff; cursor:pointer; font:600 14px inherit; }
+    button:hover { background:#3156dc; }
+    .error { margin-bottom:16px; padding:10px 12px; border:1px solid #fecaca; border-radius:8px; background:#fef2f2; color:#b91c1c; font-size:13px; }
+    .foot { margin-top:18px; text-align:center; color:#a7aec0; font-size:11px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <header class="head"><h1>SC 软件中心</h1><p>交易员 Client 下载</p></header>
+    <section class="body">
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="post" action="/software/login">
+        <div class="field"><label for="username">交易员账号</label><input id="username" name="username" autocomplete="username" required autofocus /></div>
+        <div class="field"><label for="password">密码</label><input id="password" type="password" name="password" autocomplete="current-password" required /></div>
+        <button type="submit">登录软件中心</button>
+      </form>
+      <div class="foot">仅提供 Client 软件下载</div>
+    </section>
+  </main>
+</body>
+</html>

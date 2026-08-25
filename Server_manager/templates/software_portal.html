@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SC 软件中心</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f7f8fb; color:#1d2236; font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei","Segoe UI",sans-serif; }
+    .top { height:64px; background:#fff; border-bottom:1px solid #eef0f6; display:flex; align-items:center; justify-content:space-between; padding:0 28px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; }
+    .icon { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#3b63f6,#2238ad); color:#fff; }
+    .user { display:flex; align-items:center; gap:14px; color:#5b6480; font-size:13px; }
+    .logout { color:#5b6480; text-decoration:none; padding:7px 10px; border-radius:7px; }
+    .logout:hover { color:#ef4444; background:#fef2f2; }
+    .wrap { width:min(960px,calc(100vw - 32px)); margin:28px auto; }
+    .panel { background:#fff; border:1px solid #eef0f6; border-radius:12px; box-shadow:0 2px 12px -2px rgba(20,30,80,.08); overflow:hidden; }
+    .panel-head { padding:18px 22px; border-bottom:1px solid #eef0f6; }
+    h1 { margin:0; font-size:18px; } .hint { margin:5px 0 0; color:#7c879f; font-size:12px; }
+    .list { padding:10px 22px 22px; }
+    .release { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:17px 0; border-bottom:1px solid #f0f2f7; }
+    .release:last-child { border-bottom:0; }
+    .version { font-weight:600; font-size:14px; } .meta { margin-top:5px; color:#7c879f; font-size:12px; }
+    .download { display:inline-flex; align-items:center; padding:8px 14px; border-radius:8px; background:#3b63f6; color:#fff; text-decoration:none; font-size:12px; white-space:nowrap; }
+    .download:hover { background:#3156dc; }
+    .empty { padding:35px 0; color:#a7aec0; text-align:center; font-size:13px; }
+    @media (max-width:600px) { .top { padding:0 16px; } .wrap { margin:16px auto; } .release { align-items:flex-start; flex-direction:column; gap:12px; } }
+  </style>
+</head>
+<body>
+  <header class="top"><div class="brand"><div class="icon">SC</div><span>软件中心</span></div><div class="user"><span>{{ username }}</span><a class="logout" href="/software/logout">退出</a></div></header>
+  <main class="wrap"><section class="panel"><div class="panel-head"><h1>Client 下载</h1><p class="hint">请选择管理员发布的 Client 版本进行下载。</p></div><div class="list">
+    {% for release in releases %}
+      {% set artifact = (release.artifacts or [])[0] if release.artifacts else {} %}
+      <div class="release"><div><div class="version">{{ release.version }}{% if release.is_default %} <span style="color:#16a34a;font-size:11px">默认版本</span>{% endif %}</div><div class="meta">{{ release.platform }} · {{ artifact.file_name or 'Client 软件包' }} · {{ artifact.file_size or 0 }} bytes · SHA256 {{ (artifact.sha256 or '')[:16] }}...</div></div><a class="download" href="/software/releases/{{ release.release_id }}/download">下载 Client</a></div>
+    {% else %}
+      <div class="empty">当前没有可下载的 Client 版本</div>
+    {% endfor %}
+  </div></section></main>
+</body>
+</html>
