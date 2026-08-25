@@ -212,6 +212,15 @@ def _reset_connect_retry_state() -> None:
     _last_connect_error = {"code": "", "message": "", "retryable": True}
 
 
+def _request_broker_health_refresh() -> None:
+    try:
+        from .heartbeat import request_broker_health_refresh
+
+        request_broker_health_refresh(confirmations=2)
+    except Exception as exc:
+        log.debug("Immediate broker health refresh unavailable: %s", exc)
+
+
 def _capture_connect_error(broker: BaseBrokerAPI | None) -> dict[str, object]:
     global _last_connect_error
     err = broker.get_connection_error() if broker and hasattr(broker, "get_connection_error") else {}
@@ -494,6 +503,7 @@ async def _run_runtime_recovery(
             if callable(start_events):
                 await start_events()
             _reset_connect_retry_state()
+            _request_broker_health_refresh()
             _broadcast_status(broker.broker_type, "reconnected")
             log.info(
                 "Broker runtime recovery completed: type=%s generation=%s data_lost=%s",
@@ -610,6 +620,7 @@ async def init_broker() -> bool:
             await _restore_quote_subscriptions(broker)
             _reset_connect_retry_state()
             _start_auto_reconnect()
+            _request_broker_health_refresh()
 
             log.info(f"init_broker: {broker_type} initialized successfully (version={_local_config_version})")
             _broadcast_status(broker_type, "connected")
@@ -829,6 +840,7 @@ async def _do_hot_reload_locked(trigger: str = "auto") -> bool:
         await _restore_quote_subscriptions(broker)
         _reset_connect_retry_state()
         _start_auto_reconnect()
+        _request_broker_health_refresh()
 
         log.info(f"_do_hot_reload: {new_type} reloaded OK (version={new_version})")
         _broadcast_status(new_type, "reloaded")

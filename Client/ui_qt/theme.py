@@ -292,7 +292,7 @@ QPushButton#sellButton:pressed {{
 
 QPushButton#buyButton[enterSelected="true"],
 QPushButton#sellButton[enterSelected="true"] {{
-    border: 1px solid #F5A623;
+    border: 1.5px solid #F5A623;
 }}
 
 QPushButton#buyButton:disabled,
@@ -306,6 +306,33 @@ QPushButton#loginButton {{
     background: {ACCENT_BLUE};
     color: #07121B;
     font-weight: 700;
+}}
+
+QPushButton#logoutButton {{
+    background: {ACCENT_YELLOW};
+    border: 1px solid {ACCENT_YELLOW};
+    border-radius: 8px;
+    color: #17130A;
+    font-weight: 700;
+    padding: 0 10px;
+    min-height: 28px;
+    max-height: 28px;
+}}
+
+QPushButton#logoutButton:hover {{
+    background: #FFD166;
+    border-color: #FFD166;
+}}
+
+QPushButton#logoutButton:pressed {{
+    background: #D8A334;
+    border-color: #D8A334;
+}}
+
+QPushButton#logoutButton:disabled {{
+    background: {PANEL_ALT_BG};
+    border-color: {BORDER};
+    color: {TEXT_LOW};
 }}
 
 QPushButton#settingsGearButton {{

@@ -227,7 +227,11 @@ class OrderRefreshCoordinator(QObject):
         if session is not None:
             session.invalidate_order_cache()
         status = str(payload.get("status") or "")
-        position_changed = status in {"Partial", "Filled"}
+        try:
+            filled_qty = float(payload.get("filled_qty") or 0)
+        except (TypeError, ValueError):
+            filled_qty = 0.0
+        position_changed = status in {"Partial", "Filled"} or filled_qty > 0
         self._queue_event_refresh(
             orders=True,
             positions=position_changed,

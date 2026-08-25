@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -16,7 +17,7 @@ from Trader_Server.api.interactive_brokers import (
     _tif_from_ib,
     _tif_to_ib,
 )
-from Trader_Server.services import config_sync, ib_registration_validation, trading_svc
+from Trader_Server.services import config_sync, heartbeat as heartbeat_service, ib_registration_validation, trading_svc
 
 
 class InteractiveBrokersAdapterTests(unittest.TestCase):
@@ -64,6 +65,8 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
         self.assertEqual(_normalize_status("Submitted", 0, 10), "Live")
         self.assertEqual(_normalize_status("Submitted", 3, 7), "Partial")
         self.assertEqual(_normalize_status("Inactive", 0, 10), "Rejected")
+        self.assertEqual(_normalize_status("Inactive", 3, 7), "Rejected")
+        self.assertEqual(_normalize_status("Cancelled", 3, 7), "Cancelled")
 
     def test_serialized_order_is_consumable_by_current_client(self):
         broker = IBBroker()
@@ -201,6 +204,66 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][0], 42)
         self.assertIsInstance(captured[0][1], ib_module.OrderCancel)
+
+    async def test_order_error_retains_rejected_attempt_for_history_refresh(self):
+        if not hasattr(ib_module, "_IBApp"):
+            self.skipTest("ibapi is not installed")
+
+        loop = asyncio.get_running_loop()
+        order_events = asyncio.Queue()
+        app = ib_module._IBApp(loop, asyncio.Queue(), order_event_queue=order_events)
+        app.placeOrder = lambda *_args: None
+        contract = ib_module.Contract()
+        contract.symbol = "AAPL"
+        contract.secType = "STK"
+        contract.currency = "USD"
+        order = ib_module.Order()
+        order.account = "U123"
+        order.orderRef = "EC:BTO"
+        order.totalQuantity = 2
+        order.orderType = "LMT"
+        order.lmtPrice = 190.0
+        order.tif = "DAY"
+        order.outsideRth = False
+
+        submitted = asyncio.create_task(app.place_order_and_wait(42, contract, order))
+        await asyncio.sleep(0)
+        self.assertEqual(app.known_orders[42]["status"], "PendingSubmit")
+
+        app._on_error(42, 10268, "Unsupported order attribute")
+
+        with self.assertRaises(IBRequestError) as raised:
+            await submitted
+        self.assertEqual(raised.exception.code, "10268")
+        self.assertEqual(app.known_orders[42]["status"], "Rejected")
+        self.assertEqual(app.known_orders[42]["reject_reason"], "[10268] Unsupported order attribute")
+        self.assertEqual(await order_events.get(), {"kind": "status", "order_id": 42})
+
+    async def test_connection_error_does_not_turn_inflight_order_into_rejection(self):
+        if not hasattr(ib_module, "_IBApp"):
+            self.skipTest("ibapi is not installed")
+
+        loop = asyncio.get_running_loop()
+        app = ib_module._IBApp(loop, asyncio.Queue())
+        app.placeOrder = lambda *_args: None
+        contract = ib_module.Contract()
+        contract.symbol = "AAPL"
+        contract.secType = "STK"
+        contract.currency = "USD"
+        order = ib_module.Order()
+        order.account = "U123"
+        order.orderRef = "EC:BTO"
+        order.totalQuantity = 1
+        order.orderType = "LMT"
+
+        submitted = asyncio.create_task(app.place_order_and_wait(43, contract, order))
+        await asyncio.sleep(0)
+        app._on_error(43, 504, "Not connected")
+
+        with self.assertRaises(IBRequestError):
+            await submitted
+        self.assertEqual(app.known_orders[43]["status"], "PendingSubmit")
+        self.assertNotIn("reject_reason", app.known_orders[43])
 
     async def test_2176_fractional_size_warning_does_not_fail_quote_request(self):
         if not hasattr(ib_module, "_IBApp"):
@@ -387,6 +450,43 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["code"], "ORDER_RESPONSE_INVALID")
         self.assertFalse(result["retryable"])
 
+    async def test_unavailable_ib_route_keeps_structured_client_error(self):
+        class FakeBroker:
+            @staticmethod
+            def effective_capabilities():
+                return {"orders": True}
+
+            async def place_order(self, _params):
+                raise IBRequestError(
+                    "IB_ROUTE_UNAVAILABLE",
+                    "IB route ARCA is not available for AAPL",
+                )
+
+        with (
+            patch.object(trading_svc, "ensure_broker_connected", AsyncMock(return_value=True)),
+            patch.object(trading_svc, "get_current_broker", return_value=FakeBroker()),
+        ):
+            result = await trading_svc.place_order(
+                {
+                    "symbol": "AAPL",
+                    "qty": 1,
+                    "price": 190,
+                    "action": "Buy to Open",
+                    "order_type": "limit",
+                    "tif": "Day",
+                    "route": "ARCA",
+                },
+                session_id="route-test",
+            )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["code"], "IB_ROUTE_UNAVAILABLE")
+        self.assertEqual(
+            result["message"],
+            "当前股票或IB账户不支持所选ROUTE，订单未提交，请改用SMART",
+        )
+        self.assertFalse(result["retryable"])
+
     async def test_routes_come_from_contract_details_and_hidden_reaches_ib_order(self):
         confirmed_contract = SimpleNamespace(
             conId=265598,
@@ -427,7 +527,10 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         app = FakeApp()
         broker = InteractiveBrokersAdapterTests._ready_broker(app)
-        self.assertEqual(broker.status_detail()["order_options"]["routes"], ["SMART"])
+        self.assertEqual(
+            broker.status_detail()["order_options"]["routes"],
+            ["SMART", "ARCA", "NYSE"],
+        )
         self.assertIn("IOC", broker.status_detail()["order_options"]["supported_tifs"])
 
         await broker.subscribe_quotes(["AAPL"])
@@ -445,7 +548,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        self.assertEqual(routes, ["SMART", "ARCA", "NYSE", "NASDAQ"])
+        self.assertEqual(routes, ["SMART", "ARCA", "NYSE"])
         self.assertEqual(result["order_id"], "901")
         submitted_contract = app.submissions[0][1]
         submitted_order = app.submissions[0][2]
@@ -486,11 +589,50 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         aapl = await broker.get_symbol_order_options("AAPL")
         mu = await broker.get_symbol_order_options("MU")
 
-        self.assertEqual(aapl["routes"], ["SMART", "ARCA", "NASDAQ"])
+        self.assertEqual(aapl["routes"], ["SMART", "ARCA"])
         self.assertEqual(mu["routes"], ["SMART", "NYSE"])
         self.assertNotIn("ARCA", mu["routes"])
         self.assertTrue(aapl["routes_validated"])
         self.assertIn("IOC", aapl["supported_tifs"])
+
+    async def test_unavailable_direct_route_is_rejected_before_ib_submission(self):
+        contract = SimpleNamespace(
+            conId=265598,
+            symbol="AAPL",
+            secType="STK",
+            exchange="SMART",
+            primaryExchange="NASDAQ",
+            currency="USD",
+        )
+
+        class FakeApp:
+            @staticmethod
+            def isConnected():
+                return True
+
+            async def request_contract_details(self, _contract):
+                return [SimpleNamespace(contract=contract, validExchanges="SMART,NYSE")]
+
+            @staticmethod
+            def allocate_order_id():
+                raise AssertionError("invalid route must not allocate an order id")
+
+        broker = InteractiveBrokersAdapterTests._ready_broker(FakeApp())
+
+        with self.assertRaises(IBRequestError) as raised:
+            await broker.place_order(
+                {
+                    "symbol": "AAPL",
+                    "qty": 1,
+                    "price": 190,
+                    "action": "Buy to Open",
+                    "order_type": "limit",
+                    "tif": "Day",
+                    "route": "ARCA",
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "IB_ROUTE_UNAVAILABLE")
 
     async def test_accounts_summary_and_quotes_use_confirmed_us_stock_contract(self):
         confirmed_contract = SimpleNamespace(
@@ -709,7 +851,15 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         stock = SimpleNamespace(symbol="AAPL", secType="STK", currency="USD")
         option = SimpleNamespace(symbol="AAPL", secType="OPT", currency="USD")
 
-        def order_item(order_id, status, account="U123", order_ref="EC:BTO", contract=stock, perm_id=0):
+        def order_item(
+            order_id,
+            status,
+            account="U123",
+            order_ref="EC:BTO",
+            contract=stock,
+            perm_id=0,
+            reject_reason="",
+        ):
             return {
                 "order_id": order_id,
                 "perm_id": perm_id,
@@ -729,6 +879,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "filled": 2 if status == "Filled" else 0,
                 "remaining": 0 if status == "Filled" else 2,
                 "updated_at": f"2026-07-29T12:0{order_id}:00+00:00",
+                "reject_reason": reject_reason,
             }
 
         live_order = order_item(1, "Submitted", perm_id=101)
@@ -736,10 +887,19 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         foreign_ref = order_item(3, "Submitted", order_ref="MANUAL")
         foreign_account = order_item(4, "Submitted", account="U999")
         non_stock = order_item(5, "Submitted", contract=option)
+        retained_rejected = order_item(
+            6,
+            "Rejected",
+            perm_id=106,
+            reject_reason="[10268] Unsupported order attribute",
+        )
 
         class FakeApp:
             def __init__(self):
-                self.known_orders = {item["order_id"]: item for item in (live_order, foreign_ref)}
+                self.known_orders = {
+                    item["order_id"]: item
+                    for item in (live_order, filled_order, foreign_ref, retained_rejected)
+                }
                 self.completed_requests = 0
                 self.execution_requests = []
 
@@ -787,11 +947,15 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         all_orders = await broker.get_orders("all")
         live_orders = await broker.get_orders("live")
 
-        self.assertEqual({item["id"] for item in all_orders}, {"1", "2"})
+        self.assertEqual({item["id"] for item in all_orders}, {"1", "2", "6"})
+        self.assertEqual(len([item for item in all_orders if item["id"] == "2"]), 1)
         filled = next(item for item in all_orders if item["id"] == "2")
         self.assertEqual(filled["action"], "Sell to Close")
         self.assertEqual(filled["legs"][0]["fills"][0]["fill_price"], "191.5")
         self.assertEqual(filled["legs"][0]["fills"][0]["quantity"], "2")
+        rejected = next(item for item in all_orders if item["id"] == "6")
+        self.assertEqual(rejected["status"], "Rejected")
+        self.assertEqual(rejected["status_message"], "[10268] Unsupported order attribute")
         self.assertEqual([item["id"] for item in live_orders], ["1"])
         self.assertEqual(app.completed_requests, 1)
         self.assertEqual(app.execution_requests, ["U123"])
@@ -1085,6 +1249,81 @@ class InteractiveBrokersClientCompatibilityTests(unittest.TestCase):
         self.assertEqual(activity[0]["qty_bot"], 2.0)
         self.assertEqual(activity[0]["exes"], 1)
 
+    def test_client_today_activity_counts_only_actual_partial_fills(self):
+        session = self._ib_session()
+        session_time = datetime.datetime.combine(
+            datetime.datetime.now(session._ET).date(),
+            datetime.time(12, 0),
+            tzinfo=session._ET,
+        ).isoformat()
+        orders = [
+            {
+                "status": "Partial",
+                "updated_at": session_time,
+                "legs": [
+                    {
+                        "symbol": "AAPL",
+                        "action": "Buy to Open",
+                        "quantity": "10",
+                        "fills": [{"fill_price": "105", "quantity": "3"}],
+                    }
+                ],
+            },
+            {
+                "status": "Cancelled",
+                "updated_at": session_time,
+                "legs": [
+                    {
+                        "symbol": "MSFT",
+                        "action": "Buy to Open",
+                        "quantity": "10",
+                        "fills": [{"fill_price": "205", "quantity": "2"}],
+                    }
+                ],
+            },
+            {
+                "status": "Partial",
+                "updated_at": session_time,
+                "legs": [
+                    {
+                        "symbol": "QQQ",
+                        "action": "Buy to Open",
+                        "quantity": "10",
+                        "fills": [],
+                    }
+                ],
+            },
+        ]
+
+        activity = session._calc_today_activity([], orders)
+
+        by_symbol = {item["symbol"]: item for item in activity}
+        self.assertEqual(set(by_symbol), {"AAPL", "MSFT"})
+        self.assertEqual(by_symbol["AAPL"]["qty_bot"], 3.0)
+        self.assertEqual(by_symbol["AAPL"]["exes"], 1)
+        self.assertEqual(by_symbol["MSFT"]["qty_bot"], 2.0)
+        self.assertEqual(by_symbol["MSFT"]["exes"], 1)
+
+    def test_client_short_pnl_accepts_signed_ib_quantity(self):
+        session = self._ib_session()
+
+        activity = session._calc_today_activity(
+            [
+                {
+                    "symbol": "SHORT",
+                    "quantity": -5,
+                    "direction": "Short",
+                    "average_open_price": 100,
+                    "close_price": 90,
+                    "realized_today": 0,
+                }
+            ],
+            [],
+        )
+
+        self.assertEqual(activity[0]["qty"], -5.0)
+        self.assertEqual(activity[0]["unrealized"], 50.0)
+
 
 class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
     _GLOBAL_NAMES = (
@@ -1153,6 +1392,35 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unknown["level"], "unknown")
         self.assertEqual(unknown["code"], "BROKER_NOT_INITIALIZED")
 
+    async def test_broker_recovery_requests_two_immediate_health_heartbeats(self):
+        sender = heartbeat_service.HeartbeatSender(interval=30)
+        sent = asyncio.Event()
+        first_sent = asyncio.Event()
+        calls = []
+        was_shutting_down = heartbeat_service.state.is_shutting_down
+
+        def fake_heartbeat():
+            calls.append(time.monotonic())
+            sender._event_loop.call_soon_threadsafe(first_sent.set)
+            if len(calls) >= 3:
+                sender._event_loop.call_soon_threadsafe(sent.set)
+            return True, "ok"
+
+        sender._do_heartbeat = fake_heartbeat
+        heartbeat_service.state._shutdown_flag = False
+        await sender.start()
+        try:
+            await asyncio.wait_for(first_sent.wait(), timeout=1)
+            self.assertTrue(heartbeat_service.request_broker_health_refresh(confirmations=2))
+            await asyncio.wait_for(sent.wait(), timeout=3)
+        finally:
+            sender.stop()
+            await sender.wait_stopped()
+            heartbeat_service.state._shutdown_flag = was_shutting_down
+
+        self.assertGreaterEqual(len(calls), 3)
+        self.assertLess(calls[2] - calls[0], 2.5)
+
     async def test_config_sync_creates_normalizes_and_connects_ib_adapter(self):
         class FakeBroker:
             broker_type = "interactive_brokers"
@@ -1206,6 +1474,7 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
             patch.object(config_sync.BrokerFactory, "create", return_value=broker) as create,
             patch.object(config_sync, "_restore_quote_subscriptions", AsyncMock()) as restore,
             patch.object(config_sync, "_start_auto_reconnect") as reconnect,
+            patch.object(config_sync, "_request_broker_health_refresh") as health_refresh,
             patch.object(config_sync, "_broadcast_status") as broadcast,
         ):
             initialized = await config_sync.init_broker()
@@ -1217,6 +1486,7 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(broker.quote_callback)
         restore.assert_awaited_once_with(broker)
         reconnect.assert_called_once_with()
+        health_refresh.assert_called_once_with()
         broadcast.assert_called_once_with("interactive_brokers", "connected")
         status = config_sync.get_broker_status(public=True)
         self.assertTrue(status["connected"])
@@ -1304,12 +1574,14 @@ class InteractiveBrokersConfigSyncTests(unittest.IsolatedAsyncioTestCase):
                 "_restore_quote_subscriptions",
                 AsyncMock(return_value={"success": True}),
             ) as restore,
+            patch.object(config_sync, "_request_broker_health_refresh") as health_refresh,
             patch.object(config_sync, "_broadcast_status") as broadcast,
         ):
             await config_sync._run_runtime_recovery(broker, 4, data_lost=True)
 
         self.assertEqual(calls, [("prepare", True), ("complete", True), ("events", True)])
         restore.assert_awaited_once_with(broker)
+        health_refresh.assert_called_once_with()
         broadcast.assert_called_once_with("interactive_brokers", "reconnected")
 
     async def test_1102_runtime_recovery_does_not_resubscribe_quotes(self):

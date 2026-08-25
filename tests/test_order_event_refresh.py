@@ -220,6 +220,34 @@ class OrderTablePresentationTests(unittest.TestCase):
         self.assertEqual(captured[0][1][0][:6], [None] * 6)
         self.assertEqual(captured[0][1][0][6], ORDER_STATUS_COLORS["Live"])
 
+    def test_position_update_keeps_signed_short_quantity_and_positive_profit(self):
+        rows = []
+        window = SimpleNamespace(
+            _positions_raw=[],
+            _latest_quote_snapshot=lambda _symbol: {},
+            positions_model=SimpleNamespace(set_rows=lambda value: rows.extend(value)),
+            metric_shares=(None, SimpleNamespace(setText=lambda _value: None)),
+            metric_realized=(None, SimpleNamespace(setText=lambda _value: None)),
+            metric_unrealized=(None, SimpleNamespace(setText=lambda _value: None)),
+        )
+
+        TradingTerminalQt._update_positions(
+            window,
+            [
+                {
+                    "symbol": "SHORT",
+                    "qty": -5,
+                    "direction": "Short",
+                    "avg_open": 100,
+                    "close_px": 90,
+                    "realized_today": 0,
+                }
+            ],
+        )
+
+        self.assertEqual(rows[0][3], -5)
+        self.assertEqual(rows[0][6], "+50.00")
+
 
 class TastytradeOrderEventTests(unittest.TestCase):
     def test_account_order_event_is_normalized_and_forwarded(self):
@@ -506,6 +534,24 @@ class OrderRefreshCoordinatorTests(unittest.TestCase):
         self.assertEqual(
             coordinator._event_flags,
             {"orders": True, "positions": False, "force_positions": False},
+        )
+
+    def test_cancelled_order_with_fills_refreshes_positions(self):
+        session = SimpleNamespace(invalidate_order_cache=lambda: None)
+        coordinator = OrderRefreshCoordinator(
+            session_provider=lambda: session,
+            generation_provider=lambda: 1,
+            background_runner=lambda fn: None,
+        )
+        coordinator._event_timer = SimpleNamespace(start=lambda _delay: None, stop=lambda: None)
+
+        coordinator.handle_order_status_event(
+            {"event_id": "evt-partial-cancel", "status": "Cancelled", "filled_qty": 3}
+        )
+
+        self.assertEqual(
+            coordinator._event_flags,
+            {"orders": True, "positions": True, "force_positions": True},
         )
 
     def test_action_results_share_one_restartable_follow_up_timer(self):

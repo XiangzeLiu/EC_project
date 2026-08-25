@@ -1193,15 +1193,12 @@ class TradingTerminalQt(QMainWindow):
         self.settings_btn = SettingsGearButton()
         self.settings_btn.clicked.connect(self._open_settings_overlay)
         layout.addWidget(self.settings_btn)
-        self.logout_btn = make_button("退出登录", min_width=80)
+        self.logout_btn = make_button("退出登录", object_name="logoutButton", min_width=80)
         self.logout_btn.setMinimumHeight(28)
         self.logout_btn.setMaximumHeight(28)
-        self.logout_btn.setStyleSheet(
-            f"background: {theme.PANEL_ALT_BG}; color: {theme.TEXT_DIM}; border: 1px solid {theme.BORDER}; "
-            "border-radius: 7px; padding: 3px 10px; font-size: 11px; font-weight: 700;"
-        )
+        self.logout_btn.setFont(theme.ui_font(9, bold=True))
         self.logout_btn.clicked.connect(self._confirm_logout)
-        layout.addWidget(self.logout_btn)
+        layout.addWidget(self.logout_btn, 0, Qt.AlignVCenter)
 
         clock = QWidget()
         clock_layout = QHBoxLayout(clock)
@@ -1993,7 +1990,13 @@ class TradingTerminalQt(QMainWindow):
         return options if isinstance(options, dict) else {}
 
     def _current_route_options(self, symbol: str = "") -> list[str]:
-        options = self._broker_order_options(symbol)
+        detail = self._broker_detail_state()
+        global_options = detail.get("order_options")
+        options = (
+            global_options
+            if isinstance(global_options, dict)
+            else self._broker_order_options(symbol)
+        )
         routes = options.get("routes") or options.get("available_routes") or []
         normalized: list[str] = []
         for route in routes:
@@ -2047,7 +2050,7 @@ class TradingTerminalQt(QMainWindow):
             return True
         options = self._broker_order_options(symbol)
         if not bool(options.get("routes_validated", False)):
-            return True
+            return False
         routes = {
             str(value or "").strip().upper()
             for value in options.get("routes") or []
@@ -3300,7 +3303,10 @@ class TradingTerminalQt(QMainWindow):
         route = self._resolve_route_value(requested_route, sym)
         hidden = bool(requested_hidden and self._hidden_order_supported(sym))
         if not self._route_available_for_symbol(sym, route):
-            self._log_user_error_once(f"{sym} 不支持 ROUTE {route}，订单未提交", "warn")
+            self._log_user_error_once(
+                f"{sym} \u5f53\u524d\u80a1\u7968\u6216IB\u8d26\u6237\u4e0d\u652f\u6301\u6240\u9009ROUTE {route}\uff0c\u8ba2\u5355\u672a\u63d0\u4ea4\uff0c\u8bf7\u6539\u7528SMART",
+                "warn",
+            )
             return
         if qty <= 0:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0")
@@ -3691,7 +3697,7 @@ class TradingTerminalQt(QMainWindow):
             realized = float(position.get("realized_today", 0) or 0)
             direction = position.get("direction", "")
             if qty and avg and close_px:
-                unrealized = round((close_px - avg) * qty * (1 if direction == "Long" else -1), 2)
+                unrealized = round((close_px - avg) * abs(qty) * (1 if direction == "Long" else -1), 2)
             else:
                 unrealized = float(position.get("unrealized", 0) or 0)
             total_shares += abs(qty)

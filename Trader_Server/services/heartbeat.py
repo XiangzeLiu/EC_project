@@ -24,6 +24,16 @@ from .https_client import urlopen
 
 log = logging.getLogger("trader_server.heartbeat")
 
+_active_sender: "HeartbeatSender | None" = None
+
+
+def request_broker_health_refresh(confirmations: int = 2) -> bool:
+    """Wake the active heartbeat loop after a broker health transition."""
+    sender = _active_sender
+    if sender is None:
+        return False
+    return sender.request_immediate(confirmations=confirmations)
+
 
 class HeartbeatSender:
     """心跳发送器 — 注册成功后在后台循环发送心跳"""
@@ -43,6 +53,8 @@ class HeartbeatSender:
         self._backoff: float = 1.0
         self._running: bool = False
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._wake_event: asyncio.Event | None = None
+        self._immediate_remaining: int = 0
 
     @property
     def sequence(self) -> int:
@@ -60,17 +72,42 @@ class HeartbeatSender:
 
     async def start(self):
         """启动心跳循环（异步）"""
+        global _active_sender
         if self._running:
             log.warning("Heartbeat already running")
             return
         self._event_loop = asyncio.get_running_loop()
+        self._wake_event = asyncio.Event()
         self._running = True
+        _active_sender = self
         self._task = asyncio.create_task(self._loop())
         log.info(f"Heartbeat started (interval={self.interval}s)")
 
+    def request_immediate(self, confirmations: int = 2) -> bool:
+        loop = self._event_loop
+        wake_event = self._wake_event
+        if not self._running or loop is None or not loop.is_running() or wake_event is None:
+            return False
+
+        count = max(1, int(confirmations or 1))
+
+        def wake() -> None:
+            self._immediate_remaining = max(self._immediate_remaining, count)
+            wake_event.set()
+
+        loop.call_soon_threadsafe(wake)
+        return True
+
     def stop(self):
         """请求停止心跳循环"""
+        global _active_sender
         self._running = False
+        if _active_sender is self:
+            _active_sender = None
+        wake_event = self._wake_event
+        loop = self._event_loop
+        if wake_event is not None and loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(wake_event.set)
         log.info("Heartbeat stop requested")
 
     async def wait_stopped(self):
@@ -95,6 +132,10 @@ class HeartbeatSender:
     async def _loop(self):
         """异步心跳主循环"""
         while self._running and not state.is_shutting_down:
+            wake_event = self._wake_event
+            immediate_for_iteration = self._immediate_remaining > 0
+            if wake_event is not None:
+                wake_event.clear()
             ok, msg = await asyncio.to_thread(self._do_heartbeat)
 
 
@@ -107,9 +148,19 @@ class HeartbeatSender:
                 self._backoff = min(self._backoff * 2, self.max_backoff)
 
             # 分段 sleep 以响应关闭信号
-            deadline = time.monotonic() + wait
-            while time.monotonic() < deadline and self._running and not state.is_shutting_down:
-                await asyncio.sleep(min(1.0, deadline - time.monotonic()))
+            if immediate_for_iteration and self._immediate_remaining > 0:
+                self._immediate_remaining -= 1
+                wait = min(wait, 1.0)
+
+            if not self._running or state.is_shutting_down:
+                break
+            if wake_event is None:
+                await asyncio.sleep(wait)
+                continue
+            try:
+                await asyncio.wait_for(wake_event.wait(), timeout=wait)
+            except asyncio.TimeoutError:
+                pass
 
     def _do_heartbeat(self) -> tuple[bool, str]:
         """

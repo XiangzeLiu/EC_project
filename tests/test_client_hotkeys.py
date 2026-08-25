@@ -178,7 +178,7 @@ class HotkeyConfigTests(unittest.TestCase):
 
         self.assertTrue(loaded.used_local_config)
         self.assertEqual(loaded.config, config)
-        self.assertEqual(payload["version"], 3)
+        self.assertEqual(payload["version"], 4)
         self.assertEqual(payload["quantity_hotkeys"][-1]["id"], "quantity_custom_1")
 
     def test_quantity_rules_require_defaults_and_enforce_total_limit(self):
@@ -226,7 +226,7 @@ class HotkeyConfigTests(unittest.TestCase):
             save_hotkey_config(DEFAULT_HOTKEY_CONFIG, path=path)
             with open(path, encoding="utf-8") as fh:
                 payload = json.load(fh)
-            payload["version"] = 2
+            payload["version"] = 3
             for item in payload["quantity_hotkeys"]:
                 item.pop("id", None)
             with open(path, "w", encoding="utf-8") as fh:
@@ -930,6 +930,47 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertIn(client_main_window.theme.TEXT_PRIMARY, self.window.slots[1].order_type.view().styleSheet())
         self.assertIn("QListView#comboPopup::item:disabled", client_main_window.theme.COMBO_POPUP_QSS)
 
+    def test_logout_button_keeps_header_order_and_vertical_alignment(self):
+        self.window.resize(1500, 900)
+        self.window.show()
+        self.app.processEvents()
+
+        header = self.window.logout_btn.parentWidget()
+        settings_center_y = self.window.settings_btn.mapTo(
+            header,
+            self.window.settings_btn.rect().center(),
+        ).y()
+        logout_center_y = self.window.logout_btn.mapTo(
+            header,
+            self.window.logout_btn.rect().center(),
+        ).y()
+        clock_center_y = self.window._clock.mapTo(
+            header,
+            self.window._clock.rect().center(),
+        ).y()
+        header_widgets = [
+            header.layout().itemAt(index).widget()
+            for index in range(header.layout().count())
+            if header.layout().itemAt(index).widget() is not None
+        ]
+
+        self.assertLess(header_widgets.index(self.window.settings_btn), header_widgets.index(self.window.logout_btn))
+        self.assertLess(header_widgets.index(self.window.logout_btn), header_widgets.index(self.window._clock.parentWidget()))
+        self.assertLessEqual(abs(logout_center_y - settings_center_y), 1)
+        self.assertLessEqual(abs(logout_center_y - clock_center_y), 1)
+        self.assertEqual(self.window.logout_btn.objectName(), "logoutButton")
+        self.assertEqual(self.window.logout_btn.font().families()[0], client_main_window.theme.FONT_UI)
+        self.assertIn("SimHei", self.window.logout_btn.font().families())
+
+    def test_logout_and_enter_selection_styles_are_scoped(self):
+        qss = client_main_window.theme.APP_QSS
+
+        self.assertIn("QPushButton#logoutButton", qss)
+        self.assertIn(f"background: {client_main_window.theme.ACCENT_YELLOW};", qss)
+        self.assertIn('QPushButton#buyButton[enterSelected="true"]', qss)
+        self.assertIn('QPushButton#sellButton[enterSelected="true"]', qss)
+        self.assertIn("border: 1.5px solid #F5A623;", qss)
+
     def test_ioc_is_disabled_for_tt_and_remains_available_for_ib(self):
         tt_tifs = ["Day", "GTC", "EXT", "GTC_EXT"]
         self.session.broker_detail["order_options"]["supported_tifs"] = tt_tifs
@@ -943,8 +984,10 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.window._open_settings_overlay()
         overlay = self.window._settings_overlay
-        ioc_rows = [row for row in overlay._order_rows if row["tif"].currentText() == "IOC"]
-        self.assertTrue(ioc_rows)
+        self.assertFalse(any(
+            row["tif"].currentText() == "IOC"
+            for row in overlay._order_rows
+        ))
         for row in overlay._order_rows:
             combo = row["tif"]
             ioc_index = combo.findText("IOC")
@@ -971,7 +1014,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "broker_type": "interactive_brokers",
             "order_options": {
                 "default_route": "SMART",
-                "routes": ["SMART"],
+                "routes": ["SMART", "ARCA", "NYSE"],
                 "route_editable": True,
                 "hidden_order": True,
                 "supported_tifs": ["Day", "GTC", "IOC", "EXT", "GTC_EXT"],
@@ -999,7 +1042,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.assertTrue(self.session.order_details[-1]["hidden"])
 
-    def test_each_trade_panel_uses_routes_for_its_own_symbol(self):
+    def test_each_trade_panel_uses_fixed_global_route_candidates(self):
         self.session.broker_detail.update({
             "broker_type": "interactive_brokers",
             "order_options": {
@@ -1036,10 +1079,10 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             for index in range(self.window.slots[1].route.count())
         ]
         second_routes = [second.route.itemText(index) for index in range(second.route.count())]
-        self.assertEqual(first_routes, ["SMART", "ARCA"])
-        self.assertEqual(second_routes, ["SMART", "NYSE"])
+        self.assertEqual(first_routes, ["SMART", "ARCA", "NYSE"])
+        self.assertEqual(second_routes, ["SMART", "ARCA", "NYSE"])
 
-    def test_panel_falls_back_to_symbol_default_when_configured_route_is_unavailable(self):
+    def test_panel_keeps_selected_candidate_until_symbol_route_validation(self):
         self.window._hotkey_config = replace(DEFAULT_HOTKEY_CONFIG, default_route="ARCA")
         self.session.broker_detail.update({
             "broker_type": "interactive_brokers",
@@ -1063,7 +1106,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.window._apply_order_options_to_slot(slot)
 
-        self.assertEqual(slot.route.currentText(), "SMART")
+        self.assertEqual(slot.route.currentText(), "ARCA")
 
     def test_invalid_symbol_route_is_blocked_before_order_submit(self):
         self.session.broker_detail.update({
@@ -1095,7 +1138,47 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         )
 
         self.assertEqual(self.session.orders, [])
-        self.assertEqual(tips, [("AAPL 不支持 ROUTE ARCA，订单未提交", "warn")])
+        self.assertEqual(
+            tips,
+            [("AAPL 当前股票或IB账户不支持所选ROUTE ARCA，订单未提交，请改用SMART", "warn")],
+        )
+
+    def test_non_smart_route_is_blocked_until_symbol_routes_are_validated(self):
+        self.session.broker_detail.update({
+            "broker_type": "interactive_brokers",
+            "order_options": {
+                "default_route": "SMART",
+                "routes": ["SMART", "ARCA", "NYSE"],
+                "route_editable": True,
+                "hidden_order": True,
+            },
+        })
+        tips = []
+        self.window._show_weak_tip = lambda message, level="inf", duration_ms=3000: tips.append((message, level))
+
+        self.window._place_order(
+            "Buy to Open",
+            1,
+            order_type_override="market",
+            price_override=0.0,
+            route_override="ARCA",
+            source="hotkey",
+        )
+
+        self.assertEqual(self.session.orders, [])
+        self.assertEqual(len(tips), 1)
+        self.assertIn("请改用SMART", tips[0][0])
+
+        self.window._place_order(
+            "Buy to Open",
+            1,
+            order_type_override="market",
+            price_override=0.0,
+            route_override="SMART",
+            source="hotkey",
+        )
+
+        self.assertEqual(self.session.order_details[-1]["route"], "SMART")
 
     def test_valid_symbol_route_reaches_shared_order_submit_path(self):
         self.session.broker_detail.update({
@@ -1134,7 +1217,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "broker_type": "interactive_brokers",
             "order_options": {
                 "default_route": "SMART",
-                "routes": ["SMART"],
+                "routes": ["SMART", "ARCA", "NYSE"],
                 "route_editable": True,
                 "hidden_order": True,
                 "supported_tifs": ["Day", "GTC", "IOC", "EXT", "GTC_EXT"],
@@ -1143,15 +1226,25 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._apply_broker_status_ui()
 
         self.window._open_settings_overlay()
-        hidden = self.window._settings_overlay._order_rows[0]["hidden"]
+        overlay = self.window._settings_overlay
+        hidden = overlay._order_rows[0]["hidden"]
 
         self.assertTrue(hidden.isEnabled())
         self.assertTrue(hidden.isChecked())
-        self.assertTrue(self.window._settings_overlay.order_capability_note.isHidden())
+        self.assertTrue(overlay.order_capability_note.isHidden())
+        self.assertFalse(overlay.default_route_combo.isEditable())
+        self.assertTrue(overlay.default_route_combo.isEnabled())
+        self.assertEqual(
+            [
+                overlay.default_route_combo.itemText(index)
+                for index in range(overlay.default_route_combo.count())
+            ],
+            ["SMART", "ARCA", "NYSE"],
+        )
         hidden.setChecked(False)
-        self.assertFalse(self.window._settings_overlay._collect_order_rules()[0].hidden)
+        self.assertFalse(overlay._collect_order_rules()[0].hidden)
 
-    def test_route_and_hide_are_editable_but_ignored_for_tt(self):
+    def test_route_and_hide_are_disabled_and_normalized_for_tt(self):
         self.window._hotkey_config = replace(
             DEFAULT_HOTKEY_CONFIG,
             order_hotkeys=(
@@ -1180,20 +1273,21 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         row = overlay._order_rows[0]
         hidden = row["hidden"]
         route = row["route"]
-        self.assertTrue(hidden.isEnabled())
-        self.assertTrue(hidden.isChecked())
-        self.assertTrue(route.isEditable())
-        route.setEditText("arca")
+        self.assertFalse(hidden.isEnabled())
+        self.assertFalse(hidden.isChecked())
+        self.assertFalse(route.isEnabled())
+        self.assertFalse(route.isEditable())
+        self.assertEqual(route.currentText(), "SMART")
         configured = overlay._collect_order_rules()[0]
-        self.assertEqual(configured.route, "ARCA")
-        self.assertTrue(configured.hidden)
+        self.assertEqual(configured.route, "SMART")
+        self.assertFalse(configured.hidden)
         self.assertIn("SMART", overlay.order_capability_note.text())
-        self.assertIn("普通订单", overlay.order_capability_note.text())
+        self.assertIn("HIDE 已关闭", overlay.order_capability_note.text())
         overlay.save_btn.click()
         self.app.processEvents()
         self.assertIsNone(self.window._settings_overlay)
-        self.assertEqual(self.window._hotkey_config.order_hotkeys[0].route, "ARCA")
-        self.assertTrue(self.window._hotkey_config.order_hotkeys[0].hidden)
+        self.assertEqual(self.window._hotkey_config.order_hotkeys[0].route, "SMART")
+        self.assertFalse(self.window._hotkey_config.order_hotkeys[0].hidden)
 
         self.window._prepare_configured_order(
             {
@@ -1909,7 +2003,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(requested, [(1, "MSFT")])
         self.assertEqual(reconciled, [True])
 
-    def test_tt_main_route_stays_locked_while_settings_route_is_editable(self):
+    def test_tt_route_stays_locked_in_main_and_settings(self):
         self.session.broker_detail.update({
             "broker_type": "tastytrade",
             "order_options": {
@@ -1928,12 +2022,13 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.window._open_settings_overlay()
         overlay = self.window._settings_overlay
-        self.assertFalse(overlay.default_route_combo.testAttribute(Qt.WA_TransparentForMouseEvents))
-        self.assertTrue(overlay.default_route_combo.isEditable())
-        self.assertTrue(overlay._order_rows[0]["hidden"].isEnabled())
-        overlay.default_route_combo.setEditText("arca")
-        self.assertEqual(overlay._collect_config().default_route, "ARCA")
-        self.assertIn("ROUTE / HIDE", overlay.order_capability_note.text())
+        self.assertFalse(overlay.default_route_combo.isEnabled())
+        self.assertFalse(overlay.default_route_combo.isEditable())
+        self.assertFalse(overlay._order_rows[0]["hidden"].isEnabled())
+        self.assertFalse(overlay._order_rows[0]["route"].isEnabled())
+        self.assertEqual(overlay._collect_config().default_route, "SMART")
+        self.assertIn("SMART", overlay.order_capability_note.text())
+        self.assertIn("HIDE 已关闭", overlay.order_capability_note.text())
 
     def test_four_order_tabs_switch_modes_and_keep_one_selected(self):
         for mode, button in self.window._order_mode_buttons.items():

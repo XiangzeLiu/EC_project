@@ -15,6 +15,7 @@ _ERROR_MESSAGES = {
     "POSITION_NOT_SUPPORTED": "当前交易通道不支持持仓查询",
     "ORDER_QUERY_NOT_SUPPORTED": "当前交易通道不支持订单查询",
     "QUOTE_NOT_SUPPORTED": "当前交易通道不支持行情订阅",
+    "IB_ROUTE_UNAVAILABLE": "\u5f53\u524d\u80a1\u7968\u6216IB\u8d26\u6237\u4e0d\u652f\u6301\u6240\u9009ROUTE\uff0c\u8ba2\u5355\u672a\u63d0\u4ea4\uff0c\u8bf7\u6539\u7528SMART",
     "ORDER_INVALID_SYMBOL": "请输入正确的股票代码",
     "ORDER_INVALID_QTY": "订单数量无效",
     "ORDER_INVALID_PRICE": "订单价格无效",

@@ -49,6 +49,7 @@ _NON_FATAL_WARNING_CODES = {2176}
 _CONNECTION_CODES = {326, 502, 504, 1100, 1101, 1102, 1300}
 _RUNTIME_CONNECTION_CODES = {1100, 1101, 1102, 1300}
 _MARKET_DATA_CODES = {354, 10089, 10167, 10168}
+IB_ROUTE_CANDIDATES = ("SMART", "ARCA", "NYSE")
 _ACTION_TO_IB = {
     "Buy to Open": "BUY",
     "Buy to Close": "BUY",
@@ -130,8 +131,6 @@ def _normalize_status(status: Any, filled: Any = 0, remaining: Any = 0) -> str:
     raw = str(status or "").strip()
     filled_value = _to_float(filled)
     remaining_value = _to_float(remaining)
-    if filled_value > 0 and remaining_value > 0:
-        return "Partial"
     mapping = {
         "PendingSubmit": "Received",
         "ApiPending": "Received",
@@ -143,6 +142,10 @@ def _normalize_status(status: Any, filled: Any = 0, remaining: Any = 0) -> str:
         "Filled": "Filled",
         "Inactive": "Rejected",
     }
+    if raw in {"ApiCancelled", "Cancelled", "Filled", "Inactive", "Expired"}:
+        return mapping.get(raw, raw)
+    if filled_value > 0 and remaining_value > 0:
+        return "Partial"
     return mapping.get(raw, raw or "Received")
 
 
@@ -385,6 +388,25 @@ if _IB_AVAILABLE:
             if code in _NON_FATAL_WARNING_CODES:
                 log.warning("IB non-fatal warning reqId=%s code=%s; request remains active", req_id, code)
                 return
+            if req_id in self._submit_waiters and code not in _CONNECTION_CODES:
+                item = self.known_orders.get(req_id)
+                if item and item.get("order") is not None and item.get("contract") is not None:
+                    order = item["order"]
+                    item.update(
+                        {
+                            "status": "Rejected",
+                            "remaining": max(
+                                0.0,
+                                _to_float(getattr(order, "totalQuantity", 0))
+                                - _to_float(item.get("filled")),
+                            ),
+                            "reject_reason": f"[{code}] {message}" if message else f"[{code}]",
+                            "updated_at": _iso_now(),
+                        }
+                    )
+                    self.order_updates[req_id] = item["updated_at"]
+                    if self._order_event_queue is not None and not self._order_events_suppressed():
+                        self._order_event_queue.put_nowait({"kind": "status", "order_id": req_id})
             if code in _CONNECTION_CODES:
                 self.connection_error = error
             if code in {1100, 1300}:
@@ -991,7 +1013,17 @@ if _IB_AVAILABLE:
         ) -> dict:
             future = self._loop.create_future()
             self._submit_waiters[order_id] = future
-            self.order_updates[order_id] = _iso_now()
+            submitted_at = _iso_now()
+            self.known_orders[order_id] = {
+                "order_id": order_id,
+                "contract": contract,
+                "order": order,
+                "status": "PendingSubmit",
+                "filled": 0,
+                "remaining": getattr(order, "totalQuantity", 0),
+                "updated_at": submitted_at,
+            }
+            self.order_updates[order_id] = submitted_at
             self.placeOrder(order_id, contract, order)
             try:
                 return await asyncio.wait_for(future, timeout=timeout)
@@ -1364,6 +1396,7 @@ class IBBroker(BaseBrokerAPI):
                 "filled_qty": filled,
                 "remaining_qty": remaining,
                 "avg_fill_price": _to_float(item.get("avg_fill_price")),
+                "status_message": str(item.get("reject_reason") or ""),
                 "can_cancel": status in _LIVE_STATUSES,
                 "updated_at": str(item.get("updated_at") or _iso_now()),
                 "action": _action_from_order_ref(getattr(order, "orderRef", "")),
@@ -1454,7 +1487,7 @@ class IBBroker(BaseBrokerAPI):
             "managed_account_count": len(self._managed_accounts),
             "order_options": {
                 "default_route": "SMART",
-                "routes": self._default_routes(),
+                "routes": list(IB_ROUTE_CANDIDATES),
                 "route_editable": True,
                 "hidden_order": True,
                 "supported_tifs": list(self.supported_tifs()),
@@ -1462,12 +1495,7 @@ class IBBroker(BaseBrokerAPI):
         }
 
     def _default_routes(self) -> list[str]:
-        routes = ["SMART"]
-        for values in self._contract_routes.values():
-            for route in values:
-                if route and route not in routes:
-                    routes.append(route)
-        return routes
+        return list(IB_ROUTE_CANDIDATES)
 
     async def get_symbol_order_options(self, symbol: str) -> dict[str, Any]:
         normalized = str(symbol or "").strip().upper()
@@ -1546,9 +1574,6 @@ class IBBroker(BaseBrokerAPI):
                 normalized_route = route.strip().upper()
                 if normalized_route and normalized_route not in routes:
                     routes.append(normalized_route)
-            primary = str(getattr(contract, "primaryExchange", "") or "").strip().upper()
-            if primary and primary not in routes:
-                routes.append(primary)
         if len(unique) != 1:
             raise IBRequestError("IB_CONTRACT_AMBIGUOUS", f"US stock symbol is ambiguous: {normalized}")
         contract = next(iter(unique.values()))
@@ -1729,7 +1754,10 @@ class IBBroker(BaseBrokerAPI):
         if route == "DEFAULT":
             route = "SMART"
         if route != "SMART" and allowed_routes and route not in allowed_routes:
-            raise ValueError(f"IB route {route} is not available for {symbol}")
+            raise IBRequestError(
+                "IB_ROUTE_UNAVAILABLE",
+                f"IB route {route} is not available for {symbol}",
+            )
         contract = self._contract_for_route(contract, route)
         ib_tif, outside_rth = _tif_to_ib(tif_label)
         async with self._order_id_lock:
@@ -1785,9 +1813,20 @@ class IBBroker(BaseBrokerAPI):
             open_orders = await app.request_open_orders()
             completed_orders: list[dict] = []
             executions: list[dict] = []
+            retained_terminal_orders: list[dict] = []
             if mode == "all":
                 completed_orders = await app.request_completed_orders()
                 executions = await app.request_executions(self._account_id)
+                retained_terminal_orders = [
+                    item
+                    for item in app.known_orders.values()
+                    if _normalize_status(
+                        item.get("status"),
+                        item.get("filled"),
+                        item.get("remaining"),
+                    )
+                    in {"Filled", "Cancelled", "Rejected", "Expired"}
+                ]
 
         execution_map: dict[tuple[str, int], list[dict]] = {}
         for item in executions:
@@ -1808,7 +1847,8 @@ class IBBroker(BaseBrokerAPI):
                 execution_map.setdefault(("perm", perm_key), []).append(fill)
 
         merged: dict[tuple[str, int], dict] = {}
-        for item in open_orders + completed_orders:
+        aliases: dict[tuple[str, int], tuple[str, int]] = {}
+        for item in retained_terminal_orders + open_orders + completed_orders:
             if not self._is_owned_order(item):
                 continue
             contract = item.get("contract")
@@ -1816,8 +1856,20 @@ class IBBroker(BaseBrokerAPI):
                 continue
             order_id = int(item.get("order_id") or 0)
             perm_id = int(item.get("perm_id") or getattr(item.get("order"), "permId", 0) or 0)
-            key = ("perm", perm_id) if perm_id else ("order", order_id)
+            identity_keys = []
+            if order_id:
+                identity_keys.append(("order", order_id))
+            if perm_id:
+                identity_keys.append(("perm", perm_id))
+            if not identity_keys:
+                continue
+            key = next(
+                (aliases[identity] for identity in identity_keys if identity in aliases),
+                identity_keys[0],
+            )
             merged[key] = item
+            for identity in identity_keys:
+                aliases[identity] = key
 
         result = []
         for key, item in merged.items():
@@ -1864,6 +1916,7 @@ class IBBroker(BaseBrokerAPI):
             "type": "LIMIT" if order_type == "LMT" else "MARKET",
             "tif": _tif_from_ib(getattr(order, "tif", "DAY"), getattr(order, "outsideRth", False)),
             "status": status,
+            "status_message": str(item.get("reject_reason") or ""),
             "can_cancel": status in _LIVE_STATUSES,
             "updated_at": str(item.get("updated_at") or _iso_now()),
             "legs": [

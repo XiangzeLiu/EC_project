@@ -246,7 +246,15 @@ async def place_order(params: dict[str, Any], session_id: str, username: str = "
         return _error("ORDER_NOT_SUPPORTED", str(exc), trace_id=trace_id)
     except Exception as exc:
         log.error("[%s][%s] PLACE_ORDER ERROR: %s", session_id, trace_id, exc)
-        if str(getattr(exc, "code", "")) == "IB_ORDER_STATUS_UNKNOWN":
+        error_code = str(getattr(exc, "code", "")).strip().upper()
+        if error_code == "IB_ROUTE_UNAVAILABLE":
+            return _error(
+                error_code,
+                safe_client_message(error_code),
+                trace_id=trace_id,
+                retryable=False,
+            )
+        if error_code == "IB_ORDER_STATUS_UNKNOWN":
             return _error(
                 "ORDER_RESPONSE_INVALID",
                 "Order status is unknown; refresh orders before submitting again",

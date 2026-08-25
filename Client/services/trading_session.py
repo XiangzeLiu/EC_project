@@ -559,7 +559,7 @@ class TradingSession:
                 pos_map[sym] = dict(
                     symbol=sym, qty=qty, direction=dirn,
                     avg_open=avg, close_px=cpx,
-                    unrealized=round((cpx - avg) * qty * (1 if dirn == "Long" else -1), 2),
+                    unrealized=round((cpx - avg) * abs(qty) * (1 if dirn == "Long" else -1), 2),
                     realized_today=real,
                     qty_bot=0, qty_sld=0, exes=0,
                 )
@@ -578,10 +578,15 @@ class TradingSession:
             for o in orders_raw:
                 try:
                     status = str(o.get("status", "") if isinstance(o, dict) else getattr(o, "status", "")).lower()
-                    if "fill" not in status:
-                        continue
+                    is_filled = status == "filled"
                     legs = o.get("legs", []) if isinstance(o, dict) else getattr(o, "legs", [])
                     if not legs:
+                        continue
+                    has_fills = any(
+                        (leg.get("fills", []) if isinstance(leg, dict) else getattr(leg, "fills", []))
+                        for leg in legs
+                    )
+                    if not (is_filled or has_fills):
                         continue
 
                     # 时间过滤
@@ -661,7 +666,7 @@ class TradingSession:
                                     record(fqty, fp)
                                 except Exception:
                                     continue
-                        elif leg_qty > 0:
+                        elif is_filled and leg_qty > 0:
                             px = o.get("price", 0) if isinstance(o, dict) else getattr(o, "price", 0)
                             fp = float(px or 0)
                             record(leg_qty, fp)

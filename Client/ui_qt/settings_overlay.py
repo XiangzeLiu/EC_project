@@ -386,7 +386,11 @@ class SettingsOverlay(QWidget):
         route_row = QHBoxLayout()
         route_row.addWidget(QLabel("默认 ROUTE"))
         self.default_route_combo = self._route_combo(include_default=False)
-        self.default_route_combo.setCurrentText(self._config.default_route or "SMART")
+        self._set_combo_data(
+            self.default_route_combo,
+            self._config.default_route if self._route_effective else "SMART",
+        )
+        self.default_route_combo.setEnabled(self._route_effective)
         route_row.addWidget(self.default_route_combo)
         route_hint = QLabel("规则选择“默认”时继承此值")
         route_hint.setObjectName("settingsMutedText")
@@ -430,11 +434,11 @@ class SettingsOverlay(QWidget):
     def _order_capability_note(self) -> str:
         notes: list[str] = []
         if not self._route_effective and not self._hidden_effective:
-            notes.append("当前交易通道不应用 ROUTE / HIDE：配置可以保存，实际下单使用 SMART 且按普通订单执行")
+            notes.append("当前交易通道的 ROUTE 固定为 SMART，HIDE 已关闭")
         elif not self._route_effective:
-            notes.append("当前交易通道不应用 ROUTE：配置可以保存，实际下单使用 SMART")
+            notes.append("当前交易通道的 ROUTE 固定为 SMART")
         elif not self._hidden_effective:
-            notes.append("当前交易通道不应用 HIDE：配置可以保存，实际按普通订单执行")
+            notes.append("当前交易通道不支持 HIDE，选项已关闭")
         if "IOC" not in self._supported_tifs:
             notes.append("当前交易通道不支持 IOC，选项已置灰且不会提交")
         return "；".join(notes)
@@ -511,11 +515,6 @@ class SettingsOverlay(QWidget):
     def _route_combo(self, *, include_default: bool = True) -> QComboBox:
         combo = self._new_combo()
         combo.setMinimumWidth(98)
-        combo.setEditable(True)
-        combo.setInsertPolicy(QComboBox.NoInsert)
-        if combo.lineEdit():
-            combo.lineEdit().setAlignment(Qt.AlignCenter)
-            combo.lineEdit().setMaxLength(24)
         if include_default:
             combo.addItem("默认", "DEFAULT")
         for route in self._route_options:
@@ -523,7 +522,7 @@ class SettingsOverlay(QWidget):
         self._center_combo(combo)
         combo.setToolTip(
             "该 ROUTE 将按配置执行" if self._route_effective
-            else "配置可以保存；当前交易通道实际下单使用 SMART"
+            else "当前交易通道的 ROUTE 固定为 SMART"
         )
         return combo
 
@@ -559,9 +558,17 @@ class SettingsOverlay(QWidget):
         tif = self._new_combo()
         for value in ORDER_TIFS:
             tif.addItem(value)
-        tif.setCurrentText(rule.tif if rule.tif in VALID_TIFS else "Day")
-        self._center_combo(tif)
+        requested_tif = rule.tif if rule.tif in VALID_TIFS else "Day"
         declared_tifs = bool(self._supported_tifs)
+        if declared_tifs and requested_tif.upper() not in self._supported_tifs:
+            requested_tif = next(
+                (value for value in ORDER_TIFS if value.upper() in self._supported_tifs),
+                "Day",
+            )
+        elif not declared_tifs and requested_tif.upper() == "IOC":
+            requested_tif = "Day"
+        tif.setCurrentText(requested_tif)
+        self._center_combo(tif)
         for value in ORDER_TIFS:
             enabled_for_channel = (
                 value.upper() in self._supported_tifs
@@ -575,7 +582,11 @@ class SettingsOverlay(QWidget):
                 f"当前交易通道不支持 {value} 订单",
             )
         route = self._route_combo(include_default=True)
-        self._set_combo_data(route, rule.route or "DEFAULT")
+        self._set_combo_data(
+            route,
+            (rule.route or "DEFAULT") if self._route_effective else "SMART",
+        )
+        route.setEnabled(self._route_effective)
         offset = QDoubleSpinBox()
         offset.setRange(-99.99, 99.99)
         offset.setSingleStep(0.01)
@@ -585,11 +596,11 @@ class SettingsOverlay(QWidget):
         offset.setMinimumWidth(82)
         offset.setAlignment(Qt.AlignCenter)
         hidden = QCheckBox()
-        hidden.setChecked(bool(rule.hidden))
-        hidden.setEnabled(True)
+        hidden.setChecked(bool(rule.hidden and self._hidden_effective))
+        hidden.setEnabled(self._hidden_effective)
         hidden.setToolTip(
             "该规则将使用 HIDE 订单" if self._hidden_effective
-            else "配置可以保存；当前交易通道实际按普通订单执行"
+            else "当前交易通道不支持 HIDE"
         )
         delete_btn = QPushButton("删除")
         delete_btn.setObjectName("settingsDangerButton")
@@ -618,9 +629,11 @@ class SettingsOverlay(QWidget):
             if str(combo.itemData(index) or combo.itemText(index)).upper() == target:
                 combo.setCurrentIndex(index)
                 return
-        combo.addItem(target, target)
-        combo.setItemData(combo.count() - 1, Qt.AlignCenter, Qt.TextAlignmentRole)
-        combo.setCurrentIndex(combo.count() - 1)
+        fallback = "DEFAULT" if combo.findData("DEFAULT") >= 0 else "SMART"
+        for index in range(combo.count()):
+            if str(combo.itemData(index) or combo.itemText(index)).upper() == fallback:
+                combo.setCurrentIndex(index)
+                return
 
     @staticmethod
     def _route_combo_value(combo: QComboBox, fallback: str) -> str:
@@ -645,9 +658,15 @@ class SettingsOverlay(QWidget):
                     side=str(row["side"].currentData() or "buy"),  # type: ignore[union-attr]
                     order_type=str(row["order_type"].currentData() or "limit"),  # type: ignore[union-attr]
                     tif=str(row["tif"].currentText()),  # type: ignore[union-attr]
-                    route=self._route_combo_value(route_combo, "DEFAULT"),
+                    route=(
+                        self._route_combo_value(route_combo, "DEFAULT")
+                        if self._route_effective
+                        else "SMART"
+                    ),
                     price_offset=float(row["offset"].value()),  # type: ignore[union-attr]
-                    hidden=bool(row["hidden"].isChecked()),  # type: ignore[union-attr]
+                    hidden=bool(
+                        self._hidden_effective and row["hidden"].isChecked()  # type: ignore[union-attr]
+                    ),
                 )
             )
         return tuple(rules)
@@ -677,7 +696,11 @@ class SettingsOverlay(QWidget):
         return tuple(rules)
 
     def _collect_config(self) -> HotkeyRuntimeConfig:
-        default_route = self._route_combo_value(self.default_route_combo, "SMART")
+        default_route = (
+            self._route_combo_value(self.default_route_combo, "SMART")
+            if self._route_effective
+            else "SMART"
+        )
         return HotkeyRuntimeConfig(
             default_route=default_route,
             quantity_hotkeys=self._collect_quantity_rules(),

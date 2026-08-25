@@ -23,7 +23,7 @@ from .hotkey_config import (
 from .shortcut_controller import validate_shortcut_sequences
 
 
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 LEGACY_CONFIG_VERSION = 1
 APP_DIR_NAME = "SC Client"
 HOTKEY_FILE_NAME = "hotkey.json"
