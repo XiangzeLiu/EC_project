@@ -865,6 +865,32 @@ class FinanceAccessTests(unittest.TestCase):
         self.assertIn("funds-chart-hover-line", content.text)
         self.assertIn("funds-chart-tooltip", content.text)
 
+    def test_dashboard_overview_keeps_status_tables_and_full_height_audit_panel(self):
+        self._session("super_admin")
+        dashboard = self.client.get("/admin/dashboard")
+
+        self.assertIn('class="overview-primary-stack"', dashboard.text)
+        self.assertIn('class="panel ov-audit-panel"', dashboard.text)
+        self.assertIn('id="ov-acct-list"', dashboard.text)
+        self.assertIn('id="ov-node-list"', dashboard.text)
+        self.assertIn('id="ov-audit-list"', dashboard.text)
+        self.assertIn('class="ov-audit-foot"', dashboard.text)
+
+    def test_account_management_uses_tabbed_views_without_removing_controls(self):
+        self._session("super_admin")
+        dashboard = self.client.get("/admin/dashboard")
+
+        self.assertIn('id="accounts-tabs"', dashboard.text)
+        self.assertIn('data-account-tab="status"', dashboard.text)
+        self.assertIn('data-account-tab="register"', dashboard.text)
+        self.assertIn('data-account-view="status"', dashboard.text)
+        self.assertIn('data-account-view="register"', dashboard.text)
+        self.assertIn('id="inp-username"', dashboard.text)
+        self.assertIn('id="inp-se-addr"', dashboard.text)
+        self.assertIn('id="accounts-trader-body"', dashboard.text)
+        self.assertIn("function switchAccountTab", dashboard.text)
+        self.assertIn("overflow-wrap:anywhere", dashboard.text)
+
     def test_mutations_require_csrf_and_delete_requires_confirmation(self):
         self._session("super_admin")
         response = self.client.post("/api/admin/finance/delete-preview", json={})

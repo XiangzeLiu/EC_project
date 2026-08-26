@@ -248,6 +248,20 @@
     .grid-accts { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 16px; }
     .grid-nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 
+    /* Account-management tabs */
+    .account-tabs { display:flex; align-items:center; gap:4px; padding:0 24px; border-bottom:1px solid #eef0f6; }
+    .account-tab { height:42px; padding:0 16px; border:0; border-bottom:2px solid transparent; background:transparent; color:#6b7280; cursor:pointer; font:600 13px inherit; }
+    .account-tab:hover { color:#2563eb; background:#f8faff; }
+    .account-tab.active { color:#2563eb; border-bottom-color:#2563eb; }
+    .account-view { display:none; }
+    .account-view.active { display:block; }
+    .account-register-form { max-width:860px; padding:20px 24px 28px; }
+    .account-register-form .toolbar { padding:0; border:0; }
+    .account-register-form .toolbar-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .account-register-form .toolbar-row:last-child { grid-template-columns:minmax(0,1fr) auto; }
+    .account-refresh-hidden { display:none; }
+    .account-super-summary { padding:16px 16px 4px; max-width:440px; }
+
     /* ═══ Node Card (complete — pure CSS) ═══ */
     .node-card {
       border-radius: 12px; padding: 16px;
@@ -339,12 +353,12 @@
     .acct-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .acct-head-left { display: flex; align-items: center; gap: 8px; }
     .acct-name { font-size: 14px; font-weight: 600; color: #1d2236; }
-    .acct-info { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-    .acct-row { display: flex; align-items: baseline; }
+    .acct-info { display: flex; flex-direction: column; gap: 6px; min-width:0; font-size: 13px; }
+    .acct-row { display: flex; align-items: baseline; min-width:0; }
     .acct-label { color: #8a93ab; width: 70px; flex-shrink: 0; font-size: 13px; }
     .acct-value { color: #3f475f; font-size: 13px; }
-    .acct-value-mono { color: #3f475f; font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 13px; }
-    .acct-actions { display: flex; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.06); }
+    .acct-value-mono { min-width:0; flex:1; color:#3f475f; font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace; font-size:13px; line-height:1.45; overflow-wrap:anywhere; word-break:break-word; }
+    .acct-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid rgba(0,0,0,0.06); }
 
     /* ═══ Action Buttons (xs size) ═══ */
     .btn-xs {
@@ -550,11 +564,15 @@
 
 
 
-    /* Overview detail rows and audit log */
-    .overview-grid.ov-main { grid-template-columns: 1fr 1fr 1fr; align-items: stretch; }
-    .ov-list-head { display: grid; grid-template-columns: minmax(120px,1.1fr) minmax(80px,.7fr) minmax(120px,1fr) auto; gap: 10px; align-items: center; margin: 12px 16px 0; padding: 0 12px 4px; color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
-    .ov-list-detail { padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 10px; max-height: 430px; overflow: auto; }
-    .ov-detail-row { display: grid; grid-template-columns: minmax(120px,1.1fr) minmax(80px,.7fr) minmax(120px,1fr) auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid #eef0f6; border-radius: 10px; background: #fbfcff; }
+    /* Overview detail tables and full-height recent-activity panel */
+    .overview-grid.ov-main { grid-template-columns:minmax(0,2.15fr) minmax(290px,.85fr); align-items:stretch; }
+    .overview-primary-stack { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,1fr); gap:16px; min-width:0; }
+    .overview-primary-stack .panel, .ov-audit-panel { display:flex; flex-direction:column; min-height:0; }
+    .ov-list-head { display:grid; grid-template-columns:minmax(120px,1.1fr) minmax(80px,.7fr) minmax(120px,1fr) auto; gap:10px; align-items:center; margin:12px 16px 0; padding:9px 12px; border-top:1px solid #eef0f6; border-bottom:1px solid #eef0f6; background:#f7f8fb; color:#94a3b8; font-size:11px; font-weight:700; letter-spacing:.04em; }
+    .ov-list-detail { flex:1; min-height:0; max-height:300px; padding:0 16px 12px; display:flex; flex-direction:column; overflow:auto; }
+    .ov-detail-row { display:grid; grid-template-columns:minmax(120px,1.1fr) minmax(80px,.7fr) minmax(120px,1fr) auto; gap:10px; align-items:center; padding:11px 12px; border-bottom:1px solid #eef0f6; background:transparent; transition:background .15s ease; }
+    .ov-detail-row:hover { background:#f7f9fe; }
+    .ov-detail-row:last-child { border-bottom:0; }
     .ov-detail-main { min-width: 0; }
     .ov-detail-title { font-size: 13px; font-weight: 700; color: #1d2236; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ov-detail-sub { margin-top: 2px; font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -566,11 +584,14 @@
     .ov-status-degraded { background:#fffbeb; color:#b45309; }
     .ov-status-offline { background:#fef2f2; color:#dc2626; }
     .ov-status-other { background:#eef4ff; color:#3b63f6; }
-    .audit-list { padding: 12px 16px 16px; display:flex; flex-direction:column; gap:10px; max-height:430px; overflow:auto; }
-    .audit-item { display:grid; grid-template-columns: 82px minmax(0,1fr); gap:10px; padding:12px; border:1px solid #eef0f6; border-radius:10px; background:#fbfcff; }
+    .ov-audit-panel .audit-list { flex:1; min-height:0; max-height:none; }
+    .audit-list { padding:0 16px 8px; display:flex; flex-direction:column; overflow:auto; }
+    .audit-item { display:grid; grid-template-columns:66px minmax(0,1fr); gap:10px; padding:13px 8px; border-bottom:1px solid #eef0f6; background:transparent; }
+    .audit-item:last-child { border-bottom:0; }
     .audit-time { color:#3b63f6; font-size:11px; font-weight:700; white-space:nowrap; }
     .audit-detail { color:#3f475f; font-size:13px; line-height:1.5; word-break:break-word; }
     .audit-meta { margin-top:4px; color:#94a3b8; font-size:11px; line-height:1.4; }
+    .ov-audit-foot { display:flex; justify-content:flex-end; padding:10px 16px 14px; border-top:1px solid #eef0f6; }
     .theme-toggle-wrap { padding: 0 12px 12px; }
     .theme-toggle { width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #eef0f6; border-radius:8px; background:#f7f8fb; color:#3f475f; cursor:pointer; font-size:13px; }
     .theme-toggle i { color:#3b63f6; }
@@ -609,7 +630,11 @@
     body.sm-dark .software-release-title { color:#f8fafc; }
     body.sm-dark .software-release-meta { color:#94a3b8; }
     body.sm-dark .software-message { background:rgba(30,64,175,.25); color:#bfdbfe; }
-    @media (max-width: 1180px) { .overview-grid.ov-main { grid-template-columns: 1fr; } }
+    body.sm-dark .account-tabs { border-color:rgba(148,163,184,.18); }
+    body.sm-dark .account-tab { color:#a7b0c0; }
+    body.sm-dark .account-tab:hover { color:#a9c0ff; background:rgba(59,99,246,.12); }
+    body.sm-dark .account-tab.active { color:#a9c0ff; border-bottom-color:#86a8ff; }
+    @media (max-width: 1180px) { .overview-grid.ov-main { grid-template-columns:1fr; } .ov-audit-panel .audit-list { max-height:360px; } }
 
     /* Responsive */
     @media (max-width: 768px) {
@@ -623,6 +648,12 @@
       .modal-panel { width: 95vw; }
       .stats-grid { grid-template-columns: repeat(2,1fr); }
       .overview-grid { grid-template-columns: 1fr !important; }
+      .ov-list-head, .ov-detail-row { grid-template-columns:minmax(96px,1.1fr) 70px minmax(96px,1fr) auto; gap:8px; }
+      .account-tabs { padding:0 14px; overflow-x:auto; }
+      .account-tab { flex:1; min-width:104px; }
+      .account-register-form { padding:16px 14px 22px; }
+      .account-register-form .toolbar-row, .account-register-form .toolbar-row:last-child { grid-template-columns:1fr; }
+      .account-register-form .btn-primary-lg { width:100%; justify-content:center; }
     }
   </style>
 </head>
@@ -731,13 +762,14 @@
         </div>
 
         <div class="overview-grid ov-main">
+          <div class="overview-primary-stack">
           <div class="panel">
             <div class="panel-header">
               <div class="panel-header-left">
                 <div class="tile-icon ti-blue"><i class="ri-user-settings-line"></i></div>
                 <h2 class="panel-title">账户状态分布</h2>
               </div>
-              <button onclick="switchTab('accounts')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 查看</button>
+              <button onclick="switchTab('accounts')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 查看全部</button>
             </div>
             <div class="ov-list-head"><span>账户名称</span><span>账户券商</span><span>配置 TS 节点</span><span>账户状态</span></div>
             <div class="ov-list-detail" id="ov-acct-list">
@@ -751,15 +783,16 @@
                 <div class="tile-icon ti-purple"><i class="ri-node-tree"></i></div>
                 <h2 class="panel-title">节点状态</h2>
               </div>
-              <button onclick="switchTab('server-economic')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 查看</button>
+              <button onclick="switchTab('server-economic')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 查看全部</button>
             </div>
             <div class="ov-list-head"><span>节点名称</span><span>配置券商</span><span>主机地址</span><span>节点状态</span></div>
             <div class="ov-list-detail" id="ov-node-list">
               <div style="text-align:center;padding:24px;color:#b9c0d2;font-size:13px">加载中...</div>
             </div>
           </div>
+          </div>
 
-          <div class="panel">
+          <div class="panel ov-audit-panel">
             <div class="panel-header">
               <div class="panel-header-left">
                 <div class="tile-icon ti-orange"><i class="ri-history-line"></i></div>
@@ -770,6 +803,7 @@
             <div class="audit-list" id="ov-audit-list">
               <div style="text-align:center;padding:24px;color:#b9c0d2;font-size:13px">加载中...</div>
             </div>
+            <div class="ov-audit-foot"><button onclick="switchTab('audit')" class="btn-xs btn-pri"><i class="ri-arrow-right-line"></i> 全部日志</button></div>
           </div>
         </div>
       </section>
@@ -784,6 +818,13 @@
             <button id="btn-refresh-accts" onclick="refreshAccounts()" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
           </div>
 
+          <div id="accounts-tabs" class="account-tabs" role="tablist" aria-label="账户管理页签">
+            <button class="account-tab active" type="button" data-account-tab="status" role="tab" aria-selected="true">账户状态</button>
+            <button class="account-tab" type="button" data-account-tab="register" role="tab" aria-selected="false">注册账户</button>
+          </div>
+
+          <div class="account-view account-register" data-account-view="register" role="tabpanel">
+          <div class="account-register-form">
           <!-- 新建表单 -->
           <div class="toolbar">
             <div class="toolbar-inner">
@@ -817,9 +858,12 @@
               </div>
             </div>
           </div>
+          </div>
+          </div>
 
+          <div class="account-view active" data-account-view="status" role="tabpanel">
           {% if is_super_admin %}
-          <div style="padding:0 16px 8px 16px;max-width:33%;">
+          <div class="account-super-summary">
             <div class="acct-card acct-super" style="border-style:dashed;">
               <div class="acct-head">
                 <div class="acct-head-left">
@@ -851,6 +895,7 @@
               <h3><i class="ri-user-3-line" style="color:#3b63f6;margin-right:4px;"></i>交易员账户</h3>
             </div>
             <div class="grid-accts" id="accounts-trader-body"></div>
+          </div>
           </div>
         </div>
       </section>
@@ -2684,6 +2729,31 @@ function onDomainSelectionChanged(selectId,inputId){var select=document.getEleme
 // ═══════════════════════════════════════════════════
 //  账户管理
 // ═══════════════════════════════════════════════════
+function switchAccountTab(tab){
+  var root=document.getElementById('accounts-tabs');
+  if(!root||(tab!=='status'&&tab!=='register'))return;
+  root.querySelectorAll('[data-account-tab]').forEach(function(button){
+    var active=button.getAttribute('data-account-tab')===tab;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',active?'true':'false');
+  });
+  document.querySelectorAll('#mod-accounts [data-account-view]').forEach(function(view){
+    view.classList.toggle('active',view.getAttribute('data-account-view')===tab);
+  });
+  var refresh=document.getElementById('btn-refresh-accts');
+  if(refresh)refresh.classList.toggle('account-refresh-hidden',tab!=='status');
+}
+
+function initAccountTabs(){
+  var root=document.getElementById('accounts-tabs');
+  if(!root||root.dataset.initialized==='1')return;
+  root.dataset.initialized='1';
+  root.querySelectorAll('[data-account-tab]').forEach(function(button){
+    button.addEventListener('click',function(){switchAccountTab(button.getAttribute('data-account-tab'));});
+  });
+  switchAccountTab('status');
+}
+
 async function refreshAccounts(){
   try{
     var btn=document.getElementById('btn-refresh-accts');
@@ -3305,6 +3375,7 @@ function tryRenderOverview(){
 }
 
 /* 初始化创建表单角色联动 */
+initAccountTabs();
 onCreateRoleChanged();
 refreshDomainOptions();
 [
