@@ -857,8 +857,13 @@ class FinanceAccessTests(unittest.TestCase):
         self.assertIn("function _fundsChartCanvas", dashboard.text)
         self.assertIn("function _fundsAxisMoney", dashboard.text)
         self.assertIn("function _fundsAxisTime", dashboard.text)
+        self.assertIn("function _fundsBuildAxis", dashboard.text)
+        self.assertIn("function _fundsAttachChartHover", dashboard.text)
+        self.assertIn("function _fundsFocusBars", dashboard.text)
         self.assertIn("funds-chart-canvas", content.text)
         self.assertIn("funds-axis-label", content.text)
+        self.assertIn("funds-chart-hover-line", content.text)
+        self.assertIn("funds-chart-tooltip", content.text)
 
     def test_mutations_require_csrf_and_delete_requires_confirmation(self):
         self._session("super_admin")
