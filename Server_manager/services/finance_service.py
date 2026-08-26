@@ -1185,6 +1185,78 @@ def _range_days(start: date, end: date) -> list[date]:
     return result
 
 
+def _activity_trend(
+    accounts: list[dict[str, Any]],
+    daily_rows: list[dict[str, Any]],
+    windows: list[dict[str, Any]],
+    start: date,
+    end: date,
+    now: datetime,
+) -> list[dict[str, Any]]:
+    """Build day-level activity series without treating missing data as zero."""
+    daily_by_identity = {
+        (row["account_key"], row["trade_date"]): row
+        for row in daily_rows
+    }
+    result: list[dict[str, Any]] = []
+    for day in _range_days(start, end):
+        if not _is_us_equity_trading_day(day):
+            continue
+        day_text = day.isoformat()
+        window_keys = {
+            window["account_key"]
+            for window in windows
+            if window["start_trade_date"] <= day_text <= window["end_trade_date"]
+        }
+        expected: list[str] = []
+        for account in accounts:
+            account_key = account["account_key"]
+            has_record = (account_key, day_text) in daily_by_identity or account_key in window_keys
+            try:
+                last_seen_day = _parse_datetime(
+                    account["last_seen_at"], "last_seen_at",
+                ).astimezone(NY_TZ).date()
+            except FinanceValidationError:
+                last_seen_day = day
+            if has_record or (day <= last_seen_day and _expected_buckets(account, day, now=now)):
+                expected.append(account_key)
+        if not expected:
+            continue
+        day_windows = [
+            window for window in windows
+            if window["account_key"] in expected
+            and window["start_trade_date"] <= day_text <= window["end_trade_date"]
+        ]
+        rows = [daily_by_identity.get((account_key, day_text)) for account_key in expected]
+        has_missing_daily = any(row is None for row in rows)
+        flow_known = not day_windows and not has_missing_daily and all(
+            row["trade_net_flow"] is not None for row in rows if row is not None
+        )
+        pnl_known = not day_windows and not has_missing_daily and all(
+            row["realized_pnl"] is not None for row in rows if row is not None
+        )
+        base_gap_reason = "deleted" if day_windows else "missing" if has_missing_daily else "unavailable"
+        result.append({
+            "date": day_text,
+            "trade_net_flow": (
+                sum(float(row["trade_net_flow"]) for row in rows if row is not None)
+                if flow_known else None
+            ),
+            "realized_pnl": (
+                sum(float(row["realized_pnl"]) for row in rows if row is not None)
+                if pnl_known else None
+            ),
+            "flow_complete": flow_known,
+            "pnl_complete": pnl_known,
+            "flow_gap_reason": None if flow_known else base_gap_reason,
+            "pnl_gap_reason": None if pnl_known else base_gap_reason,
+            "gap_reason": base_gap_reason if not flow_known and not pnl_known else None,
+            "reported_accounts": sum(1 for row in rows if row is not None),
+            "expected_accounts": len(expected),
+        })
+    return result
+
+
 def get_overview(start_date: Any, end_date: Any, account_keys: Iterable[Any] | None = None) -> dict[str, Any]:
     start, end = _validate_date_range(start_date, end_date)
     selected = _normalize_account_keys(account_keys)
@@ -1194,7 +1266,7 @@ def get_overview(start_date: Any, end_date: Any, account_keys: Iterable[Any] | N
         accounts = _account_query(conn, start, end, selected)
         keys = [row["account_key"] for row in accounts]
         empty = {
-            "accounts": [], "daily": [], "symbols": [], "trend": [], "gaps": [],
+            "accounts": [], "daily": [], "symbols": [], "trend": [], "activity_trend": [], "gaps": [],
             "range": {"start_date": start.isoformat(), "end_date": end.isoformat(), "grain": "day"},
         }
         if not keys:
@@ -1241,6 +1313,17 @@ def get_overview(start_date: Any, end_date: Any, account_keys: Iterable[Any] | N
             except (TypeError, json.JSONDecodeError):
                 stored_coverage = {}
             row["coverage"] = {**stored_coverage, **coverage}
+
+        windows = _row_dicts(conn.execute(
+            f"""
+            SELECT account_key, start_at, end_at, start_trade_date, end_trade_date, deleted_at, deleted_by
+            FROM finance_deletion_windows
+            WHERE start_trade_date<=? AND end_trade_date>=? AND account_key IN ({marks})
+            ORDER BY start_at, account_key
+            """,
+            [end.isoformat(), start.isoformat(), *keys],
+        ).fetchall())
+        activity_trend = _activity_trend(accounts, daily_rows, windows, start, end, now)
 
         symbol_rows = _row_dicts(conn.execute(
             f"""
@@ -1310,15 +1393,6 @@ def get_overview(start_date: Any, end_date: Any, account_keys: Iterable[Any] | N
                     "complete": equity_known,
                 })
 
-        windows = _row_dicts(conn.execute(
-            f"""
-            SELECT account_key, start_at, end_at, start_trade_date, end_trade_date, deleted_at, deleted_by
-            FROM finance_deletion_windows
-            WHERE start_trade_date<=? AND end_trade_date>=? AND account_key IN ({marks})
-            ORDER BY start_at, account_key
-            """,
-            [end.isoformat(), start.isoformat(), *keys],
-        ).fetchall())
         existing_daily = {(row["account_key"], row["trade_date"]) for row in daily_rows}
         gaps: list[dict[str, Any]] = []
         for window in windows:
@@ -1344,6 +1418,7 @@ def get_overview(start_date: Any, end_date: Any, account_keys: Iterable[Any] | N
             "daily": daily_rows,
             "symbols": symbol_rows,
             "trend": trend,
+            "activity_trend": activity_trend,
             "gaps": gaps,
             "range": {"start_date": start.isoformat(), "end_date": end.isoformat(), "grain": "15m" if use_intraday else "day"},
         }

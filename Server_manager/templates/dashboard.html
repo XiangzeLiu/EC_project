@@ -1556,7 +1556,7 @@ function _fundsQuery(){
 }
 
 function _fundsRender(data,selectedAccount,allAccounts){
-  var accounts=data.accounts||[],daily=data.daily||[],symbols=data.symbols||[],gaps=data.gaps||[];
+  var accounts=data.accounts||[],daily=data.daily||[],symbols=data.symbols||[],activityTrend=data.activity_trend||[],gaps=data.gaps||[];
   var optionAccounts=allAccounts||accounts;
   function accountLabel(account, separator){
     return escapeHtml(_fundsBroker(account.broker_type)+(separator||' · ')+String(account.broker_account_id||''));
@@ -1579,6 +1579,8 @@ function _fundsRender(data,selectedAccount,allAccounts){
   document.getElementById('funds-kpis').innerHTML=kpis.map(function(item){return '<div class="funds-kpi"><span>'+item[0]+'</span><strong>'+item[1]+'</strong><small>'+item[2]+'</small></div>';}).join('');
   document.getElementById('funds-equity-grain').textContent=data.range&&data.range.grain==='15m'?'15 分钟':'每日';
   _fundsLineChart('funds-equity-chart',data.trend||[],[{key:'equity',color:'#3159d9'}]);
+  _fundsSignedLineChart('funds-flow-line-chart',activityTrend,'trade_net_flow','交易净流入');
+  _fundsSignedLineChart('funds-pnl-line-chart',activityTrend,'realized_pnl','已实现盈亏');
   var byDate={};daily.forEach(function(row){var item=byDate[row.trade_date]||(byDate[row.trade_date]={time:row.trade_date,buy:0,sell:0,fees:0,feesKnown:true,rows:[],coverage:0});item.buy+=_fundsNumber(row.buy_amount);item.sell+=_fundsNumber(row.sell_amount);if(row.fees===null||row.fees===undefined)item.feesKnown=false;else item.fees+=_fundsNumber(row.fees);item.coverage+=_fundsNumber(row.coverage_pct);item.rows.push(row);});
   var dateRows=Object.keys(byDate).sort().map(function(key){var item=byDate[key];item.coverage=item.rows.length?item.coverage/item.rows.length:0;return item;});
   _fundsBarChart('funds-flow-chart',dateRows,'buy','sell');
@@ -1600,6 +1602,23 @@ function _fundsLineChart(id,rows,series){
   var grid=[0,.25,.5,.75,1].map(function(r){var yy=pad+(height-pad*2)*r;return '<line x1="'+pad+'" y1="'+yy+'" x2="'+(width-pad)+'" y2="'+yy+'" stroke="#e7eaf0" stroke-width="1"/>';}).join('');
   var paths=series.map(function(item){var segments=[],points=[];rows.forEach(function(row,index){var value=Number(row[item.key]);if(row[item.key]===null||row[item.key]===undefined||!Number.isFinite(value)){if(points.length)segments.push(points.splice(0));return;}points.push({x:x(index),y:y(value)});});if(points.length)segments.push(points);return segments.map(function(segment){if(segment.length===1)return '<circle cx="'+segment[0].x+'" cy="'+segment[0].y+'" r="2.5" fill="'+item.color+'" vector-effect="non-scaling-stroke"/>';return '<polyline points="'+segment.map(function(point){return point.x+','+point.y;}).join(' ')+'" fill="none" stroke="'+item.color+'" stroke-width="2" vector-effect="non-scaling-stroke"/>';}).join('');}).join('');
   host.innerHTML='<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" aria-label="趋势图">'+grid+paths+'</svg>';
+}
+
+function _fundsSignedLineChart(id,rows,key,label){
+  var host=document.getElementById(id);if(!host)return;
+  var values=[];rows.forEach(function(row){var value=Number(row[key]);if(row[key]!==null&&row[key]!==undefined&&Number.isFinite(value))values.push(value);});
+  if(!values.length){host.innerHTML='<div class="funds-empty">暂无完整的'+escapeHtml(label)+'趋势数据</div>';return;}
+  var width=640,height=210,left=54,right=14,top=14,bottom=32,min=Math.min.apply(null,values.concat([0])),max=Math.max.apply(null,values.concat([0]));
+  if(max===min){max+=1;min-=1;}
+  var x=function(index){return left+(width-left-right)*(rows.length===1?.5:index/(rows.length-1));};
+  var y=function(value){return top+(max-Number(value))*(height-top-bottom)/(max-min);};
+  var axis=function(value){var absolute=Math.abs(value),prefix=value<0?'-':'';if(absolute>=1000000)return prefix+'$'+(absolute/1000000).toFixed(1)+'M';if(absolute>=1000)return prefix+'$'+(absolute/1000).toFixed(1)+'K';return prefix+'$'+absolute.toFixed(0);};
+  var grids=[0,.25,.5,.75,1].map(function(r){var value=max-(max-min)*r,yy=y(value),zero=Math.abs(value)<(max-min)/500;return '<line x1="'+left+'" y1="'+yy+'" x2="'+(width-right)+'" y2="'+yy+'" stroke="'+(zero?'#aeb8ca':'#e7eaf0')+'" stroke-width="1" '+(zero?'stroke-dasharray="4 3"':'')+'/><text x="'+(left-7)+'" y="'+(yy+3)+'" text-anchor="end" fill="#8a94a7" font-size="9">'+axis(value)+'</text>';}).join('');
+  var segments=[],points=[];rows.forEach(function(row,index){var value=Number(row[key]);if(row[key]===null||row[key]===undefined||!Number.isFinite(value)){if(points.length)segments.push(points.splice(0));return;}points.push({x:x(index),y:y(value),value:value,date:String(row.date||row.time||'')});});if(points.length)segments.push(points);
+  var lines=segments.map(function(segment){if(segment.length<2)return '';return '<polyline points="'+segment.map(function(point){return point.x+','+point.y;}).join(' ')+'" fill="none" stroke="#3159d9" stroke-width="2" vector-effect="non-scaling-stroke"/>';}).join('');
+  var dots=segments.map(function(segment){return segment.map(function(point){var color=point.value>=0?'#16845b':'#c84343';return '<circle cx="'+point.x+'" cy="'+point.y+'" r="3" fill="'+color+'"><title>'+escapeHtml(point.date+' '+label+' '+_fundsMoney(point.value,true))+'</title></circle>';}).join('');}).join('');
+  var labelStep=Math.max(1,Math.ceil(rows.length/5)),xLabels=rows.map(function(row,index){if(index%labelStep!==0&&index!==rows.length-1)return '';var text=String(row.date||row.time||'').slice(5);return '<text x="'+x(index)+'" y="'+(height-9)+'" text-anchor="middle" fill="#8a94a7" font-size="9">'+escapeHtml(text)+'</text>';}).join('');
+  host.innerHTML='<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" aria-label="'+escapeHtml(label)+'趋势图">'+grids+lines+dots+xLabels+'</svg>';
 }
 
 function _fundsBarChart(id,rows,buyKey,sellKey){

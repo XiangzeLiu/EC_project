@@ -250,6 +250,9 @@ class FinanceDatabaseTests(unittest.TestCase):
         self.assertEqual(overview["range"]["grain"], "day")
         self.assertEqual(len(overview["trend"]), 2)
         self.assertEqual(overview["trend"][0]["equity"], 10500)
+        self.assertEqual(len(overview["activity_trend"]), 2)
+        self.assertEqual(overview["activity_trend"][0]["trade_net_flow"], 38.0)
+        self.assertEqual(overview["activity_trend"][0]["realized_pnl"], 38.0)
 
     def test_whole_day_delete_blocks_event_replay_and_legacy_aggregate(self):
         report_time = datetime(2026, 8, 25, 16, 0, tzinfo=timezone.utc)
@@ -274,6 +277,9 @@ class FinanceDatabaseTests(unittest.TestCase):
         overview = finance_service.get_overview(day, day, [ingested["account_key"]])
         self.assertEqual(overview["daily"], [])
         self.assertEqual(overview["gaps"][0]["status"], "deleted")
+        self.assertEqual(overview["activity_trend"][0]["gap_reason"], "deleted")
+        self.assertIsNone(overview["activity_trend"][0]["trade_net_flow"])
+        self.assertIsNone(overview["activity_trend"][0]["realized_pnl"])
 
     def test_minute_delete_uses_event_and_snapshot_observation_time(self):
         report_time = datetime(2026, 8, 25, 16, 0, tzinfo=timezone.utc)
@@ -321,6 +327,56 @@ class FinanceDatabaseTests(unittest.TestCase):
         self.assertIsNone(row["fees"])
         self.assertIsNone(row["trade_net_flow"])
         self.assertIsNone(row["deposits"])
+        activity = overview["activity_trend"][0]
+        self.assertFalse(activity["flow_complete"])
+        self.assertIsNone(activity["trade_net_flow"])
+        self.assertEqual(activity["flow_gap_reason"], "unavailable")
+
+    def test_activity_trend_does_not_sum_partial_multi_account_data(self):
+        first = finance_service.ingest_report(
+            "ts-1",
+            sample_report(self.now, account_id="ACCT-A"),
+            now=self.now,
+        )
+        second = finance_service.ingest_report(
+            "ts-2",
+            sample_report(self.now, account_id="ACCT-B"),
+            now=self.now,
+        )
+        finance_service.delete_data(
+            self.day,
+            self.day,
+            [second["account_key"]],
+            "admin",
+            now=self.now + timedelta(days=2),
+        )
+
+        combined = finance_service.get_overview(self.day, self.day)
+        combined_point = combined["activity_trend"][0]
+        self.assertEqual(combined_point["expected_accounts"], 2)
+        self.assertEqual(combined_point["reported_accounts"], 1)
+        self.assertIsNone(combined_point["trade_net_flow"])
+        self.assertIsNone(combined_point["realized_pnl"])
+        self.assertEqual(combined_point["gap_reason"], "deleted")
+
+        selected = finance_service.get_overview(self.day, self.day, [first["account_key"]])
+        selected_point = selected["activity_trend"][0]
+        self.assertTrue(selected_point["flow_complete"])
+        self.assertEqual(selected_point["trade_net_flow"], 38.0)
+
+    def test_activity_trend_stops_after_account_last_seen_date(self):
+        day_one = datetime(2026, 8, 25, 14, 0, tzinfo=timezone.utc)
+        day_two = day_one + timedelta(days=1)
+        finance_service.ingest_report("ts-1", sample_report(day_one), now=day_one)
+
+        overview = finance_service.get_overview(
+            day_one.astimezone(NY).date().isoformat(),
+            day_two.astimezone(NY).date().isoformat(),
+        )
+        self.assertEqual(
+            [point["date"] for point in overview["activity_trend"]],
+            [day_one.astimezone(NY).date().isoformat()],
+        )
 
     def test_incomplete_current_report_preserves_completed_ledger_totals(self):
         initial = sample_report(self.now, buy_amount=500, sell_amount=650)
@@ -790,6 +846,8 @@ class FinanceAccessTests(unittest.TestCase):
         content = self.client.get("/admin/funds/content")
         self.assertEqual(content.status_code, 200)
         self.assertIn("数据管理", content.text)
+        self.assertIn("funds-flow-line-chart", content.text)
+        self.assertIn("funds-pnl-line-chart", content.text)
 
     def test_mutations_require_csrf_and_delete_requires_confirmation(self):
         self._session("super_admin")
