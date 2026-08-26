@@ -849,6 +849,17 @@ class FinanceAccessTests(unittest.TestCase):
         self.assertIn("funds-flow-line-chart", content.text)
         self.assertIn("funds-pnl-line-chart", content.text)
 
+    def test_chart_axis_labels_are_not_scaled_with_svg(self):
+        self._session("super_admin")
+        dashboard = self.client.get("/admin/dashboard")
+        content = self.client.get("/admin/funds/content")
+
+        self.assertIn("function _fundsChartCanvas", dashboard.text)
+        self.assertIn("function _fundsAxisMoney", dashboard.text)
+        self.assertIn("function _fundsAxisTime", dashboard.text)
+        self.assertIn("funds-chart-canvas", content.text)
+        self.assertIn("funds-axis-label", content.text)
+
     def test_mutations_require_csrf_and_delete_requires_confirmation(self):
         self._session("super_admin")
         response = self.client.post("/api/admin/finance/delete-preview", json={})
