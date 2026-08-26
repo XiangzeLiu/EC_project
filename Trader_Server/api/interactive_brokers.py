@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
-from .base import BaseBrokerAPI
+from .base import BaseBrokerAPI, FinanceCollectionSkipped
 
 log = logging.getLogger("trader_server.api.ib")
+NY_TZ = ZoneInfo("America/New_York")
 
 
 class IBRequestError(RuntimeError):
@@ -74,6 +77,8 @@ _ACCOUNT_SUMMARY_TAGS = ",".join(
         "AvailableFunds",
         "ExcessLiquidity",
         "MaintMarginReq",
+        "RealizedPnL",
+        "UnrealizedPnL",
         "Currency",
     )
 )
@@ -183,6 +188,267 @@ def _action_from_order_ref(order_ref: Any) -> str:
     return _REF_TO_ACTION.get(code, "")
 
 
+def _finance_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or abs(number) > 1e16:
+        return None
+    return number
+
+
+def _ib_execution_trade_date(value: Any) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.match(r"^(\d{8})\s+(\d{2}:\d{2}:\d{2})(?:\s+(.+))?$", raw)
+    if match:
+        try:
+            parsed = datetime.strptime(
+                f"{match.group(1)} {match.group(2)}",
+                "%Y%m%d %H:%M:%S",
+            )
+            zone_name = (match.group(3) or "America/New_York").strip()
+            try:
+                zone = ZoneInfo(zone_name)
+            except Exception:
+                zone = NY_TZ
+            return parsed.replace(tzinfo=zone).astimezone(NY_TZ).date()
+        except ValueError:
+            return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=NY_TZ)
+        return parsed.astimezone(NY_TZ).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _canonical_ib_execution_key(exec_id: Any, index: int) -> tuple[str, int]:
+    """Return the correction-stable key used by IB execution revisions."""
+    raw = str(exec_id or "").strip()
+    if not raw:
+        return f"__missing_exec_id_{index}", 0
+    key = raw
+    revision = 0
+    if raw.count(".") >= 2:
+        candidate_key, candidate_revision = raw.rsplit(".", 1)
+        if candidate_revision.isdigit():
+            key = candidate_key
+            revision = int(candidate_revision)
+    return key, revision
+
+
+def _ib_execution_timestamp(value: Any, fallback_day: date) -> datetime:
+    """Normalize IB execution time while retaining an event usable by the ledger."""
+    raw = _ib_time_to_iso(value)
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=NY_TZ)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        # IB normally returns an execution timestamp.  Keep a deterministic
+        # fallback for unusual gateway payloads rather than making the whole
+        # day disappear from finance aggregation.
+        return datetime.combine(fallback_day, datetime.min.time(), NY_TZ).astimezone(timezone.utc)
+
+
+def _ib_summary_value(summary: dict[str, dict], account: str, tag: str) -> float | None:
+    account_data = summary.get(account) or {}
+    item = account_data.get(tag) or {}
+    if tag != "Currency" and str(item.get("currency") or "USD").upper() not in {"", "USD", "BASE"}:
+        return None
+    return _finance_number(item.get("value"))
+
+
+def _build_ib_finance_report(
+    *,
+    account_id: str,
+    trade_date: date,
+    summary: dict[str, dict],
+    executions: list[dict],
+    include_current_balances: bool,
+) -> dict:
+    buy_amount = 0.0
+    sell_amount = 0.0
+    trade_count = 0
+    total_fees = 0.0
+    fees_complete = True
+    commission_realized = 0.0
+    commission_realized_available = False
+    symbols: dict[str, dict[str, Any]] = {}
+    trade_events: list[dict[str, Any]] = []
+
+    corrected_executions: dict[str, tuple[int, dict]] = {}
+    for index, item in enumerate(executions):
+        execution = item.get("execution")
+        exec_id = str(getattr(execution, "execId", "") or "") if execution is not None else ""
+        key, revision = _canonical_ib_execution_key(exec_id, index)
+        previous = corrected_executions.get(key)
+        if previous is None or revision >= previous[0]:
+            corrected_executions[key] = (revision, item)
+
+    for canonical_key, (_, item) in corrected_executions.items():
+        execution = item.get("execution")
+        contract = item.get("contract")
+        if execution is None or contract is None:
+            continue
+        if str(getattr(execution, "acctNumber", "") or "") != account_id:
+            continue
+        if _ib_execution_trade_date(getattr(execution, "time", "")) != trade_date:
+            continue
+        sec_type = str(getattr(contract, "secType", "") or "").strip().upper()
+        if sec_type not in {"", "STK"}:
+            continue
+        if str(getattr(contract, "currency", "USD") or "USD").upper() != "USD":
+            continue
+        exec_id = str(getattr(execution, "execId", "") or "")
+
+        quantity = abs(_finance_number(getattr(execution, "shares", 0)) or 0.0)
+        price = abs(_finance_number(getattr(execution, "price", 0)) or 0.0)
+        multiplier = abs(_finance_number(getattr(contract, "multiplier", 1)) or 1.0)
+        gross = quantity * price * multiplier
+        side = str(getattr(execution, "side", "") or "").strip().upper()
+        is_buy = side in {"BOT", "BUY", "B"}
+        if is_buy:
+            buy_amount += gross
+        else:
+            sell_amount += gross
+        trade_count += 1
+
+        commission_report = item.get("commission_report")
+        commission = None
+        if commission_report is not None:
+            commission = _finance_number(
+                getattr(
+                    commission_report,
+                    "commissionAndFees",
+                    getattr(commission_report, "commission", None),
+                )
+            )
+        if commission is None:
+            fees_complete = False
+            commission_value = 0.0
+        else:
+            commission_value = max(0.0, commission)
+            total_fees += commission_value
+            realized = _finance_number(getattr(commission_report, "realizedPNL", None))
+            if realized is not None:
+                commission_realized += realized
+                commission_realized_available = True
+
+        symbol = str(
+            getattr(contract, "symbol", "")
+            if sec_type in {"", "STK"}
+            else getattr(contract, "localSymbol", "") or getattr(contract, "symbol", "")
+        ).strip().upper()[:64] or "UNKNOWN"
+        row = symbols.setdefault(symbol, {
+            "symbol": symbol,
+            "buy_quantity": 0.0,
+            "sell_quantity": 0.0,
+            "buy_amount": 0.0,
+            "sell_amount": 0.0,
+            "fees": 0.0,
+            "fees_complete": True,
+            "trade_count": 0,
+        })
+        if is_buy:
+            row["buy_quantity"] += quantity
+            row["buy_amount"] += gross
+        else:
+            row["sell_quantity"] += quantity
+            row["sell_amount"] += gross
+        row["fees"] += commission_value
+        row["fees_complete"] = row["fees_complete"] and commission is not None
+        row["trade_count"] += 1
+        execution_key = canonical_key
+        if execution_key.startswith("__missing_exec_id_"):
+            synthetic = ":".join((
+                account_id,
+                _ib_execution_timestamp(getattr(execution, "time", ""), trade_date).isoformat(),
+                symbol,
+                "buy" if is_buy else "sell",
+                str(quantity),
+                str(gross),
+            ))
+            execution_key = f"missing:{hashlib.sha256(synthetic.encode('utf-8')).hexdigest()[:40]}"
+        trade_events.append({
+            "execution_key": f"ib:{execution_key}",
+            "executed_at": _ib_execution_timestamp(
+                getattr(execution, "time", ""),
+                trade_date,
+            ).isoformat(),
+            "symbol": symbol,
+            "side": "buy" if is_buy else "sell",
+            "quantity": quantity,
+            "gross_amount": gross,
+            "fee": commission_value if commission is not None else None,
+            "realized_pnl": _finance_number(
+                getattr(commission_report, "realizedPNL", None)
+            ) if commission_report is not None else None,
+        })
+
+    symbol_rows = []
+    for row in symbols.values():
+        if row.pop("fees_complete"):
+            row["trade_net_flow"] = row["sell_amount"] - row["buy_amount"] - row["fees"]
+        else:
+            row["fees"] = None
+            row["trade_net_flow"] = None
+        symbol_rows.append(row)
+    symbol_rows.sort(key=lambda item: item["buy_amount"] + item["sell_amount"], reverse=True)
+
+    realized_pnl = _ib_summary_value(summary, account_id, "RealizedPnL") if include_current_balances else None
+    if realized_pnl is None and commission_realized_available:
+        realized_pnl = commission_realized
+    unrealized_pnl = _ib_summary_value(summary, account_id, "UnrealizedPnL") if include_current_balances else None
+    net_liquidating = _ib_summary_value(summary, account_id, "NetLiquidation") if include_current_balances else None
+    fees = total_fees if fees_complete else None
+    return {
+        "broker_account_id": account_id,
+        "currency": "USD",
+        "balances": {
+            "net_liquidating_value": net_liquidating,
+            "cash_balance": _ib_summary_value(summary, account_id, "TotalCashValue") if include_current_balances else None,
+            "buying_power": _ib_summary_value(summary, account_id, "BuyingPower") if include_current_balances else None,
+        },
+        "trades": {
+            "buy_amount": buy_amount,
+            "sell_amount": sell_amount,
+            "fees": fees,
+            "trade_net_flow": sell_amount - buy_amount - fees if fees is not None else None,
+            "trade_count": trade_count,
+        },
+        "cash_flows": {
+            "deposits": None,
+            "withdrawals": None,
+            "dividends": None,
+            "interest": None,
+            "other_cash_flow": None,
+        },
+        "pnl": {
+            "realized_pnl": realized_pnl,
+            "unrealized_pnl": unrealized_pnl,
+            "equity_open": None,
+            "equity_close": net_liquidating,
+        },
+        "symbols": symbol_rows,
+        "trade_events": trade_events,
+        "coverage": {
+            "transactions_complete": True,
+            "balances_available": bool(include_current_balances and summary),
+            "cash_flows_available": False,
+            "fees_available": bool(fees_complete),
+            "pnl_available": realized_pnl is not None or unrealized_pnl is not None,
+            "equity_open_scope": "unavailable",
+            "broker_scope": "current_gateway_api",
+        },
+    }
+
+
 if _IB_AVAILABLE:
 
     class _IBApp(EWrapper, EClient):
@@ -213,6 +479,7 @@ if _IB_AVAILABLE:
             self._contract_waiters: dict[int, tuple[list[Any], asyncio.Future]] = {}
             self._summary_waiters: dict[int, tuple[dict[str, dict], asyncio.Future]] = {}
             self._execution_waiters: dict[int, tuple[list[dict], asyncio.Future]] = {}
+            self._commission_reports: dict[str, Any] = {}
             self._positions_waiter: tuple[list[dict], asyncio.Future] | None = None
             self._portfolio_waiter: tuple[str, dict[str, dict], asyncio.Future] | None = None
             self._portfolio_cache: dict[str, dict[str, dict]] = {}
@@ -948,7 +1215,12 @@ if _IB_AVAILABLE:
         def _on_exec_details(self, req_id: int, contract: Any, execution: Any) -> None:
             waiter = self._execution_waiters.get(req_id)
             if waiter:
-                waiter[0].append({"contract": contract, "execution": execution})
+                exec_id = str(getattr(execution, "execId", "") or "")
+                waiter[0].append({
+                    "contract": contract,
+                    "execution": execution,
+                    "commission_report": self._commission_reports.get(exec_id),
+                })
                 return
             if self._position_event_queue is not None:
                 self._position_event_queue.put_nowait({
@@ -961,6 +1233,25 @@ if _IB_AVAILABLE:
 
         def execDetailsEnd(self, reqId: int) -> None:
             self._soon(self._on_exec_details_end, int(reqId))
+
+        def commissionReport(self, commissionReport: Any) -> None:
+            self._soon(self._on_commission_report, commissionReport)
+
+        def commissionAndFeesReport(self, commissionAndFeesReport: Any) -> None:
+            self._soon(self._on_commission_report, commissionAndFeesReport)
+
+        def _on_commission_report(self, commission_report: Any) -> None:
+            exec_id = str(getattr(commission_report, "execId", "") or "")
+            if not exec_id:
+                return
+            self._commission_reports[exec_id] = commission_report
+            if len(self._commission_reports) > 10000:
+                self._commission_reports.pop(next(iter(self._commission_reports)))
+            for items, _ in self._execution_waiters.values():
+                for item in items:
+                    execution = item.get("execution")
+                    if str(getattr(execution, "execId", "") or "") == exec_id:
+                        item["commission_report"] = commission_report
 
         def _on_exec_details_end(self, req_id: int) -> None:
             waiter = self._execution_waiters.get(req_id)
@@ -1001,6 +1292,31 @@ if _IB_AVAILABLE:
             self.reqExecutions(req_id, filter_obj)
             try:
                 return await asyncio.wait_for(future, timeout=timeout)
+            finally:
+                self._execution_waiters.pop(req_id, None)
+
+        async def request_finance_executions(
+            self,
+            account: str,
+            start_time: str,
+            timeout: float = 8.0,
+        ) -> list[dict]:
+            req_id = self.next_request_id()
+            future = self._loop.create_future()
+            self._execution_waiters[req_id] = ([], future)
+            filter_obj = ExecutionFilter()
+            filter_obj.acctCode = account
+            filter_obj.time = str(start_time or "")
+            self.reqExecutions(req_id, filter_obj)
+            try:
+                items = await asyncio.wait_for(future, timeout=timeout)
+                await asyncio.sleep(0)
+                for item in items:
+                    execution = item.get("execution")
+                    exec_id = str(getattr(execution, "execId", "") or "")
+                    if exec_id and item.get("commission_report") is None:
+                        item["commission_report"] = self._commission_reports.get(exec_id)
+                return items
             finally:
                 self._execution_waiters.pop(req_id, None)
 
@@ -1092,6 +1408,8 @@ class IBBroker(BaseBrokerAPI):
         self._positions_lock = asyncio.Lock()
         self._orders_lock = asyncio.Lock()
         self._order_id_lock = asyncio.Lock()
+        self._finance_lock = asyncio.Lock()
+        self._trade_activity = 0
         self._runtime_state = "disconnected"
         self._runtime_recovery_code = ""
         self._runtime_status_callback: Callable[[dict[str, Any]], None] | None = None
@@ -1687,6 +2005,90 @@ class IBBroker(BaseBrokerAPI):
             if normalized:
                 app.unsubscribe_market_data(normalized)
 
+    async def collect_finance_report(self, trade_date: str, timeout: float = 12.0) -> dict:
+        """Run low-priority, request-id-scoped IB reads on the existing API session."""
+        if (
+            self._finance_lock.locked()
+            or self._orders_lock.locked()
+            or self._positions_lock.locked()
+            or self._order_id_lock.locked()
+            or self._trade_activity
+        ):
+            raise FinanceCollectionSkipped("FINANCE_BUSY", "IB trading or account read is in progress")
+        try:
+            await asyncio.wait_for(self._finance_lock.acquire(), timeout=0.05)
+        except asyncio.TimeoutError as exc:
+            raise FinanceCollectionSkipped("FINANCE_BUSY", "IB finance read lock unavailable") from exc
+
+        try:
+            try:
+                requested_date = date.fromisoformat(str(trade_date or ""))
+            except ValueError as exc:
+                raise ValueError("trade_date must use YYYY-MM-DD") from exc
+            try:
+                app = self._require_app(require_account=True)
+            except RuntimeError as exc:
+                raise FinanceCollectionSkipped("BROKER_NOT_READY", str(exc)) from exc
+            generation = self._connection_generation
+            account_id = self._account_id
+
+            from zoneinfo import ZoneInfo
+
+            current_date = datetime.now(ZoneInfo("America/New_York")).date()
+            include_current_balances = requested_date == current_date
+            # Ask for the complete Gateway-visible execution set, then apply
+            # the broker execution date locally. This avoids TWS-timezone
+            # ambiguity in ExecutionFilter.time and includes overnight fills.
+            start_time = ""
+
+            def ensure_trade_idle() -> None:
+                if self._trade_activity:
+                    raise FinanceCollectionSkipped(
+                        "FINANCE_PREEMPTED",
+                        "IB trade request preempted finance collection",
+                    )
+
+            async def collect() -> tuple[dict[str, dict], list[dict]]:
+                ensure_trade_idle()
+                executions = await app.request_finance_executions(
+                    account_id,
+                    start_time,
+                    timeout=min(8.0, max(2.0, float(timeout))),
+                )
+                ensure_trade_idle()
+                if include_current_balances:
+                    summary = await app.request_account_summary(
+                        timeout=min(8.0, max(2.0, float(timeout))),
+                    )
+                    ensure_trade_idle()
+                    return summary, executions
+                return {}, executions
+
+            try:
+                summary, executions = await asyncio.wait_for(
+                    collect(),
+                    timeout=max(2.0, float(timeout)),
+                )
+            except asyncio.TimeoutError as exc:
+                raise FinanceCollectionSkipped("FINANCE_TIMEOUT", "IB finance read timed out") from exc
+
+            if (
+                self._ib_app is not app
+                or self._connection_generation != generation
+                or self._runtime_state != "ready"
+                or not self._connected
+            ):
+                raise FinanceCollectionSkipped("BROKER_CHANGED", "IB connection changed during finance read")
+            return _build_ib_finance_report(
+                account_id=account_id,
+                trade_date=requested_date,
+                summary=summary,
+                executions=executions,
+                include_current_balances=include_current_balances,
+            )
+        finally:
+            self._finance_lock.release()
+
     async def get_positions(self, filters: dict | None = None) -> list[dict]:
         app = self._require_app(require_account=True)
         async with self._positions_lock:
@@ -1733,6 +2135,13 @@ class IBBroker(BaseBrokerAPI):
         return result
 
     async def place_order(self, order_params: dict) -> dict:
+        self._trade_activity += 1
+        try:
+            return await self._place_order_impl(order_params)
+        finally:
+            self._trade_activity = max(0, self._trade_activity - 1)
+
+    async def _place_order_impl(self, order_params: dict) -> dict:
         app = self._require_app(require_account=True)
         symbol = str(order_params.get("symbol") or "").strip().upper()
         action_label = str(order_params.get("action") or "").strip()
@@ -1779,6 +2188,13 @@ class IBBroker(BaseBrokerAPI):
         return {"success": True, "order_id": str(order_id), "status": result.get("status", "Live")}
 
     async def cancel_order(self, order_id: str) -> dict:
+        self._trade_activity += 1
+        try:
+            return await self._cancel_order_impl(order_id)
+        finally:
+            self._trade_activity = max(0, self._trade_activity - 1)
+
+    async def _cancel_order_impl(self, order_id: str) -> dict:
         app = self._require_app(require_account=True)
         try:
             numeric_id = int(str(order_id).strip())

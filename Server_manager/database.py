@@ -25,6 +25,8 @@ DB_SCHEMA_VERSION_V4 = 4
 DB_SCHEMA_VERSION_V5 = 5
 DB_SCHEMA_VERSION_V6 = 6
 DB_SCHEMA_VERSION_V7 = 7
+DB_SCHEMA_VERSION_V8 = 8
+DB_SCHEMA_VERSION_V9 = 9
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -255,6 +257,180 @@ CREATE INDEX IF NOT EXISTS idx_software_artifacts_release
 ON software_artifacts(release_id);
 """
 
+V8_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS finance_accounts (
+    account_key TEXT PRIMARY KEY,
+    broker_type TEXT NOT NULL,
+    broker_account_id TEXT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    first_trade_date TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    UNIQUE(broker_type, broker_account_id, currency)
+);
+
+CREATE TABLE IF NOT EXISTS finance_account_sources (
+    account_key TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    last_success_at TEXT NOT NULL DEFAULT '',
+    last_status TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(account_key, server_id),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS finance_snapshots (
+    account_key TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    bucket_at TEXT NOT NULL,
+    collected_at TEXT NOT NULL,
+    source_server_id TEXT NOT NULL DEFAULT '',
+    net_liquidating_value REAL,
+    cash_balance REAL,
+    buying_power REAL,
+    realized_pnl REAL,
+    unrealized_pnl REAL,
+    PRIMARY KEY(account_key, trade_date, bucket_at),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS finance_daily_accounts (
+    account_key TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    buy_amount REAL NOT NULL DEFAULT 0,
+    sell_amount REAL NOT NULL DEFAULT 0,
+    fees REAL,
+    trade_net_flow REAL,
+    turnover REAL NOT NULL DEFAULT 0,
+    deposits REAL,
+    withdrawals REAL,
+    dividends REAL,
+    interest REAL,
+    other_cash_flow REAL,
+    realized_pnl REAL,
+    unrealized_pnl REAL,
+    equity_open REAL,
+    equity_close REAL,
+    equity_change REAL,
+    trade_count INTEGER NOT NULL DEFAULT 0,
+    source_server_id TEXT NOT NULL DEFAULT '',
+    data_status TEXT NOT NULL DEFAULT 'in_progress',
+    completeness_json TEXT NOT NULL DEFAULT '{}',
+    collected_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_key, trade_date),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS finance_daily_symbols (
+    account_key TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    buy_quantity REAL NOT NULL DEFAULT 0,
+    sell_quantity REAL NOT NULL DEFAULT 0,
+    buy_amount REAL NOT NULL DEFAULT 0,
+    sell_amount REAL NOT NULL DEFAULT 0,
+    fees REAL,
+    trade_net_flow REAL,
+    trade_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_key, trade_date, symbol),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS finance_collection_status (
+    account_key TEXT PRIMARY KEY,
+    last_attempt_at TEXT NOT NULL DEFAULT '',
+    last_success_at TEXT NOT NULL DEFAULT '',
+    last_status TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    last_source_server_id TEXT NOT NULL DEFAULT '',
+    last_manual_requested_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS finance_deletion_blocks (
+    account_key TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    deleted_by TEXT NOT NULL DEFAULT '',
+    deleted_at TEXT NOT NULL,
+    PRIMARY KEY(account_key, trade_date),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_finance_accounts_last_seen
+ON finance_accounts(last_seen_at);
+
+CREATE INDEX IF NOT EXISTS idx_finance_sources_server
+ON finance_account_sources(server_id, last_seen_at);
+
+CREATE INDEX IF NOT EXISTS idx_finance_snapshots_date
+ON finance_snapshots(trade_date, account_key, bucket_at);
+
+CREATE INDEX IF NOT EXISTS idx_finance_daily_accounts_date
+ON finance_daily_accounts(trade_date, account_key);
+
+CREATE INDEX IF NOT EXISTS idx_finance_daily_symbols_date
+ON finance_daily_symbols(trade_date, symbol, account_key);
+
+CREATE INDEX IF NOT EXISTS idx_finance_deletion_blocks_date
+ON finance_deletion_blocks(trade_date, account_key);
+"""
+
+
+# Finance overview V2.  These tables are deliberately isolated from the
+# account, node, and trading tables so a finance migration cannot affect the
+# order path.
+V9_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS finance_trade_events (
+    account_key TEXT NOT NULL,
+    execution_key TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    executed_at TEXT NOT NULL,
+    symbol TEXT NOT NULL DEFAULT 'UNKNOWN',
+    side TEXT NOT NULL,
+    quantity REAL NOT NULL DEFAULT 0,
+    gross_amount REAL NOT NULL DEFAULT 0,
+    fee REAL,
+    realized_pnl REAL,
+    is_voided INTEGER NOT NULL DEFAULT 0,
+    source_server_id TEXT NOT NULL DEFAULT '',
+    collected_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_key, execution_key),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS finance_deletion_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_key TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    start_trade_date TEXT NOT NULL,
+    end_trade_date TEXT NOT NULL,
+    deleted_by TEXT NOT NULL DEFAULT '',
+    deleted_at TEXT NOT NULL,
+    CHECK(start_at <= end_at),
+    FOREIGN KEY(account_key) REFERENCES finance_accounts(account_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_finance_trade_events_account_date
+ON finance_trade_events(account_key, trade_date, executed_at);
+
+CREATE INDEX IF NOT EXISTS idx_finance_trade_events_date
+ON finance_trade_events(trade_date, account_key, symbol);
+
+CREATE INDEX IF NOT EXISTS idx_finance_deletion_windows_account_time
+ON finance_deletion_windows(account_key, start_at, end_at);
+
+CREATE INDEX IF NOT EXISTS idx_finance_deletion_windows_date
+ON finance_deletion_windows(start_trade_date, end_trade_date, account_key);
+"""
+
 V2_INDEXES_SQL = """
 CREATE INDEX IF NOT EXISTS idx_accounts_role_status
 ON accounts(role, status);
@@ -357,6 +533,38 @@ def _ensure_v6_schema(conn: sqlite3.Connection) -> None:
 
 def _ensure_v7_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(V7_SCHEMA_SQL)
+
+
+def _ensure_v8_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(V8_SCHEMA_SQL)
+
+
+def _ensure_v9_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(V9_SCHEMA_SQL)
+    _ensure_column(
+        conn,
+        "finance_accounts",
+        "activated_at",
+        "activated_at TEXT NOT NULL DEFAULT ''",
+    )
+    _ensure_column(
+        conn,
+        "finance_snapshots",
+        "equity_open",
+        "equity_open REAL",
+    )
+    _ensure_column(
+        conn,
+        "finance_snapshots",
+        "coverage_json",
+        "coverage_json TEXT NOT NULL DEFAULT '{}'",
+    )
+    _ensure_column(
+        conn,
+        "finance_trade_events",
+        "is_voided",
+        "is_voided INTEGER NOT NULL DEFAULT 0",
+    )
 
 
 def _has_v2_schema(conn: sqlite3.Connection) -> bool:
@@ -920,6 +1128,21 @@ def migrate_v6_to_v7(conn: sqlite3.Connection) -> dict:
     return {"software_release_tables_created": 1}
 
 
+def migrate_v7_to_v8(conn: sqlite3.Connection) -> dict:
+    _ensure_v8_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V8)
+    return {"finance_overview_tables_created": 1}
+
+
+def migrate_v8_to_v9(conn: sqlite3.Connection) -> dict:
+    _ensure_v9_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V9)
+    return {
+        "finance_event_ledger_created": 1,
+        "finance_time_range_deletion_created": 1,
+    }
+
+
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
     _ensure_legacy_schema(conn)
@@ -929,6 +1152,8 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     _ensure_v5_schema(conn)
     _ensure_v6_schema(conn)
     _ensure_v7_schema(conn)
+    _ensure_v8_schema(conn)
+    _ensure_v9_schema(conn)
     version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
@@ -967,6 +1192,18 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
         report = migrate_v6_to_v7(conn)
         report["from_version"] = version
         report["to_version"] = DB_SCHEMA_VERSION_V7
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V7
+    if version < DB_SCHEMA_VERSION_V8:
+        report = migrate_v7_to_v8(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V8
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V8
+    if version < DB_SCHEMA_VERSION_V9:
+        report = migrate_v8_to_v9(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V9
         reports.append(report)
     return reports
 

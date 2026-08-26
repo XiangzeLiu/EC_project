@@ -139,6 +139,18 @@ SM_SOFTWARE_SESSION_MAX_AGE = max(
 )
 SM_SOFTWARE_ALLOWED_EXTENSIONS = frozenset({".exe", ".zip", ".msi"})
 
+# Super-admin finance overview. Collection remains a separate read-only path;
+# this flag can disable the page and ingest APIs without touching trading.
+SM_FINANCE_ENABLED = _env_bool("SM_FINANCE_ENABLED", True)
+SM_FINANCE_RETENTION_MONTHS = max(
+    1,
+    min(3, int(os.environ.get("SM_FINANCE_RETENTION_MONTHS", "3"))),
+)
+SM_FINANCE_CLEANUP_INTERVAL_SECONDS = max(
+    3600,
+    int(os.environ.get("SM_FINANCE_CLEANUP_INTERVAL_SECONDS", "21600")),
+)
+
 # Used only when a fresh database has no super administrator. Existing accounts
 # are never reset from these values during startup.
 SM_BOOTSTRAP_ADMIN_USERNAME = (

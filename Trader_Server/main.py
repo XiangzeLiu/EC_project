@@ -340,6 +340,12 @@ async def api_await_approval(request_id: str = Query(...)):
                         await _heartbeat.start()
                     state.status = "running"
                     start_config_event_listener()
+                    try:
+                        from .services.finance_reporter import start_finance_reporter
+
+                        start_finance_reporter()
+                    except Exception as finance_exc:
+                        log.warning("Finance reporter startup skipped: %s", finance_exc)
 
                 if not _approval_broker_task or _approval_broker_task.done():
                     _approval_broker_task = asyncio.create_task(
@@ -749,6 +755,13 @@ async def on_startup():
     elif not has_creds:
         state.status = "uninitialized"
 
+    try:
+        from .services.finance_reporter import start_finance_reporter
+
+        start_finance_reporter()
+    except Exception as finance_exc:
+        log.warning("Finance reporter startup skipped: %s", finance_exc)
+
 
     # 3) 输出启动信息
     ws_port = args.ws_port or DEFAULT_WS_PORT
@@ -785,6 +798,13 @@ async def on_shutdown():
         _heartbeat.stop()
         await _heartbeat.wait_stopped()
         _heartbeat = None
+
+    try:
+        from .services.finance_reporter import stop_finance_reporter
+
+        await stop_finance_reporter()
+    except Exception as e:
+        log.error(f"Finance reporter shutdown error: {e}")
 
     # Stop broker connection and config_sync services.
     try:

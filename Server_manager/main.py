@@ -55,6 +55,8 @@ from config import (
     SM_ALLOWED_HOSTS, SM_COOKIE_SAMESITE, SM_COOKIE_SECURE, SM_CORS_ORIGINS,
     SM_DOMAIN_POOL_REQUIRED, SM_PUBLIC_BASE_URL,
     SM_CADDY_REQUIRED,
+    SM_FINANCE_CLEANUP_INTERVAL_SECONDS, SM_FINANCE_ENABLED,
+    SM_FINANCE_RETENTION_MONTHS,
 )
 
 import database
@@ -65,7 +67,12 @@ from database import init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
 from routers.software_router import router as software_router
-from services import dns_config_service, software_release_service, tastytrade_validation
+from services import (
+    dns_config_service,
+    finance_service,
+    software_release_service,
+    tastytrade_validation,
+)
 
 
 
@@ -305,6 +312,7 @@ async def admin_dashboard(request: Request):
         "admin_role": admin_role,
         "is_super_admin": admin_role == "super_admin",
         "admin_csrf_token": sess.get("csrf_token", ""),
+        "finance_enabled": bool(SM_FINANCE_ENABLED),
         "server_mode": server_mode,
         "sdk_status": sdk_status,
         "public_base_url": SM_PUBLIC_BASE_URL,
@@ -332,6 +340,182 @@ async def admin_product_docs_content(request: Request):
             },
         )
     return templates.TemplateResponse(request, "product_docs_fragment.html", {})
+
+
+def _finance_admin_session(request: Request, *, require_csrf: bool = False) -> tuple[dict | None, JSONResponse | None]:
+    session = _get_admin_session(request)
+    if not session:
+        return None, JSONResponse(
+            status_code=401,
+            content={"ok": False, "code": "ADMIN_AUTH_REQUIRED", "redirect": "/admin/login"},
+        )
+    if (session.get("role") or "") != "super_admin":
+        return None, JSONResponse(
+            status_code=403,
+            content={"ok": False, "code": "SUPER_ADMIN_REQUIRED", "error": "仅超级管理员可访问资金总览"},
+        )
+    if not SM_FINANCE_ENABLED:
+        return None, JSONResponse(
+            status_code=503,
+            content={"ok": False, "code": "FINANCE_DISABLED", "error": "资金总览功能已停用"},
+        )
+    if require_csrf and request.headers.get("X-SM-CSRF") != session.get("csrf_token"):
+        return None, JSONResponse(
+            status_code=403,
+            content={"ok": False, "code": "CSRF_INVALID", "error": "请求校验失败"},
+        )
+    return session, None
+
+
+@app.get("/admin/funds")
+async def admin_funds_page(request: Request):
+    session, error = _finance_admin_session(request)
+    if error:
+        if error.status_code == 401:
+            return RedirectResponse(url="/admin/login", status_code=302)
+        return error
+    return RedirectResponse(url="/admin/dashboard#funds", status_code=302)
+
+
+@app.get("/admin/funds/content")
+async def admin_funds_content(request: Request):
+    _, error = _finance_admin_session(request)
+    if error:
+        return error
+    return templates.TemplateResponse(request, "funds_overview_fragment.html", {})
+
+
+def _finance_account_keys(raw: str) -> list[str]:
+    return [value.strip() for value in str(raw or "").split(",") if value.strip()]
+
+
+@app.get("/api/admin/finance/accounts")
+async def admin_finance_accounts(request: Request, start_date: str, end_date: str):
+    _, error = _finance_admin_session(request)
+    if error:
+        return error
+    try:
+        data = await asyncio.to_thread(finance_service.list_accounts, start_date, end_date)
+        return {"ok": True, "data": data}
+    except finance_service.FinanceValidationError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/admin/finance/overview")
+async def admin_finance_overview(
+    request: Request,
+    start_date: str,
+    end_date: str,
+    account_keys: str = "",
+):
+    _, error = _finance_admin_session(request)
+    if error:
+        return error
+    try:
+        data = await asyncio.to_thread(
+            finance_service.get_overview,
+            start_date,
+            end_date,
+            _finance_account_keys(account_keys),
+        )
+        return {"ok": True, "data": data}
+    except finance_service.FinanceValidationError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/admin/finance/delete-preview")
+async def admin_finance_delete_preview(request: Request):
+    _, error = _finance_admin_session(request, require_csrf=True)
+    if error:
+        return error
+    body = await request.json()
+    try:
+        data = await asyncio.to_thread(
+            finance_service.preview_delete,
+            body.get("start_at") or body.get("start_date"),
+            body.get("end_at") or body.get("end_date"),
+            body.get("account_keys") or [],
+        )
+        return {"ok": True, "data": data}
+    except finance_service.FinanceValidationError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/admin/finance/delete")
+async def admin_finance_delete(request: Request):
+    session, error = _finance_admin_session(request, require_csrf=True)
+    if error:
+        return error
+    body = await request.json()
+    if body.get("confirm") is not True:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "必须确认后才能删除"})
+    try:
+        data = await asyncio.to_thread(
+            finance_service.delete_data,
+            body.get("start_at") or body.get("start_date"),
+            body.get("end_at") or body.get("end_date"),
+            body.get("account_keys") or [],
+            session.get("username") or "super_admin",
+        )
+    except finance_service.FinanceValidationError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    _record_admin_event(
+        request,
+        "FINANCE_DELETE",
+        "finance_data",
+        f"range={data['start_at']}..{data['end_at']} accounts={data['account_count']}",
+    )
+    return {"ok": True, "data": data}
+
+
+@app.post("/api/admin/finance/collect")
+async def admin_finance_collect(request: Request):
+    _, error = _finance_admin_session(request, require_csrf=True)
+    if error:
+        return error
+    body = await request.json()
+    account_key = str(body.get("account_key") or "").strip()
+    try:
+        candidates = await asyncio.to_thread(finance_service.source_candidates, account_key)
+    except finance_service.FinanceValidationError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    target_server = ""
+    for server_id in candidates:
+        runtime = node_state.manager.get(server_id)
+        if (
+            runtime
+            and runtime.is_alive
+            and runtime.status in {"online", "approved"}
+            and _config_sse_queues.get(server_id)
+        ):
+            target_server = server_id
+            break
+    if not target_server:
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "code": "FINANCE_SOURCE_UNAVAILABLE", "error": "该账号当前没有可用的 TS 采集来源"},
+        )
+    try:
+        reserved, retry_after = await asyncio.to_thread(
+            finance_service.reserve_manual_collection,
+            account_key,
+            target_server,
+        )
+    except finance_service.FinanceValidationError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    if not reserved:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(retry_after)},
+            content={"ok": False, "code": "FINANCE_COLLECT_COOLDOWN", "retry_after": retry_after, "error": f"请在 {retry_after} 秒后重试"},
+        )
+    delivered = _push_finance_collect(target_server, account_key)
+    if not delivered:
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "code": "FINANCE_SOURCE_UNAVAILABLE", "error": "TS 采集通道暂不可用"},
+        )
+    return {"ok": True, "data": {"account_key": account_key, "requested": True}}
 
 
 def _software_admin_session(request: Request, require_csrf: bool = False) -> dict | None:
@@ -1134,6 +1318,44 @@ async def node_config_events(request: Request, server_id: str = ""):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/nodes/finance/report")
+async def node_finance_report(request: Request):
+    if not SM_FINANCE_ENABLED:
+        return JSONResponse(status_code=503, content={"ok": False, "error": "Finance reporting disabled"})
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    body = await request.json()
+    server_id = str(body.get("server_id") or "").strip()
+    if not token or not server_id or not database.verify_node_token_for_config(token, server_id):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Unauthorized"})
+    try:
+        broker_config = database.get_node_broker_config(server_id)
+        if broker_config:
+            configured_type = finance_service.canonical_broker_type(broker_config.get("broker_type"))
+            reported_type = finance_service.canonical_broker_type(body.get("broker_type"))
+            if configured_type != reported_type:
+                raise finance_service.FinanceValidationError("上报券商类型与节点配置不一致")
+            if int(broker_config.get("config_version", 0) or 0) > 0 and not bool(broker_config.get("enabled", True)):
+                raise finance_service.FinanceValidationError("节点券商配置已停用")
+            credentials = dict(broker_config.get("credentials") or {})
+            configured_account = str(
+                credentials.get("account_number")
+                or credentials.get("account_id")
+                or ""
+            ).strip().upper()
+            reported_account = str(body.get("broker_account_id") or "").strip().upper()
+            if configured_account and configured_account != reported_account:
+                raise finance_service.FinanceValidationError("上报券商账号与节点配置不一致")
+        data = await asyncio.to_thread(finance_service.ingest_report, server_id, body)
+        return {"ok": True, "data": data}
+    except finance_service.FinanceValidationError as exc:
+        log.warning("Finance report rejected for server_id=%s: %s", server_id, exc)
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except Exception as exc:
+        log.error("Finance report ingest failed for server_id=%s: %s", server_id, exc)
+        return JSONResponse(status_code=500, content={"ok": False, "error": "资金报告写入失败"})
 
 
 @app.post("/nodes/heartbeat")
@@ -2811,6 +3033,23 @@ def _push_config_change(server_id: str, version: int):
             pass
 
 
+def _push_finance_collect(server_id: str, account_key: str) -> int:
+    """Send an account-scoped collection event over the existing TS control SSE."""
+    data = _json.dumps({
+        "type": "FINANCE_COLLECT",
+        "server_id": server_id,
+        "account_key": account_key,
+    })
+    delivered = 0
+    for queue in _config_sse_queues.get(server_id, [])[:]:
+        try:
+            queue.put_nowait(data)
+            delivered += 1
+        except asyncio.QueueFull:
+            pass
+    return delivered
+
+
 def _sse_error_event(msg: str):
 
     """生成一条错误 SSE 事件后关闭"""
@@ -2917,6 +3156,23 @@ async def _db_sync_loop():
         await asyncio.sleep(_DB_SYNC_INTERVAL)
 
 
+async def _finance_cleanup_loop():
+    """Keep only the configured three-natural-month finance window."""
+    while True:
+        try:
+            deleted = await asyncio.to_thread(
+                finance_service.cleanup_retention,
+                retention_months=SM_FINANCE_RETENTION_MONTHS,
+            )
+            if any(deleted.values()):
+                log.info("Finance retention cleanup: %s", deleted)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error("Finance retention cleanup failed: %s", exc)
+        await asyncio.sleep(SM_FINANCE_CLEANUP_INTERVAL_SECONDS)
+
+
 @app.on_event("startup")
 async def startup():
     """应用启动时执行初始化"""
@@ -2937,8 +3193,10 @@ async def startup():
     # 启动心跳超时检测任务（内存操作）
     asyncio.create_task(_heartbeat_monitor_loop())
     # 初始化数据库
+    database_ready = False
     try:
         init_db()
+        database_ready = True
     except Exception as e:
         log.warning(f"Database init skipped (non-critical): {e}")
 
@@ -2960,6 +3218,8 @@ async def startup():
 
     # 启动定期 DB 同步任务
     asyncio.create_task(_db_sync_loop())
+    if database_ready and SM_FINANCE_ENABLED:
+        asyncio.create_task(_finance_cleanup_loop(), name="sm-finance-retention")
 
     log.info("=" * 60)
     log.info(f"Server Manager started on {SERVER_HOST}:{SERVER_PORT}")

@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Server Manager - 资金总览 Demo</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css">
+  <style>
+    :root {
+      --page: #f7f8fb;
+      --paper: #ffffff;
+      --ink: #1d2236;
+      --muted: #68708a;
+      --quiet: #9aa2b6;
+      --line: #e7eaf1;
+      --blue: #3b63f6;
+      --blue-dark: #2238ad;
+      --blue-soft: #eef2ff;
+      --green: #159a62;
+      --green-soft: #eaf8f1;
+      --orange: #d97706;
+      --orange-soft: #fff7e6;
+      --red: #dc4c4c;
+      --red-soft: #fff0f0;
+      --purple: #7c5ac7;
+      --purple-soft: #f4f0fb;
+      --shadow: 0 8px 26px rgba(24, 36, 68, .06);
+      font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-width: 320px; min-height: 100%; color: var(--ink); background: var(--page); letter-spacing: 0; }
+    button, input, select { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .48; }
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-thumb { background: #cbd1df; border-radius: 6px; }
+
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; width: 232px; display: flex; flex-direction: column; background: var(--paper); border-right: 1px solid var(--line); }
+    .brand { height: 64px; padding: 0 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+    .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; color: white; background: var(--blue); border-radius: 8px; font-size: 18px; }
+    .brand strong { display: block; font-size: 15px; }
+    .brand small { display: block; color: var(--quiet); font-size: 11px; }
+    .side-nav { flex: 1; padding: 12px 8px; overflow-y: auto; }
+    .nav-label { padding: 8px 12px 5px; color: var(--quiet); font-size: 11px; }
+    .nav-item { position: relative; width: 100%; min-height: 42px; padding: 0 12px; display: flex; align-items: center; gap: 11px; color: #59617a; background: transparent; border: 0; border-radius: 7px; text-align: left; font-size: 14px; }
+    .nav-item i { width: 20px; font-size: 18px; }
+    .nav-item:hover { color: var(--ink); background: #f5f7fb; }
+    .nav-item.active { color: var(--blue-dark); background: var(--blue-soft); font-weight: 700; }
+    .nav-item.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--blue); }
+    .super-only { margin-left: auto; padding: 2px 6px; color: #855a00; background: #fff2c8; border-radius: 4px; font-size: 10px; font-weight: 700; }
+    .side-user { margin: 12px; padding: 10px; display: flex; align-items: center; gap: 10px; background: #f6f7fa; border-radius: 8px; }
+    .avatar { width: 34px; height: 34px; display: grid; place-items: center; color: white; background: var(--blue); border-radius: 50%; font-size: 12px; font-weight: 700; }
+    .side-user strong { display: block; font-size: 13px; }
+    .side-user small { display: block; color: var(--quiet); font-size: 11px; }
+
+    .main { width: calc(100% - 232px); min-width: 0; margin-left: 232px; }
+    .topbar { position: sticky; top: 0; z-index: 15; height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,.97); border-bottom: 1px solid var(--line); }
+    .topbar h1 { margin: 0; font-size: 17px; font-weight: 700; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .role-badge { padding: 5px 9px; color: #855a00; background: #fff4d6; border: 1px solid #f1d992; border-radius: 5px; font-size: 12px; font-weight: 700; }
+    .icon-btn { width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted); background: white; border: 1px solid var(--line); border-radius: 6px; font-size: 17px; }
+    .icon-btn:hover { color: var(--blue); border-color: #aebdfc; }
+
+    .workspace { padding: 20px 24px 36px; }
+    .control-band { padding: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .control-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+    .quick-range { display: inline-flex; padding: 3px; background: #f2f4f8; border-radius: 6px; }
+    .quick-range button { height: 30px; padding: 0 12px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; font-size: 12px; }
+    .quick-range button.active { color: var(--blue-dark); background: white; box-shadow: 0 2px 7px rgba(32,45,82,.09); font-weight: 700; }
+    .field { min-width: 132px; }
+    .field.date { min-width: 142px; }
+    .field label { margin-bottom: 5px; display: block; color: var(--quiet); font-size: 11px; }
+    .field input, .field select { width: 100%; height: 34px; padding: 0 9px; color: var(--ink); background: white; border: 1px solid #dce0e9; border-radius: 5px; outline: none; font-size: 12px; }
+    .field input:focus, .field select:focus { border-color: #8ca3fc; box-shadow: 0 0 0 3px rgba(59,99,246,.1); }
+    .btn { height: 34px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 5px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .btn-primary { color: white; background: var(--blue); }
+    .btn-primary:hover { background: #3155dd; }
+    .btn-secondary { color: var(--blue-dark); background: var(--blue-soft); border-color: #d6defe; }
+    .btn-plain { color: var(--muted); background: white; border-color: var(--line); }
+    .btn-danger { color: white; background: var(--red); }
+    .control-spacer { flex: 1; }
+    .status-strip { margin-top: 14px; padding-top: 12px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .status-strip span { display: inline-flex; align-items: center; gap: 6px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .dot.warn { background: var(--orange); }
+
+    .tabs { margin-top: 16px; display: flex; align-items: center; gap: 4px; overflow-x: auto; border-bottom: 1px solid #dfe3ec; }
+    .tab { min-width: 84px; height: 42px; padding: 0 14px; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; font-size: 13px; white-space: nowrap; }
+    .tab:hover { color: var(--ink); }
+    .tab.active { color: var(--blue-dark); border-bottom-color: var(--blue); font-weight: 700; }
+    .tab-section { display: none; padding-top: 16px; }
+    .tab-section.active { display: block; }
+
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
+    .metric { min-height: 104px; padding: 15px; background: white; border: 1px solid var(--line); border-radius: 7px; }
+    .metric-head { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
+    .metric-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; font-size: 15px; }
+    .metric strong { margin-top: 9px; display: block; font-size: 21px; line-height: 1.2; }
+    .metric small { margin-top: 5px; display: block; color: var(--quiet); font-size: 11px; }
+    .blue { color: var(--blue); background: var(--blue-soft); }
+    .green { color: var(--green); background: var(--green-soft); }
+    .orange { color: var(--orange); background: var(--orange-soft); }
+    .purple { color: var(--purple); background: var(--purple-soft); }
+    .red { color: var(--red); background: var(--red-soft); }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+
+    .chart-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .chart-panel, .table-panel, .manage-panel { background: white; border: 1px solid var(--line); border-radius: 7px; }
+    .panel-head { min-height: 50px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-size: 14px; }
+    .panel-head small { color: var(--quiet); font-size: 11px; }
+    .legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 11px; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend i { width: 14px; height: 3px; border-radius: 2px; }
+    .chart-wrap { width: 100%; aspect-ratio: 2.6 / 1; min-height: 220px; padding: 8px 10px 2px; }
+    .chart-wrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+    .chart-empty { height: 100%; display: grid; place-items: center; color: var(--quiet); font-size: 12px; }
+
+    .table-panel { margin-top: 12px; overflow: hidden; }
+    .table-scroll { overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { height: 38px; padding: 0 12px; color: #788096; background: #fafbfc; border-bottom: 1px solid var(--line); text-align: left; font-weight: 600; white-space: nowrap; }
+    td { height: 43px; padding: 6px 12px; border-bottom: 1px solid #f0f2f6; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: #fafbff; }
+    .pill { padding: 3px 7px; display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+    .pill-ok { color: #087b4b; background: #e9f8f1; }
+    .pill-warn { color: #9a6200; background: #fff3d4; }
+    .pill-off { color: #6c7387; background: #eef0f4; }
+    .pill-delete { color: #b33434; background: #fff0f0; }
+    .mono { font-variant-numeric: tabular-nums; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
+    .muted { color: var(--quiet); }
+    .row-link { color: var(--blue); background: transparent; border: 0; font-weight: 700; }
+
+    .gap-banner { margin-bottom: 12px; padding: 10px 12px; display: flex; align-items: center; gap: 9px; color: #8a5a00; background: var(--orange-soft); border: 1px solid #f2d495; border-radius: 6px; font-size: 12px; }
+    .gap-banner i { font-size: 17px; }
+
+    .manage-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 12px; }
+    .manage-panel { overflow: hidden; }
+    .manage-body { padding: 15px; }
+    .manage-fields { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 12px; }
+    .selector-block { margin-top: 14px; }
+    .selector-block > label { margin-bottom: 7px; display: block; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .check-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .check-chip { position: relative; }
+    .check-chip input { position: absolute; opacity: 0; pointer-events: none; }
+    .check-chip span { min-height: 30px; padding: 5px 9px; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); background: white; border: 1px solid #dfe3eb; border-radius: 5px; font-size: 11px; cursor: pointer; pointer-events: none; }
+    .check-chip input:checked + span { color: var(--blue-dark); background: var(--blue-soft); border-color: #aebdfc; font-weight: 700; }
+    .manage-actions { margin-top: 15px; display: flex; justify-content: flex-end; gap: 8px; }
+    .impact-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .impact-item { min-height: 66px; padding: 10px; background: #f8f9fc; border: 1px solid var(--line); border-radius: 6px; }
+    .impact-item span { color: var(--quiet); font-size: 11px; }
+    .impact-item strong { margin-top: 5px; display: block; font-size: 17px; }
+    .danger-zone { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .danger-zone .btn { width: 100%; }
+    .date-group td { height: 36px; background: #f7f8fb; color: var(--muted); font-weight: 700; }
+    input[type="checkbox"] { accent-color: var(--blue); }
+
+    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(26,31,49,.46); }
+    .modal-backdrop.open { display: flex; }
+    .modal { width: min(460px, 100%); background: white; border-radius: 8px; box-shadow: 0 24px 70px rgba(15,22,45,.28); overflow: hidden; }
+    .modal-head { height: 54px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .modal-head h3 { margin: 0; font-size: 15px; }
+    .modal-body { padding: 18px; }
+    .modal-warning { padding: 11px; display: flex; gap: 9px; color: #9d3030; background: var(--red-soft); border: 1px solid #f3caca; border-radius: 6px; font-size: 12px; }
+    .modal-summary { margin-top: 14px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; font-size: 12px; }
+    .modal-summary span { color: var(--quiet); }
+    .modal-summary strong { display: block; margin-top: 2px; }
+    .modal-foot { padding: 12px 18px; display: flex; justify-content: flex-end; gap: 8px; background: #fafbfc; border-top: 1px solid var(--line); }
+
+    .toast { position: fixed; z-index: 120; right: 22px; bottom: 22px; min-width: 240px; max-width: min(380px, calc(100vw - 32px)); padding: 11px 14px; display: flex; align-items: center; gap: 9px; color: white; background: #26304a; border-radius: 6px; box-shadow: 0 12px 28px rgba(18,28,50,.24); font-size: 12px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1180px) {
+      .sidebar { width: 205px; }
+      .main { width: calc(100% - 205px); margin-left: 205px; }
+      .metrics { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+      .manage-layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .main { width: 100%; margin-left: 0; }
+      .workspace { padding: 14px; }
+      .topbar { padding: 0 14px; }
+      .chart-grid { grid-template-columns: 1fr; }
+      .field, .field.date { min-width: calc(50% - 8px); flex: 1; }
+      .control-spacer { display: none; }
+    }
+    @media (max-width: 560px) {
+      .metrics { grid-template-columns: 1fr; }
+      .field, .field.date { min-width: 100%; }
+      .quick-range { width: 100%; overflow-x: auto; }
+      .quick-range button { flex: 1; min-width: 58px; }
+      .control-row > .btn { flex: 1; }
+      .manage-fields { grid-template-columns: 1fr; }
+      .role-badge { display: none; }
+      .chart-wrap { aspect-ratio: 1.55 / 1; }
+      .status-strip { gap: 9px 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><i class="ri-server-line"></i></div>
+        <div><strong>Server Manager</strong><small>节点管理控制台</small></div>
+      </div>
+      <nav class="side-nav">
+        <div class="nav-label">系统管理</div>
+        <button class="nav-item"><i class="ri-dashboard-3-line"></i><span>总览大盘</span></button>
+        <button class="nav-item"><i class="ri-user-settings-line"></i><span>账户管理</span></button>
+        <button class="nav-item"><i class="ri-node-tree"></i><span>TS 节点管理</span></button>
+        <button class="nav-item active"><i class="ri-funds-box-line"></i><span>资金总览</span><em class="super-only">SUPER</em></button>
+        <button class="nav-item"><i class="ri-global-line"></i><span>子域名池</span></button>
+        <div class="nav-label">系统工具</div>
+        <button class="nav-item"><i class="ri-history-line"></i><span>日志信息</span></button>
+        <button class="nav-item"><i class="ri-file-text-line"></i><span>产品文档</span></button>
+        <button class="nav-item"><i class="ri-download-cloud-2-line"></i><span>软件中心</span></button>
+      </nav>
+      <div class="side-user">
+        <div class="avatar">AD</div>
+        <div><strong>admin</strong><small>超级管理员</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>资金总览</h1>
+        <div class="top-actions">
+          <span class="role-badge"><i class="ri-shield-star-line"></i> 超级管理员</span>
+          <button class="icon-btn" title="刷新页面数据" id="top-refresh"><i class="ri-refresh-line"></i></button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <section class="control-band">
+          <div class="control-row">
+            <div class="quick-range" id="quick-range">
+              <button data-range="today">今日</button>
+              <button data-range="5d">近5日</button>
+              <button data-range="1m" class="active">近1月</button>
+              <button data-range="3m">近3月</button>
+            </div>
+            <div class="field date"><label for="date-start">开始日期</label><input type="date" id="date-start" value="2026-08-01"></div>
+            <div class="field date"><label for="date-end">结束日期</label><input type="date" id="date-end" value="2026-08-26"></div>
+            <div class="field"><label for="broker-filter">券商</label><select id="broker-filter"><option value="">全部券商</option><option value="TT">TT</option><option value="IB">IB</option></select></div>
+            <div class="field"><label for="node-filter">节点</label><select id="node-filter"></select></div>
+            <div class="field"><label for="account-filter">账号</label><select id="account-filter"></select></div>
+            <div class="control-spacer"></div>
+            <button class="btn btn-primary" id="apply-filter"><i class="ri-search-line"></i>查询</button>
+            <button class="btn btn-secondary" id="collect-now"><i class="ri-radar-line"></i>立即采集</button>
+          </div>
+          <div class="status-strip" id="status-strip"></div>
+        </section>
+
+        <nav class="tabs" id="tabs">
+          <button class="tab active" data-tab="overview">总览</button>
+          <button class="tab" data-tab="flow">资金流</button>
+          <button class="tab" data-tab="pnl">盈亏</button>
+          <button class="tab" data-tab="accounts">账号交易</button>
+          <button class="tab" data-tab="symbols">标的统计</button>
+          <button class="tab" data-tab="collection">采集状态</button>
+          <button class="tab" data-tab="management">数据管理</button>
+        </nav>
+
+        <section class="tab-section active" id="tab-overview">
+          <div class="metrics" id="metric-grid"></div>
+          <div class="chart-grid">
+            <div class="chart-panel"><div class="panel-head"><h2>账户总净值趋势</h2><small id="equity-grain">每日</small></div><div class="chart-wrap" id="equity-chart"></div></div>
+            <div class="chart-panel"><div class="panel-head"><h2>买卖资金趋势</h2><div class="legend"><span><i style="background:#3b63f6"></i>买入</span><span><i style="background:#159a62"></i>卖出</span></div></div><div class="chart-wrap" id="overview-flow-chart"></div></div>
+          </div>
+          <div class="table-panel"><div class="panel-head"><h2>账号资金摘要</h2><small>包含所选时间内的历史账号</small></div><div class="table-scroll"><table><thead><tr><th>节点</th><th>券商</th><th>账号</th><th>当前净值</th><th>买入金额</th><th>卖出金额</th><th>已实现盈亏</th><th>数据状态</th></tr></thead><tbody id="overview-account-body"></tbody></table></div></div>
+        </section>
+
+        <section class="tab-section" id="tab-flow">
+          <div class="chart-panel"><div class="panel-head"><h2>资金流动趋势</h2><div class="legend"><span><i style="background:#3b63f6"></i>买入</span><span><i style="background:#159a62"></i>卖出</span><span><i style="background:#d97706"></i>净流入</span></div></div><div class="chart-wrap" id="flow-chart"></div></div>
+          <div class="table-panel"><div class="panel-head"><h2>每日资金流</h2><small>净流入 = 卖出 - 买入 - 费用</small></div><div class="table-scroll"><table><thead><tr><th>美东日期</th><th>买入金额</th><th>卖出金额</th><th>交易净流入</th><th>总成交额</th><th>费用</th><th>完整度</th></tr></thead><tbody id="flow-table-body"></tbody></table></div></div>
+        </section>
+
+        <section class="tab-section" id="tab-pnl">
+          <div class="gap-banner"><i class="ri-information-line"></i><span>已实现盈亏、当前未实现盈亏与账户权益变化分别展示。</span></div>
+          <div class="chart-panel"><div class="panel-head"><h2>盈亏趋势</h2><div class="legend"><span><i style="background:#159a62"></i>已实现</span><span><i style="background:#7c5ac7"></i>未实现</span><span><i style="background:#d97706"></i>权益变化</span></div></div><div class="chart-wrap" id="pnl-chart"></div></div>
+          <div class="table-panel"><div class="panel-head"><h2>账号盈亏</h2><small>按所选时间范围累计</small></div><div class="table-scroll"><table><thead><tr><th>账号</th><th>券商</th><th>已实现盈亏</th><th>最新未实现盈亏</th><th>权益变化</th><th>完整度</th></tr></thead><tbody id="pnl-table-body"></tbody></table></div></div>
+        </section>
+
+        <section class="tab-section" id="tab-accounts">
+          <div class="table-panel" style="margin-top:0"><div class="panel-head"><h2>账号每日交易</h2><small id="account-range-label"></small></div><div class="table-scroll"><table><thead><tr><th>日期</th><th>节点</th><th>券商</th><th>账号</th><th>买入</th><th>卖出</th><th>净流入</th><th>实现盈亏</th><th>完整度</th><th></th></tr></thead><tbody id="account-daily-body"></tbody></table></div></div>
+          <div class="table-panel"><div class="panel-head"><h2 id="account-detail-title">当日标的明细</h2><small>选择上方任意交易日</small></div><div class="table-scroll"><table><thead><tr><th>股票</th><th>买入数量</th><th>卖出数量</th><th>买入金额</th><th>卖出金额</th><th>净流入</th><th>成交次数</th></tr></thead><tbody id="account-detail-body"><tr><td colspan="7" class="muted">尚未选择交易日</td></tr></tbody></table></div></div>
+        </section>
+
+        <section class="tab-section" id="tab-symbols">
+          <div class="table-panel" style="margin-top:0"><div class="panel-head"><h2>标的资金统计</h2><small>按成交金额排序</small></div><div class="table-scroll"><table><thead><tr><th>股票</th><th>买入数量</th><th>卖出数量</th><th>买入金额</th><th>卖出金额</th><th>净流入</th><th>成交次数</th><th>涉及账号</th></tr></thead><tbody id="symbol-body"></tbody></table></div></div>
+        </section>
+
+        <section class="tab-section" id="tab-collection">
+          <div class="metrics" id="collection-metrics"></div>
+          <div class="table-panel"><div class="panel-head"><h2>节点采集状态</h2><small>15分钟采集周期</small></div><div class="table-scroll"><table><thead><tr><th>节点</th><th>券商</th><th>账号</th><th>生命周期</th><th>最后成功</th><th>范围完整度</th><th>状态</th><th>原因</th></tr></thead><tbody id="collection-body"></tbody></table></div></div>
+        </section>
+
+        <section class="tab-section" id="tab-management">
+          <div class="manage-layout">
+            <div class="manage-panel">
+              <div class="panel-head"><h2>组合筛选</h2><small>日期 × 节点 × 账号</small></div>
+              <div class="manage-body">
+                <div class="manage-fields">
+                  <div class="field date"><label for="dm-start">开始日期</label><input type="date" id="dm-start" value="2026-08-20"></div>
+                  <div class="field date"><label for="dm-end">结束日期</label><input type="date" id="dm-end" value="2026-08-26"></div>
+                </div>
+                <div class="selector-block"><label>节点范围</label><div class="check-chips" id="dm-node-chips"></div></div>
+                <div class="selector-block"><label>账号范围</label><div class="check-chips" id="dm-account-chips"></div></div>
+                <div class="manage-actions"><button class="btn btn-plain" id="dm-reset"><i class="ri-restart-line"></i>重置</button><button class="btn btn-primary" id="dm-query"><i class="ri-filter-3-line"></i>查询数据</button></div>
+              </div>
+            </div>
+            <aside class="manage-panel">
+              <div class="panel-head"><h2>影响预览</h2><small id="impact-range">未查询</small></div>
+              <div class="manage-body">
+                <div class="impact-list">
+                  <div class="impact-item"><span>交易日</span><strong id="impact-days">0</strong></div>
+                  <div class="impact-item"><span>账号</span><strong id="impact-accounts">0</strong></div>
+                  <div class="impact-item"><span>日级记录</span><strong id="impact-records">0</strong></div>
+                  <div class="impact-item"><span>快照估算</span><strong id="impact-snaps">0</strong></div>
+                </div>
+                <div class="danger-zone"><button class="btn btn-danger" id="delete-selected" disabled><i class="ri-delete-bin-6-line"></i>删除选中数据</button></div>
+              </div>
+            </aside>
+          </div>
+          <div class="table-panel"><div class="panel-head"><h2>索引结果</h2><small id="dm-result-label">请先组合筛选</small></div><div class="table-scroll"><table><thead><tr><th><input type="checkbox" id="dm-select-all" title="全选结果"></th><th>日期 / 账号</th><th>节点</th><th>券商</th><th>买入金额</th><th>卖出金额</th><th>盈亏</th><th>数据状态</th></tr></thead><tbody id="dm-result-body"><tr><td colspan="8" class="muted">暂无索引结果</td></tr></tbody></table></div></div>
+          <div class="table-panel"><div class="panel-head"><h2>删除记录</h2><small>页面演示记录</small></div><div class="table-scroll"><table><thead><tr><th>操作时间</th><th>日期范围</th><th>节点</th><th>账号</th><th>删除记录</th><th>操作人</th></tr></thead><tbody id="delete-log-body"><tr><td colspan="6" class="muted">暂无删除操作</td></tr></tbody></table></div></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+    <div class="modal">
+      <div class="modal-head"><h3 id="delete-modal-title">确认删除资金数据</h3><button class="icon-btn" id="modal-close" title="关闭"><i class="ri-close-line"></i></button></div>
+      <div class="modal-body">
+        <div class="modal-warning"><i class="ri-error-warning-line"></i><span>删除后形成永久数据断点，后续15分钟采集不会重新写入所选日期和账号。</span></div>
+        <div class="modal-summary">
+          <div><span>日期范围</span><strong id="modal-range">-</strong></div>
+          <div><span>日级记录</span><strong id="modal-records">0</strong></div>
+          <div><span>涉及节点</span><strong id="modal-nodes">0</strong></div>
+          <div><span>涉及账号</span><strong id="modal-accounts">0</strong></div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-plain" id="modal-cancel">取消</button><button class="btn btn-danger" id="modal-confirm"><i class="ri-delete-bin-6-line"></i>确认删除</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"><i class="ri-checkbox-circle-line"></i><span></span></div>
+
+  <script>
+    const TODAY = "2026-08-26";
+    const accounts = [
+      { id: "tt-1234", broker: "TT", masked: "****1234", node: "TS-01", lifecycle: "active", activeFrom: "2026-05-26", activeTo: "" },
+      { id: "ib-8891", broker: "IB", masked: "****8891", node: "TS-02", lifecycle: "active", activeFrom: "2026-06-12", activeTo: "" },
+      { id: "ib-6620", broker: "IB", masked: "****6620", node: "TS-03", lifecycle: "removed", activeFrom: "2026-07-01", activeTo: "2026-08-12" },
+      { id: "tt-7842", broker: "TT", masked: "****7842", node: "TS-04", lifecycle: "new", activeFrom: "2026-08-20", activeTo: "" }
+    ];
+    const symbols = ["AAPL", "QQQ", "MU", "TSLA", "NVDA"];
+    const deletionLog = [];
+    let activeTab = "overview";
+    let filteredRows = [];
+    let dmRows = [];
+
+    function dateUTC(value) { return new Date(value + "T00:00:00Z"); }
+    function isoDate(date) { return date.toISOString().slice(0, 10); }
+    function shiftDays(value, amount) { const d = dateUTC(value); d.setUTCDate(d.getUTCDate() + amount); return isoDate(d); }
+    function shiftMonths(value, amount) { const d = dateUTC(value); d.setUTCMonth(d.getUTCMonth() + amount); return isoDate(d); }
+    function datesBetween(start, end) {
+      const result = [];
+      for (let d = dateUTC(start), last = dateUTC(end); d <= last; d.setUTCDate(d.getUTCDate() + 1)) result.push(isoDate(d));
+      return result;
+    }
+    function isWeekday(value) { const day = dateUTC(value).getUTCDay(); return day !== 0 && day !== 6; }
+    function overlaps(account, start, end) { return account.activeFrom <= end && (!account.activeTo || account.activeTo >= start); }
+    function hash(value) { let n = 0; for (let i = 0; i < value.length; i++) n = ((n << 5) - n + value.charCodeAt(i)) | 0; return Math.abs(n); }
+    function money(value, digits = 0) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "--";
+      const sign = value < 0 ? "-" : "";
+      return sign + "$" + Math.abs(value).toLocaleString("zh-CN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    }
+    function signedMoney(value) { return value > 0 ? "+" + money(value) : money(value); }
+    function pct(value) { return Math.round(value) + "%"; }
+
+    function makeRow(account, date) {
+      const seed = hash(account.id + date);
+      let status = "complete";
+      let completeness = 100;
+      if (account.id === "tt-1234" && date === "2026-08-18") { status = "missing"; completeness = 0; }
+      if (account.id === "ib-8891" && date === "2026-08-25") { status = "partial"; completeness = 58; }
+      if (account.id === "ib-8891" && date === "2026-08-24") { status = "manual_deleted"; completeness = 0; }
+      const noData = status === "missing" || status === "manual_deleted";
+      const buy = noData ? null : 18000 + seed % 94000;
+      const sell = noData ? null : 15000 + (seed * 7) % 101000;
+      const fees = noData ? null : 18 + seed % 190;
+      const realized = noData ? null : -2400 + (seed % 7600);
+      const unrealized = noData ? null : -4300 + ((seed * 3) % 9600);
+      const equityBase = account.id === "tt-1234" ? 820000 : account.id === "ib-8891" ? 610000 : account.id === "ib-6620" ? 430000 : 285000;
+      const equity = noData ? null : equityBase + ((seed % 17000) - 8500);
+      const cash = noData ? null : equity * (.18 + (seed % 15) / 100);
+      const buyingPower = noData ? null : equity * (1.35 + (seed % 40) / 100);
+      return { key: account.id + "|" + date, accountId: account.id, node: account.node, broker: account.broker, masked: account.masked, date, status, completeness, buy, sell, fees, realized, unrealized, equity, cash, buyingPower };
+    }
+
+    const allRows = [];
+    accounts.forEach(account => {
+      const from = account.activeFrom < "2026-05-26" ? "2026-05-26" : account.activeFrom;
+      const to = account.activeTo || TODAY;
+      datesBetween(from, to).filter(isWeekday).forEach(date => allRows.push(makeRow(account, date)));
+    });
+
+    function currentFilters() {
+      return {
+        start: document.getElementById("date-start").value,
+        end: document.getElementById("date-end").value,
+        broker: document.getElementById("broker-filter").value,
+        node: document.getElementById("node-filter").value,
+        account: document.getElementById("account-filter").value
+      };
+    }
+
+    function availableAccounts(filters) {
+      return accounts.filter(a => overlaps(a, filters.start, filters.end) && (!filters.broker || a.broker === filters.broker) && (!filters.node || a.node === filters.node));
+    }
+
+    function populateMainFilters() {
+      const filters = currentFilters();
+      const nodeSelect = document.getElementById("node-filter");
+      const previousNode = nodeSelect.value;
+      nodeSelect.innerHTML = '<option value="">全部节点</option>' + accounts.map(a => a.node).filter((v, i, arr) => arr.indexOf(v) === i).map(node => {
+        const owner = accounts.find(a => a.node === node);
+        return `<option value="${node}">${node}${owner.lifecycle === "removed" ? "（已删除）" : ""}</option>`;
+      }).join("");
+      nodeSelect.value = previousNode;
+      const accountSelect = document.getElementById("account-filter");
+      const previousAccount = accountSelect.value;
+      accountSelect.innerHTML = '<option value="">全部账号</option>' + availableAccounts({ ...filters, node: nodeSelect.value }).map(a => `<option value="${a.id}">${a.broker} ${a.masked}${a.lifecycle === "removed" ? "（已移除）" : a.lifecycle === "new" ? "（新加入）" : ""}</option>`).join("");
+      if ([...accountSelect.options].some(o => o.value === previousAccount)) accountSelect.value = previousAccount;
+    }
+
+    function statusMeta(row) {
+      if (row.status === "manual_deleted") return ["手动删除", "pill-delete"];
+      if (row.status === "missing") return ["采集中断", "pill-warn"];
+      if (row.status === "partial") return [pct(row.completeness) + " 部分", "pill-warn"];
+      return ["完整", "pill-ok"];
+    }
+
+    function aggregateByDate(rows) {
+      const map = new Map();
+      rows.forEach(row => {
+        if (!map.has(row.date)) map.set(row.date, { date: row.date, buy: 0, sell: 0, fees: 0, realized: 0, unrealized: 0, equity: 0, expected: 0, completeness: 0, valid: 0, hasGap: false });
+        const item = map.get(row.date);
+        item.expected += 1;
+        item.completeness += row.completeness;
+        if (row.buy === null) { item.hasGap = true; return; }
+        item.valid += 1;
+        item.buy += row.buy;
+        item.sell += row.sell;
+        item.fees += row.fees;
+        item.realized += row.realized;
+        item.unrealized += row.unrealized;
+        item.equity += row.equity;
+        if (row.status !== "complete") item.hasGap = true;
+      });
+      return [...map.values()].sort((a, b) => a.date.localeCompare(b.date)).map(item => ({ ...item, completeness: item.expected ? item.completeness / item.expected : 0, net: item.sell - item.buy - item.fees, turnover: item.buy + item.sell }));
+    }
+
+    function rowsByAccount(rows) {
+      return availableAccounts(currentFilters()).map(account => {
+        const own = rows.filter(r => r.accountId === account.id);
+        const valid = own.filter(r => r.buy !== null);
+        const latest = [...valid].sort((a, b) => b.date.localeCompare(a.date))[0];
+        return {
+          account,
+          rows: own,
+          latest,
+          buy: valid.reduce((n, r) => n + r.buy, 0),
+          sell: valid.reduce((n, r) => n + r.sell, 0),
+          fees: valid.reduce((n, r) => n + r.fees, 0),
+          realized: valid.reduce((n, r) => n + r.realized, 0),
+          completeness: own.length ? own.reduce((n, r) => n + r.completeness, 0) / own.length : 0
+        };
+      });
+    }
+
+    function lineChart(targetId, labels, series, options = {}) {
+      const host = document.getElementById(targetId);
+      const values = series.flatMap(s => s.values).filter(v => v !== null && Number.isFinite(v));
+      if (!labels.length || !values.length) { host.innerHTML = '<div class="chart-empty">所选范围暂无有效数据</div>'; return; }
+      const width = 760, height = 270, left = 62, right = 18, top = 20, bottom = 42;
+      let min = Math.min(...values), max = Math.max(...values);
+      if (options.zeroLine) { min = Math.min(min, 0); max = Math.max(max, 0); }
+      const margin = Math.max((max - min) * .14, Math.abs(max || 1) * .04, 1);
+      min -= margin; max += margin;
+      const x = i => left + (labels.length === 1 ? (width - left - right) / 2 : i * (width - left - right) / (labels.length - 1));
+      const y = value => top + (max - value) * (height - top - bottom) / (max - min || 1);
+      const grid = [];
+      for (let i = 0; i < 5; i++) {
+        const value = max - i * (max - min) / 4;
+        const yy = y(value);
+        grid.push(`<line x1="${left}" y1="${yy}" x2="${width-right}" y2="${yy}" stroke="#e8eaf0" stroke-width="1"/><text x="${left-9}" y="${yy+4}" text-anchor="end" fill="#9299aa" font-size="11">${shortValue(value)}</text>`);
+      }
+      const xLabels = [];
+      const step = Math.max(1, Math.ceil(labels.length / 6));
+      labels.forEach((label, i) => { if (i % step === 0 || i === labels.length - 1) xLabels.push(`<text x="${x(i)}" y="${height-13}" text-anchor="middle" fill="#9299aa" font-size="10">${label.slice(5)}</text>`); });
+      const paths = [];
+      series.forEach(s => {
+        let segment = [];
+        const flush = () => { if (segment.length > 1) paths.push(`<polyline points="${segment.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`); else if (segment.length === 1) paths.push(`<circle cx="${segment[0].split(",")[0]}" cy="${segment[0].split(",")[1]}" r="2.8" fill="${s.color}"/>`); segment = []; };
+        s.values.forEach((value, i) => { if (value === null || !Number.isFinite(value)) { flush(); } else { segment.push(`${x(i)},${y(value)}`); } });
+        flush();
+      });
+      if (options.zeroLine && min < 0 && max > 0) paths.unshift(`<line x1="${left}" y1="${y(0)}" x2="${width-right}" y2="${y(0)}" stroke="#aeb4c2" stroke-width="1" stroke-dasharray="4 4"/>`);
+      host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="趋势图">${grid.join("")}${paths.join("")}${xLabels.join("")}</svg>`;
+    }
+
+    function shortValue(value) {
+      const abs = Math.abs(value);
+      const sign = value < 0 ? "-" : "";
+      if (abs >= 1000000) return sign + "$" + (abs / 1000000).toFixed(1) + "m";
+      if (abs >= 1000) return sign + "$" + (abs / 1000).toFixed(0) + "k";
+      return sign + "$" + abs.toFixed(0);
+    }
+
+    function applyFilters() {
+      const filters = currentFilters();
+      if (!filters.start || !filters.end || filters.start > filters.end) { showToast("请选择有效日期范围"); return; }
+      const earliest = shiftMonths(filters.end, -3);
+      if (filters.start < earliest) { document.getElementById("date-start").value = earliest; showToast("查询范围最多为三个自然月"); }
+      populateMainFilters();
+      const current = currentFilters();
+      filteredRows = allRows.filter(row => row.date >= current.start && row.date <= current.end && (!current.broker || row.broker === current.broker) && (!current.node || row.node === current.node) && (!current.account || row.accountId === current.account));
+      renderAll();
+    }
+
+    function renderAll() {
+      const daily = aggregateByDate(filteredRows);
+      const accountStats = rowsByAccount(filteredRows).filter(item => item.rows.length);
+      const valid = filteredRows.filter(r => r.buy !== null);
+      const latestEquity = accountStats.reduce((n, item) => n + (item.latest ? item.latest.equity : 0), 0);
+      const buy = valid.reduce((n, r) => n + r.buy, 0);
+      const sell = valid.reduce((n, r) => n + r.sell, 0);
+      const fees = valid.reduce((n, r) => n + r.fees, 0);
+      const realized = valid.reduce((n, r) => n + r.realized, 0);
+      const unrealized = accountStats.reduce((n, item) => n + (item.latest ? item.latest.unrealized : 0), 0);
+      const gaps = filteredRows.filter(r => r.status !== "complete").length;
+      const cards = [
+        ["账户总净值", money(latestEquity), "ri-safe-2-line", "blue", "最新有效快照"],
+        ["期间买入金额", money(buy), "ri-arrow-left-down-line", "blue", "成交金额"],
+        ["期间卖出金额", money(sell), "ri-arrow-right-up-line", "green", "成交金额"],
+        ["交易净流入", signedMoney(sell-buy-fees), "ri-exchange-funds-line", sell-buy-fees >= 0 ? "green" : "red", "已扣除费用"],
+        ["已实现盈亏", signedMoney(realized), "ri-line-chart-line", realized >= 0 ? "green" : "red", "所选时间累计"],
+        ["未实现盈亏", signedMoney(unrealized), "ri-pulse-line", unrealized >= 0 ? "purple" : "red", "最新持仓快照"],
+        ["佣金及费用", money(fees), "ri-receipt-line", "orange", "成交费用"],
+        ["异常数据点", String(gaps), "ri-error-warning-line", gaps ? "orange" : "green", "断点及部分数据"]
+      ];
+      document.getElementById("metric-grid").innerHTML = cards.map(card => `<article class="metric"><div class="metric-head"><span>${card[0]}</span><span class="metric-icon ${card[3]}"><i class="${card[2]}"></i></span></div><strong>${card[1]}</strong><small>${card[4]}</small></article>`).join("");
+      lineChart("equity-chart", daily.map(d => d.date), [{ color: "#3b63f6", values: daily.map(d => d.valid ? d.equity : null) }]);
+      lineChart("overview-flow-chart", daily.map(d => d.date), [{ color: "#3b63f6", values: daily.map(d => d.valid ? d.buy : null) }, { color: "#159a62", values: daily.map(d => d.valid ? d.sell : null) }]);
+      lineChart("flow-chart", daily.map(d => d.date), [{ color: "#3b63f6", values: daily.map(d => d.valid ? d.buy : null) }, { color: "#159a62", values: daily.map(d => d.valid ? d.sell : null) }, { color: "#d97706", values: daily.map(d => d.valid ? d.net : null) }], { zeroLine: true });
+      lineChart("pnl-chart", daily.map(d => d.date), [{ color: "#159a62", values: daily.map(d => d.valid ? d.realized : null) }, { color: "#7c5ac7", values: daily.map(d => d.valid ? d.unrealized : null) }, { color: "#d97706", values: daily.map(d => d.valid ? d.realized + d.unrealized * .25 : null) }], { zeroLine: true });
+      renderStatusStrip(accountStats, gaps);
+      renderAccountSummary(accountStats);
+      renderFlowTable(daily);
+      renderPnlTable(accountStats);
+      renderAccountDaily();
+      renderSymbols();
+      renderCollection(accountStats);
+      if (activeTab === "management") renderDataManagerChips();
+    }
+
+    function renderStatusStrip(accountStats, gaps) {
+      const filters = currentFilters();
+      const complete = accountStats.filter(a => a.completeness >= 99).length;
+      document.getElementById("status-strip").innerHTML = `<span><i class="dot"></i>美东日期 ${filters.start} 至 ${filters.end}</span><span>覆盖账号 <strong>${accountStats.length}/${availableAccounts(filters).length}</strong></span><span>完整账号 <strong>${complete}</strong></span><span><i class="dot ${gaps ? "warn" : ""}"></i>异常数据点 <strong>${gaps}</strong></span><span>最后汇总 <strong>10:45:00</strong></span>`;
+    }
+
+    function renderAccountSummary(stats) {
+      document.getElementById("overview-account-body").innerHTML = stats.map(item => {
+        const label = item.account.lifecycle === "removed" ? ["已移除", "pill-off"] : item.completeness < 99 ? [pct(item.completeness), "pill-warn"] : ["完整", "pill-ok"];
+        return `<tr><td>${item.account.node}</td><td>${item.account.broker}</td><td>${item.account.masked}${item.account.lifecycle === "removed" ? ' <span class="muted">历史</span>' : ""}</td><td class="mono">${item.latest ? money(item.latest.equity) : "--"}</td><td class="mono">${money(item.buy)}</td><td class="mono">${money(item.sell)}</td><td class="mono ${item.realized >= 0 ? "positive" : "negative"}">${signedMoney(item.realized)}</td><td><span class="pill ${label[1]}">${label[0]}</span></td></tr>`;
+      }).join("") || '<tr><td colspan="8" class="muted">所选范围暂无账号数据</td></tr>';
+    }
+
+    function renderFlowTable(daily) {
+      document.getElementById("flow-table-body").innerHTML = [...daily].reverse().map(row => `<tr><td>${row.date}</td><td class="mono">${row.valid ? money(row.buy) : "--"}</td><td class="mono">${row.valid ? money(row.sell) : "--"}</td><td class="mono ${row.net >= 0 ? "positive" : "negative"}">${row.valid ? signedMoney(row.net) : "--"}</td><td class="mono">${row.valid ? money(row.turnover) : "--"}</td><td class="mono">${row.valid ? money(row.fees) : "--"}</td><td><span class="pill ${row.completeness >= 99 ? "pill-ok" : "pill-warn"}">${pct(row.completeness)}</span></td></tr>`).join("") || '<tr><td colspan="7" class="muted">暂无资金流数据</td></tr>';
+    }
+
+    function renderPnlTable(stats) {
+      document.getElementById("pnl-table-body").innerHTML = stats.map(item => {
+        const latest = item.latest;
+        const first = item.rows.find(r => r.equity !== null);
+        const change = latest && first ? latest.equity - first.equity : null;
+        return `<tr><td>${item.account.masked}${item.account.lifecycle === "removed" ? ' <span class="muted">已移除</span>' : ""}</td><td>${item.account.broker}</td><td class="${item.realized >= 0 ? "positive" : "negative"}">${signedMoney(item.realized)}</td><td class="${latest && latest.unrealized >= 0 ? "positive" : "negative"}">${latest ? signedMoney(latest.unrealized) : "--"}</td><td class="${change !== null && change >= 0 ? "positive" : "negative"}">${change === null ? "--" : signedMoney(change)}</td><td><span class="pill ${item.completeness >= 99 ? "pill-ok" : "pill-warn"}">${pct(item.completeness)}</span></td></tr>`;
+      }).join("") || '<tr><td colspan="6" class="muted">暂无盈亏数据</td></tr>';
+    }
+
+    function renderAccountDaily() {
+      const rows = [...filteredRows].sort((a, b) => b.date.localeCompare(a.date) || a.masked.localeCompare(b.masked));
+      const filters = currentFilters();
+      document.getElementById("account-range-label").textContent = `${filters.start} 至 ${filters.end}`;
+      document.getElementById("account-daily-body").innerHTML = rows.slice(0, 180).map(row => {
+        const meta = statusMeta(row);
+        const net = row.buy === null ? null : row.sell - row.buy - row.fees;
+        return `<tr><td>${row.date}</td><td>${row.node}</td><td>${row.broker}</td><td>${row.masked}</td><td>${money(row.buy)}</td><td>${money(row.sell)}</td><td class="${net !== null && net >= 0 ? "positive" : "negative"}">${net === null ? "--" : signedMoney(net)}</td><td class="${row.realized !== null && row.realized >= 0 ? "positive" : "negative"}">${row.realized === null ? "--" : signedMoney(row.realized)}</td><td><span class="pill ${meta[1]}">${meta[0]}</span></td><td><button class="row-link" data-detail="${row.key}" ${row.buy === null ? "disabled" : ""}>查看</button></td></tr>`;
+      }).join("") || '<tr><td colspan="10" class="muted">暂无账号交易数据</td></tr>';
+      document.querySelectorAll("[data-detail]").forEach(button => button.addEventListener("click", () => renderAccountDetail(button.dataset.detail)));
+    }
+
+    function detailRows(row) {
+      return symbols.slice(0, 3 + hash(row.key) % 3).map((symbol, index) => {
+        const seed = hash(row.key + symbol);
+        const buyQty = 50 + seed % 850;
+        const sellQty = 30 + (seed * 3) % 720;
+        const price = 35 + (seed % 42000) / 100;
+        return { symbol, buyQty, sellQty, buy: buyQty * price, sell: sellQty * (price + ((seed % 300) - 120) / 100), fills: 2 + index + seed % 6 };
+      });
+    }
+
+    function renderAccountDetail(key) {
+      const row = allRows.find(item => item.key === key);
+      if (!row) return;
+      document.getElementById("account-detail-title").textContent = `${row.date} · ${row.broker} ${row.masked}`;
+      document.getElementById("account-detail-body").innerHTML = detailRows(row).map(item => `<tr><td><strong>${item.symbol}</strong></td><td>${item.buyQty.toLocaleString()}</td><td>${item.sellQty.toLocaleString()}</td><td>${money(item.buy)}</td><td>${money(item.sell)}</td><td class="${item.sell-item.buy >= 0 ? "positive" : "negative"}">${signedMoney(item.sell-item.buy)}</td><td>${item.fills}</td></tr>`).join("");
+    }
+
+    function renderSymbols() {
+      const map = new Map();
+      filteredRows.filter(r => r.buy !== null).forEach(row => detailRows(row).forEach(item => {
+        if (!map.has(item.symbol)) map.set(item.symbol, { ...item, accounts: new Set([row.accountId]) });
+        else { const old = map.get(item.symbol); old.buyQty += item.buyQty; old.sellQty += item.sellQty; old.buy += item.buy; old.sell += item.sell; old.fills += item.fills; old.accounts.add(row.accountId); }
+      }));
+      document.getElementById("symbol-body").innerHTML = [...map.values()].sort((a, b) => b.buy + b.sell - a.buy - a.sell).map(item => `<tr><td><strong>${item.symbol}</strong></td><td>${item.buyQty.toLocaleString()}</td><td>${item.sellQty.toLocaleString()}</td><td>${money(item.buy)}</td><td>${money(item.sell)}</td><td class="${item.sell-item.buy >= 0 ? "positive" : "negative"}">${signedMoney(item.sell-item.buy)}</td><td>${item.fills}</td><td>${item.accounts.size}</td></tr>`).join("") || '<tr><td colspan="8" class="muted">暂无标的数据</td></tr>';
+    }
+
+    function renderCollection(stats) {
+      const full = stats.filter(item => item.completeness >= 99).length;
+      const partial = stats.filter(item => item.completeness > 0 && item.completeness < 99).length;
+      const removed = stats.filter(item => item.account.lifecycle === "removed").length;
+      document.getElementById("collection-metrics").innerHTML = [
+        ["覆盖账号", stats.length, "ri-database-2-line", "blue"], ["完整账号", full, "ri-checkbox-circle-line", "green"], ["部分数据", partial, "ri-error-warning-line", "orange"], ["历史账号", removed, "ri-archive-line", "purple"]
+      ].map(card => `<article class="metric"><div class="metric-head"><span>${card[0]}</span><span class="metric-icon ${card[3]}"><i class="${card[2]}"></i></span></div><strong>${card[1]}</strong><small>所选时间范围</small></article>`).join("");
+      document.getElementById("collection-body").innerHTML = stats.map(item => {
+        const state = item.account.lifecycle === "removed" ? ["已停止", "pill-off", "节点或账号已移除"] : item.completeness >= 99 ? ["正常", "pill-ok", "-"] : ["部分数据", "pill-warn", "存在采集中断或手动删除"];
+        return `<tr><td>${item.account.node}</td><td>${item.account.broker}</td><td>${item.account.masked}</td><td>${item.account.lifecycle === "removed" ? "已移除 " + item.account.activeTo : item.account.lifecycle === "new" ? "新加入 " + item.account.activeFrom : "使用中"}</td><td>${item.account.lifecycle === "removed" ? item.account.activeTo + " 20:15" : TODAY + " 10:45"}</td><td>${pct(item.completeness)}</td><td><span class="pill ${state[1]}">${state[0]}</span></td><td>${state[2]}</td></tr>`;
+      }).join("") || '<tr><td colspan="8" class="muted">暂无采集状态</td></tr>';
+    }
+
+    function renderDataManagerChips() {
+      const nodeHost = document.getElementById("dm-node-chips");
+      const accountHost = document.getElementById("dm-account-chips");
+      if (!nodeHost.children.length) {
+        const nodes = [...new Set(accounts.map(a => a.node))];
+        nodeHost.innerHTML = chip("dm-node", "", "全部节点", true) + nodes.map(node => chip("dm-node", node, node + (accounts.find(a => a.node === node).lifecycle === "removed" ? " 已删除" : ""), false)).join("");
+        accountHost.innerHTML = chip("dm-account", "", "全部账号", true) + accounts.map(a => chip("dm-account", a.id, `${a.broker} ${a.masked}${a.lifecycle === "removed" ? " 已移除" : ""}`, false)).join("");
+        bindExclusiveAll("dm-node"); bindExclusiveAll("dm-account");
+      }
+    }
+
+    function chip(name, value, label, checked) { return `<label class="check-chip"><input type="checkbox" name="${name}" value="${value}" ${checked ? "checked" : ""}><span>${value ? '<i class="ri-checkbox-blank-circle-line"></i>' : '<i class="ri-stack-line"></i>'}${label}</span></label>`; }
+    function bindExclusiveAll(name) {
+      document.querySelectorAll(`input[name="${name}"]`).forEach(input => input.addEventListener("change", () => {
+        const group = [...document.querySelectorAll(`input[name="${name}"]`)];
+        if (input.value === "" && input.checked) group.filter(i => i.value).forEach(i => i.checked = false);
+        if (input.value && input.checked) group.find(i => i.value === "").checked = false;
+        if (!group.some(i => i.checked)) group.find(i => i.value === "").checked = true;
+      }));
+    }
+    function checkedValues(name) { const values = [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value); return values.includes("") ? [] : values; }
+
+    function queryManagedData() {
+      const start = document.getElementById("dm-start").value;
+      const end = document.getElementById("dm-end").value;
+      if (!start || !end || start > end) { showToast("请选择有效删除日期范围"); return; }
+      if (start < shiftMonths(end, -3)) { showToast("数据管理范围最多为三个自然月"); return; }
+      const nodes = checkedValues("dm-node");
+      const accountIds = checkedValues("dm-account");
+      dmRows = allRows.filter(row => row.date >= start && row.date <= end && (!nodes.length || nodes.includes(row.node)) && (!accountIds.length || accountIds.includes(row.accountId)) && row.status !== "manual_deleted");
+      renderManagedResults();
+      document.getElementById("impact-range").textContent = `${start} 至 ${end}`;
+      document.getElementById("dm-result-label").textContent = `命中 ${dmRows.length} 条日级记录`;
+      updateImpact();
+    }
+
+    function renderManagedResults() {
+      const body = document.getElementById("dm-result-body");
+      if (!dmRows.length) { body.innerHTML = '<tr><td colspan="8" class="muted">筛选范围内没有可删除数据</td></tr>'; updateDeleteButton(); return; }
+      const grouped = new Map();
+      [...dmRows].sort((a,b) => b.date.localeCompare(a.date) || a.masked.localeCompare(b.masked)).forEach(row => { if (!grouped.has(row.date)) grouped.set(row.date, []); grouped.get(row.date).push(row); });
+      body.innerHTML = [...grouped.entries()].map(([date, rows]) => {
+        const group = `<tr class="date-group"><td><input type="checkbox" data-day-select="${date}" title="选择当天全部账号"></td><td colspan="7">${date} · ${rows.length} 个账号</td></tr>`;
+        return group + rows.map(row => { const meta = statusMeta(row); return `<tr><td><input type="checkbox" class="dm-row-check" value="${row.key}" data-day="${date}"></td><td>${row.masked}</td><td>${row.node}</td><td>${row.broker}</td><td>${money(row.buy)}</td><td>${money(row.sell)}</td><td class="${row.realized >= 0 ? "positive" : "negative"}">${signedMoney(row.realized)}</td><td><span class="pill ${meta[1]}">${meta[0]}</span></td></tr>`; }).join("");
+      }).join("");
+      document.querySelectorAll(".dm-row-check").forEach(box => box.addEventListener("change", updateDeleteButton));
+      document.querySelectorAll("[data-day-select]").forEach(box => box.addEventListener("change", () => { document.querySelectorAll(`.dm-row-check[data-day="${box.dataset.daySelect}"]`).forEach(rowBox => rowBox.checked = box.checked); updateDeleteButton(); }));
+      document.getElementById("dm-select-all").checked = false;
+      updateDeleteButton();
+    }
+
+    function selectedManagedRows() {
+      const keys = new Set([...document.querySelectorAll(".dm-row-check:checked")].map(i => i.value));
+      return dmRows.filter(row => keys.has(row.key));
+    }
+    function updateImpact(rows = dmRows) {
+      document.getElementById("impact-days").textContent = new Set(rows.map(r => r.date)).size;
+      document.getElementById("impact-accounts").textContent = new Set(rows.map(r => r.accountId)).size;
+      document.getElementById("impact-records").textContent = rows.length;
+      document.getElementById("impact-snaps").textContent = (rows.length * 44).toLocaleString();
+    }
+    function updateDeleteButton() {
+      const selected = selectedManagedRows();
+      document.getElementById("delete-selected").disabled = !selected.length;
+      if (selected.length) updateImpact(selected); else updateImpact(dmRows);
+    }
+
+    function openDeleteModal() {
+      const rows = selectedManagedRows();
+      if (!rows.length) return;
+      const dates = rows.map(r => r.date).sort();
+      document.getElementById("modal-range").textContent = dates[0] === dates[dates.length-1] ? dates[0] : `${dates[0]} 至 ${dates[dates.length-1]}`;
+      document.getElementById("modal-records").textContent = rows.length;
+      document.getElementById("modal-nodes").textContent = new Set(rows.map(r => r.node)).size;
+      document.getElementById("modal-accounts").textContent = new Set(rows.map(r => r.accountId)).size;
+      document.getElementById("delete-modal").classList.add("open");
+    }
+    function closeDeleteModal() { document.getElementById("delete-modal").classList.remove("open"); }
+    function confirmDelete() {
+      const rows = selectedManagedRows();
+      if (!rows.length) { closeDeleteModal(); return; }
+      const dates = rows.map(r => r.date).sort();
+      const nodes = [...new Set(rows.map(r => r.node))];
+      const ids = [...new Set(rows.map(r => r.accountId))];
+      rows.forEach(selected => { const source = allRows.find(row => row.key === selected.key); if (source) { source.status = "manual_deleted"; source.completeness = 0; source.buy = source.sell = source.fees = source.realized = source.unrealized = source.equity = source.cash = source.buyingPower = null; } });
+      deletionLog.unshift({ time: "2026-08-26 11:02:18", range: dates[0] === dates[dates.length-1] ? dates[0] : `${dates[0]} 至 ${dates[dates.length-1]}`, nodes: nodes.join("、"), accounts: ids.map(id => accounts.find(a => a.id === id).masked).join("、"), records: rows.length, operator: "admin" });
+      renderDeleteLog();
+      closeDeleteModal();
+      queryManagedData();
+      applyFilters();
+      showToast(`已删除 ${rows.length} 条日级数据并建立回写屏蔽`);
+    }
+    function renderDeleteLog() {
+      document.getElementById("delete-log-body").innerHTML = deletionLog.map(log => `<tr><td>${log.time}</td><td>${log.range}</td><td>${log.nodes}</td><td>${log.accounts}</td><td>${log.records}</td><td>${log.operator}</td></tr>`).join("") || '<tr><td colspan="6" class="muted">暂无删除操作</td></tr>';
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      toast.querySelector("span").textContent = message;
+      toast.classList.add("show");
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
+    }
+
+    document.getElementById("tabs").addEventListener("click", event => {
+      const button = event.target.closest("[data-tab]");
+      if (!button) return;
+      activeTab = button.dataset.tab;
+      document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab === button));
+      document.querySelectorAll(".tab-section").forEach(section => section.classList.toggle("active", section.id === "tab-" + activeTab));
+      if (activeTab === "management") renderDataManagerChips();
+    });
+    document.getElementById("quick-range").addEventListener("click", event => {
+      const button = event.target.closest("[data-range]"); if (!button) return;
+      const range = button.dataset.range;
+      const start = range === "today" ? TODAY : range === "5d" ? shiftDays(TODAY, -6) : range === "1m" ? shiftMonths(TODAY, -1) : shiftMonths(TODAY, -3);
+      document.getElementById("date-start").value = start;
+      document.getElementById("date-end").value = TODAY;
+      document.querySelectorAll("[data-range]").forEach(item => item.classList.toggle("active", item === button));
+      applyFilters();
+    });
+    ["date-start", "date-end", "broker-filter", "node-filter"].forEach(id => document.getElementById(id).addEventListener("change", populateMainFilters));
+    document.getElementById("apply-filter").addEventListener("click", applyFilters);
+    document.getElementById("collect-now").addEventListener("click", () => { const button = document.getElementById("collect-now"); button.disabled = true; button.innerHTML = '<i class="ri-loader-4-line"></i>采集中'; setTimeout(() => { button.disabled = false; button.innerHTML = '<i class="ri-radar-line"></i>立即采集'; showToast("采集任务已发送，下一次汇总将在完成后更新"); }, 900); });
+    document.getElementById("top-refresh").addEventListener("click", () => { applyFilters(); showToast("页面数据已刷新"); });
+    document.getElementById("dm-query").addEventListener("click", queryManagedData);
+    document.getElementById("dm-reset").addEventListener("click", () => { document.getElementById("dm-start").value = "2026-08-20"; document.getElementById("dm-end").value = TODAY; ["dm-node", "dm-account"].forEach(name => { document.querySelectorAll(`input[name="${name}"]`).forEach(input => input.checked = input.value === ""); }); dmRows = []; document.getElementById("dm-result-body").innerHTML = '<tr><td colspan="8" class="muted">暂无索引结果</td></tr>'; document.getElementById("dm-result-label").textContent = "请先组合筛选"; updateImpact([]); updateDeleteButton(); });
+    document.getElementById("dm-select-all").addEventListener("change", event => { document.querySelectorAll(".dm-row-check").forEach(box => box.checked = event.target.checked); document.querySelectorAll("[data-day-select]").forEach(box => box.checked = event.target.checked); updateDeleteButton(); });
+    document.getElementById("delete-selected").addEventListener("click", openDeleteModal);
+    document.getElementById("modal-close").addEventListener("click", closeDeleteModal);
+    document.getElementById("modal-cancel").addEventListener("click", closeDeleteModal);
+    document.getElementById("modal-confirm").addEventListener("click", confirmDelete);
+    document.getElementById("delete-modal").addEventListener("click", event => { if (event.target.id === "delete-modal") closeDeleteModal(); });
+    document.addEventListener("keydown", event => { if (event.key === "Escape") closeDeleteModal(); });
+
+    populateMainFilters();
+    applyFilters();
+  </script>
+</body>
+</html>

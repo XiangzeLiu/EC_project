@@ -648,6 +648,11 @@
       <button data-module="accounts" class="nav-item" type="button">
         <i class="ri-user-settings-line"></i><span>账户管理</span>
       </button>
+      {% if is_super_admin and finance_enabled %}
+      <button data-module="funds" class="nav-item" type="button">
+        <i class="ri-funds-box-line"></i><span>资金总览</span>
+      </button>
+      {% endif %}
       <button data-module="server-economic" class="nav-item" type="button">
         <i class="ri-node-tree"></i><span>TS 节点管理</span>
       </button>
@@ -954,6 +959,14 @@
         </div>
       </section>
 
+      {% if is_super_admin and finance_enabled %}
+      <section id="mod-funds" class="section">
+        <div id="funds-overview-host" class="software-center-host">
+          <div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>首次打开时加载资金总览</div></div>
+        </div>
+      </section>
+      {% endif %}
+
       <section id="mod-software" class="section">
         <div id="software-center-host" class="software-center-host">
           <div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>首次打开时加载软件中心</div></div>
@@ -971,6 +984,7 @@
 const CURRENT_ADMIN_ROLE = "{{ admin_role }}";
 const CURRENT_ADMIN_USERNAME = "{{ admin_username }}";
 const ADMIN_CSRF_TOKEN = "{{ admin_csrf_token }}";
+const FINANCE_ENABLED = {{ 'true' if finance_enabled and is_super_admin else 'false' }};
 
 // ═══════════════════════════════════════════════════
 //  工具函数
@@ -1111,6 +1125,8 @@ var _dnsConfig=null;
 var _productDocsLoaded=false;
 var _productDocsLoading=null;
 var _productDocsObserver=null;
+var _fundsLoaded=false;
+var _fundsLoading=null;
 document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
   item.addEventListener('click',function(e){
     e.preventDefault();
@@ -1118,7 +1134,7 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
     _activeModule=target;
     document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
     this.classList.add('active');
-    var titles={'overview':'总览大盘','accounts':'账户管理','server-economic':'TS 节点管理','domain-pool':'子域名池','audit':'日志信息','docs':'产品文档','software':'软件中心'};
+    var titles={'overview':'总览大盘','accounts':'账户管理','funds':'资金总览','server-economic':'TS 节点管理','domain-pool':'子域名池','audit':'日志信息','docs':'产品文档','software':'软件中心'};
     document.getElementById('page-title').textContent=titles[target]||'仪表盘';
     document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
     var el=document.getElementById('mod-'+target);
@@ -1132,6 +1148,10 @@ document.querySelectorAll('.nav-item[data-module]').forEach(function(item){
     if(target==='software'){
       loadSoftwareCenter();
       if(location.hash!=='#software') history.replaceState(null,'','#software');
+    }
+    if(target==='funds'){
+      loadFundsOverview();
+      if(location.hash!=='#funds') history.replaceState(null,'','#funds');
     }
   });
 });
@@ -1422,6 +1442,211 @@ function softwareDelete(releaseId){
   _softwareJsonAction('/api/admin/software/'+encodeURIComponent(releaseId),'DELETE',null,'软件版本已删除');
 }
 
+var _fundsData=null;
+var _fundsDeletePreview=null;
+var _fundsAccounts=[];
+
+function _fundsMessage(message,error){
+  var el=document.getElementById('funds-message');
+  if(!el) return;
+  el.textContent=message||'';
+  el.classList.toggle('show',!!message);
+  el.classList.toggle('error',!!error);
+}
+
+function _fundsDateInNewYork(){
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  var values={}; parts.forEach(function(part){values[part.type]=part.value;});
+  return values.year+'-'+values.month+'-'+values.day;
+}
+
+function _fundsDateTimeInNewYork(value){
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(value||new Date());
+  var values={}; parts.forEach(function(part){values[part.type]=part.value;});
+  return values.year+'-'+values.month+'-'+values.day+'T'+values.hour+':'+values.minute;
+}
+
+function _fundsFormatEastern(value){
+  if(!value) return '--';
+  var parsed=new Date(value); if(Number.isNaN(parsed.getTime())) return String(value);
+  return _fundsDateTimeInNewYork(parsed).replace('T',' ')+' ET';
+}
+
+function _fundsShiftDate(value,days){
+  var date=new Date(value+'T12:00:00Z'); date.setUTCDate(date.getUTCDate()+days);
+  return date.toISOString().slice(0,10);
+}
+
+function _fundsMoney(value,signed){
+  if(value===null||value===undefined||value==='') return '--';
+  var number=Number(value); if(!Number.isFinite(number)) return '--';
+  var prefix=signed&&number>0?'+':'';
+  return prefix+'$'+number.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function _fundsNumber(value){return value===null||value===undefined?0:Number(value)||0;}
+function _fundsBroker(value){return value==='interactive_brokers'?'IB':value==='tastytrade'?'TT':(value||'-');}
+function _fundsClass(value){if(value===null||value===undefined||value==='')return '';return _fundsNumber(value)>=0?'funds-pos':'funds-neg';}
+function _fundsEmpty(cols,text){return '<tr><td colspan="'+cols+'" class="funds-muted" style="text-align:center;padding:24px">'+escapeHtml(text||'暂无数据')+'</td></tr>';}
+
+function _fundsRequest(url,options){
+  options=options||{}; options.credentials='same-origin'; options.cache='no-store';
+  return fetch(url,options).then(function(response){
+    return response.json().then(function(body){
+      if(response.status===401){location.href='/admin/login';throw new Error('登录已失效');}
+      if(!response.ok||!body.ok) throw new Error(body.error||'请求失败');
+      return body.data;
+    });
+  });
+}
+
+function loadFundsOverview(force){
+  var host=document.getElementById('funds-overview-host');
+  if(!host||!FINANCE_ENABLED||(_fundsLoaded&&!force)) return _fundsLoading;
+  if(_fundsLoading) return _fundsLoading;
+  host.innerHTML='<div class="product-docs-loading"><div><i class="ri-loader-4-line" style="display:block;margin-bottom:12px;font-size:30px;animation:spin 1s linear infinite"></i>正在加载资金总览</div></div>';
+  _fundsLoading=fetch('/admin/funds/content',{credentials:'same-origin',cache:'no-store'}).then(function(response){
+    if(response.status===401){location.href='/admin/login';return '';}
+    if(!response.ok) throw new Error('资金总览加载失败');
+    return response.text();
+  }).then(function(html){
+    if(!html) return;
+    host.innerHTML=html; _fundsLoaded=true; _fundsInit();
+  }).catch(function(error){
+    host.innerHTML='<div class="product-docs-load-error"><div class="product-docs-load-error-inner"><i class="ri-funds-line"></i><strong>资金总览加载失败</strong><p>'+escapeHtml(error.message)+'</p><button class="btn-xs btn-pri" type="button" onclick="loadFundsOverview(true)"><i class="ri-refresh-line"></i> 重试</button></div></div>';
+  }).finally(function(){_fundsLoading=null;});
+  return _fundsLoading;
+}
+
+function _fundsInit(){
+  var root=document.getElementById('funds-root'); if(!root||root.dataset.initialized==='1') return;
+  root.dataset.initialized='1';
+  var end=_fundsDateInNewYork(),start=_fundsShiftDate(end,-29);
+  document.getElementById('funds-start').value=start;
+  document.getElementById('funds-end').value=end;
+  var deleteEnd=_fundsDateTimeInNewYork(),deleteStart=_fundsShiftDate(end,-29)+'T00:00';
+  document.getElementById('funds-delete-start').value=deleteStart;
+  document.getElementById('funds-delete-end').value=deleteEnd;
+  ['funds-delete-start','funds-delete-end'].forEach(function(id){
+    var input=document.getElementById(id); input.max=deleteEnd;
+    input.addEventListener('change',_fundsRefreshDeleteAccounts);
+  });
+  root.querySelectorAll('[data-funds-tab]').forEach(function(button){button.addEventListener('click',function(){
+    root.querySelectorAll('[data-funds-tab]').forEach(function(item){item.classList.toggle('active',item===button);});
+    root.querySelectorAll('[data-funds-view]').forEach(function(view){view.classList.toggle('active',view.getAttribute('data-funds-view')===button.getAttribute('data-funds-tab'));});
+  });});
+  document.getElementById('funds-query').addEventListener('click',_fundsQuery);
+  document.getElementById('funds-collect').addEventListener('click',_fundsCollect);
+  document.getElementById('funds-delete-preview').addEventListener('click',_fundsPreviewDelete);
+  document.getElementById('funds-delete-confirm').addEventListener('click',_fundsConfirmDelete);
+  document.querySelectorAll('[data-funds-close]').forEach(function(button){button.addEventListener('click',_fundsCloseDelete);});
+  document.getElementById('funds-delete-modal').addEventListener('click',function(event){if(event.target===this)_fundsCloseDelete();});
+  _fundsQuery();
+}
+
+function _fundsQuery(){
+  var start=document.getElementById('funds-start').value,end=document.getElementById('funds-end').value;
+  var account=document.getElementById('funds-account').value;
+  if(!start||!end){_fundsMessage('请选择查询日期',true);return;}
+  var button=document.getElementById('funds-query'); button.disabled=true;
+  var url='/api/admin/finance/overview?start_date='+encodeURIComponent(start)+'&end_date='+encodeURIComponent(end);
+  if(account) url+='&account_keys='+encodeURIComponent(account);
+  var accountUrl='/api/admin/finance/accounts?start_date='+encodeURIComponent(start)+'&end_date='+encodeURIComponent(end);
+  Promise.all([_fundsRequest(url),_fundsRequest(accountUrl)]).then(function(results){_fundsData=results[0];_fundsAccounts=results[1]||[];_fundsRender(results[0],account,_fundsAccounts);_fundsRefreshDeleteAccounts();_fundsMessage('',false);}).catch(function(error){_fundsMessage(error.message,true);}).finally(function(){button.disabled=false;});
+}
+
+function _fundsRender(data,selectedAccount,allAccounts){
+  var accounts=data.accounts||[],daily=data.daily||[],symbols=data.symbols||[],gaps=data.gaps||[];
+  var optionAccounts=allAccounts||accounts;
+  function accountLabel(account, separator){
+    return escapeHtml(_fundsBroker(account.broker_type)+(separator||' · ')+String(account.broker_account_id||''));
+  }
+  var accountSelect=document.getElementById('funds-account');
+  var options='<option value="">全部账号</option>'+optionAccounts.map(function(account){return '<option value="'+escapeHtml(account.account_key)+'">'+accountLabel(account)+'</option>';}).join('');
+  accountSelect.innerHTML=options; accountSelect.value=selectedAccount||'';
+  var checks=document.getElementById('funds-delete-accounts');
+  checks.innerHTML=optionAccounts.map(function(account){return '<label><input type="checkbox" value="'+escapeHtml(account.account_key)+'">'+accountLabel(account)+'</label>';}).join('')||'<span class="funds-muted">暂无账号</span>';
+  var accountMap={}; accounts.forEach(function(account){accountMap[account.account_key]=account;});
+  var latestByAccount={}, totals={buy:0,sell:0,fees:0,realized:0,realizedKnown:false};
+  daily.forEach(function(row){
+    totals.buy+=_fundsNumber(row.buy_amount);totals.sell+=_fundsNumber(row.sell_amount);totals.fees+=_fundsNumber(row.fees);
+    if(row.realized_pnl!==null){totals.realized+=_fundsNumber(row.realized_pnl);totals.realizedKnown=true;}
+    if(!latestByAccount[row.account_key]||latestByAccount[row.account_key].trade_date<=row.trade_date) latestByAccount[row.account_key]=row;
+  });
+  var equity=0,equityKnown=false,unrealized=0,unrealizedKnown=false;
+  Object.keys(latestByAccount).forEach(function(key){var row=latestByAccount[key];if(row.equity_close!==null){equity+=_fundsNumber(row.equity_close);equityKnown=true;}if(row.unrealized_pnl!==null){unrealized+=_fundsNumber(row.unrealized_pnl);unrealizedKnown=true;}});
+  var kpis=[['账户总净值',equityKnown?_fundsMoney(equity):'--','最新有效快照'],['买入金额',_fundsMoney(totals.buy),'所选范围'],['卖出金额',_fundsMoney(totals.sell),'所选范围'],['已实现盈亏',totals.realizedKnown?_fundsMoney(totals.realized,true):'--','独立统计'],['未实现盈亏',unrealizedKnown?_fundsMoney(unrealized,true):'--','最新快照']];
+  document.getElementById('funds-kpis').innerHTML=kpis.map(function(item){return '<div class="funds-kpi"><span>'+item[0]+'</span><strong>'+item[1]+'</strong><small>'+item[2]+'</small></div>';}).join('');
+  document.getElementById('funds-equity-grain').textContent=data.range&&data.range.grain==='15m'?'15 分钟':'每日';
+  _fundsLineChart('funds-equity-chart',data.trend||[],[{key:'equity',color:'#3159d9'}]);
+  var byDate={};daily.forEach(function(row){var item=byDate[row.trade_date]||(byDate[row.trade_date]={time:row.trade_date,buy:0,sell:0,fees:0,feesKnown:true,rows:[],coverage:0});item.buy+=_fundsNumber(row.buy_amount);item.sell+=_fundsNumber(row.sell_amount);if(row.fees===null||row.fees===undefined)item.feesKnown=false;else item.fees+=_fundsNumber(row.fees);item.coverage+=_fundsNumber(row.coverage_pct);item.rows.push(row);});
+  var dateRows=Object.keys(byDate).sort().map(function(key){var item=byDate[key];item.coverage=item.rows.length?item.coverage/item.rows.length:0;return item;});
+  _fundsBarChart('funds-flow-chart',dateRows,'buy','sell');
+  document.getElementById('funds-overview-accounts').innerHTML=accounts.map(function(account){var rows=daily.filter(function(row){return row.account_key===account.account_key;}),latest=latestByAccount[account.account_key],buy=0,sell=0,realized=0,known=false;rows.forEach(function(row){buy+=_fundsNumber(row.buy_amount);sell+=_fundsNumber(row.sell_amount);if(row.realized_pnl!==null){realized+=_fundsNumber(row.realized_pnl);known=true;}});var stale=!account.last_success_at||Date.now()-new Date(account.last_success_at).getTime()>30*60*1000;return '<tr><td>'+escapeHtml(_fundsBroker(account.broker_type))+'</td><td>'+escapeHtml(account.broker_account_id)+'</td><td class="num">'+_fundsMoney(latest&&latest.equity_close)+'</td><td class="num">'+_fundsMoney(buy)+'</td><td class="num">'+_fundsMoney(sell)+'</td><td class="num '+_fundsClass(realized)+'">'+(known?_fundsMoney(realized,true):'--')+'</td><td><span class="funds-pill '+(stale?'warn':'ok')+'">'+(stale?'待更新':'正常')+'</span></td></tr>';}).join('')||_fundsEmpty(7,'暂无账号数据');
+  document.getElementById('funds-flow-body').innerHTML=dateRows.slice().reverse().map(function(item){var net=item.feesKnown?item.sell-item.buy-item.fees:null;return '<tr><td>'+item.time+'</td><td class="num">'+_fundsMoney(item.buy)+'</td><td class="num">'+_fundsMoney(item.sell)+'</td><td class="num">'+_fundsMoney(item.feesKnown?item.fees:null)+'</td><td class="num '+_fundsClass(net)+'">'+_fundsMoney(net,true)+'</td><td><span class="funds-pill '+(item.coverage>=90?'ok':'warn')+'">'+item.coverage.toFixed(1)+'%</span></td></tr>';}).join('')||_fundsEmpty(6,'暂无交易资金流数据');
+  document.getElementById('funds-pnl-body').innerHTML=accounts.map(function(account){var rows=daily.filter(function(row){return row.account_key===account.account_key;}),realized=0,realizedKnown=false,equityChange=0,equityKnown=false;rows.forEach(function(row){if(row.realized_pnl!==null){realized+=_fundsNumber(row.realized_pnl);realizedKnown=true;}if(row.equity_change!==null){equityChange+=_fundsNumber(row.equity_change);equityKnown=true;}});var latest=latestByAccount[account.account_key],coverage=latest&&latest.coverage||{};return '<tr><td>'+escapeHtml(_fundsBroker(account.broker_type))+'</td><td>'+escapeHtml(account.broker_account_id)+'</td><td class="num '+_fundsClass(realized)+'">'+(realizedKnown?_fundsMoney(realized,true):'--')+'</td><td class="num '+_fundsClass(latest&&latest.unrealized_pnl)+'">'+_fundsMoney(latest&&latest.unrealized_pnl,true)+'</td><td class="num '+_fundsClass(equityChange)+'">'+(equityKnown?_fundsMoney(equityChange,true):'--')+'</td><td><span class="funds-pill '+(coverage.pnl_available?'ok':'warn')+'">'+(coverage.pnl_available?'可用':'受券商限制')+'</span></td></tr>';}).join('')||_fundsEmpty(6,'暂无盈亏数据');
+  document.getElementById('funds-account-daily').innerHTML=daily.slice().reverse().map(function(row){var account=accountMap[row.account_key]||row,deleted=row.data_status==='deleted';return '<tr><td>'+row.trade_date+'</td><td>'+escapeHtml(_fundsBroker(account.broker_type))+'</td><td>'+escapeHtml(account.broker_account_id||'-')+'</td><td class="num">'+_fundsMoney(row.buy_amount)+'</td><td class="num">'+_fundsMoney(row.sell_amount)+'</td><td class="num '+_fundsClass(row.trade_net_flow)+'">'+_fundsMoney(row.trade_net_flow,true)+'</td><td class="num '+_fundsClass(row.realized_pnl)+'">'+_fundsMoney(row.realized_pnl,true)+'</td><td><span class="funds-pill '+(row.data_status==='completed'?'ok':'warn')+'">'+(row.data_status==='completed'?'已复核':'采集中')+'</span></td></tr>';}).join('')||_fundsEmpty(8,'暂无账号交易数据');
+  document.getElementById('funds-symbol-body').innerHTML=symbols.map(function(row){return '<tr><td><strong>'+escapeHtml(row.symbol)+'</strong></td><td class="num">'+_fundsNumber(row.buy_quantity).toLocaleString()+'</td><td class="num">'+_fundsNumber(row.sell_quantity).toLocaleString()+'</td><td class="num">'+_fundsMoney(row.buy_amount)+'</td><td class="num">'+_fundsMoney(row.sell_amount)+'</td><td class="num '+_fundsClass(row.trade_net_flow)+'">'+_fundsMoney(row.trade_net_flow,true)+'</td><td class="num">'+_fundsNumber(row.trade_count)+'</td><td class="num">'+_fundsNumber(row.account_count)+'</td></tr>';}).join('')||_fundsEmpty(8,'暂无标的成交数据');
+  document.getElementById('funds-collection-body').innerHTML=accounts.map(function(account){var rows=daily.filter(function(row){return row.account_key===account.account_key;}),coverage=rows.length?rows.reduce(function(sum,row){return sum+_fundsNumber(row.coverage_pct);},0)/rows.length:0,stale=!account.last_success_at||Date.now()-new Date(account.last_success_at).getTime()>30*60*1000;return '<tr><td>'+escapeHtml(_fundsBroker(account.broker_type))+'</td><td>'+escapeHtml(account.broker_account_id)+'</td><td>'+escapeHtml(account.first_seen_at?fmtTime(account.first_seen_at):'-')+'</td><td>'+escapeHtml(account.last_success_at?fmtTime(account.last_success_at):'-')+'</td><td><span class="funds-pill '+(coverage>=90?'ok':'warn')+'">'+coverage.toFixed(1)+'%</span></td><td><span class="funds-pill '+(stale?'warn':'ok')+'">'+(stale?'待更新':'正常')+'</span></td><td>'+escapeHtml(account.last_error||'-')+'</td></tr>';}).join('')||_fundsEmpty(7,'尚未收到账号采集数据');
+  document.getElementById('funds-gap-body').innerHTML=gaps.slice().reverse().map(function(gap){var account=accountMap[gap.account_key]||{},range=gap.status==='deleted'?_fundsFormatEastern(gap.start_at)+' 至 '+_fundsFormatEastern(gap.end_at):gap.trade_date;return '<tr><td>'+escapeHtml(range)+'</td><td>'+escapeHtml(_fundsBroker(account.broker_type))+'</td><td>'+escapeHtml(account.broker_account_id||gap.account_key)+'</td><td><span class="funds-pill '+(gap.status==='deleted'?'deleted':'warn')+'">'+(gap.status==='deleted'?'人工删除':'数据缺失')+'</span></td></tr>';}).join('')||_fundsEmpty(4,'所选范围没有数据断点');
+}
+
+function _fundsLineChart(id,rows,series){
+  var host=document.getElementById(id); if(!host) return;
+  var values=[];rows.forEach(function(row){series.forEach(function(item){var value=Number(row[item.key]);if(row[item.key]!==null&&row[item.key]!==undefined&&Number.isFinite(value))values.push(value);});});
+  if(rows.length<1||!values.length){host.innerHTML='<div class="funds-empty">暂无趋势数据</div>';return;}
+  var width=600,height=180,pad=28,min=Math.min.apply(null,values),max=Math.max.apply(null,values);if(max===min){max+=1;min-=1;}
+  var x=function(index){return pad+(width-pad*2)*(rows.length===1 ? 0.5 : index/(rows.length-1));};var y=function(value){return height-pad-(Number(value)-min)*(height-pad*2)/(max-min);};
+  var grid=[0,.25,.5,.75,1].map(function(r){var yy=pad+(height-pad*2)*r;return '<line x1="'+pad+'" y1="'+yy+'" x2="'+(width-pad)+'" y2="'+yy+'" stroke="#e7eaf0" stroke-width="1"/>';}).join('');
+  var paths=series.map(function(item){var segments=[],points=[];rows.forEach(function(row,index){var value=Number(row[item.key]);if(row[item.key]===null||row[item.key]===undefined||!Number.isFinite(value)){if(points.length)segments.push(points.splice(0));return;}points.push({x:x(index),y:y(value)});});if(points.length)segments.push(points);return segments.map(function(segment){if(segment.length===1)return '<circle cx="'+segment[0].x+'" cy="'+segment[0].y+'" r="2.5" fill="'+item.color+'" vector-effect="non-scaling-stroke"/>';return '<polyline points="'+segment.map(function(point){return point.x+','+point.y;}).join(' ')+'" fill="none" stroke="'+item.color+'" stroke-width="2" vector-effect="non-scaling-stroke"/>';}).join('');}).join('');
+  host.innerHTML='<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" aria-label="趋势图">'+grid+paths+'</svg>';
+}
+
+function _fundsBarChart(id,rows,buyKey,sellKey){
+  var host=document.getElementById(id);if(!host)return;if(!rows.length){host.innerHTML='<div class="funds-empty">暂无趋势数据</div>';return;}
+  var width=600,height=180,pad=24,max=1;rows.forEach(function(row){max=Math.max(max,_fundsNumber(row[buyKey]),_fundsNumber(row[sellKey]));});var group=(width-pad*2)/rows.length,bar=Math.max(1,Math.min(8,group*.3));
+  var bars=rows.map(function(row,index){var center=pad+group*(index+.5),bh=_fundsNumber(row[buyKey])*(height-pad*2)/max,sh=_fundsNumber(row[sellKey])*(height-pad*2)/max;return '<rect x="'+(center-bar-1)+'" y="'+(height-pad-bh)+'" width="'+bar+'" height="'+bh+'" fill="#3159d9"/><rect x="'+(center+1)+'" y="'+(height-pad-sh)+'" width="'+bar+'" height="'+sh+'" fill="#16845b"/>';}).join('');host.innerHTML='<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" aria-label="买卖资金柱状图"><line x1="'+pad+'" y1="'+(height-pad)+'" x2="'+(width-pad)+'" y2="'+(height-pad)+'" stroke="#dfe4ec"/>'+bars+'</svg>';
+}
+
+function _fundsCollect(){
+  var account=document.getElementById('funds-account').value;if(!account){_fundsMessage('立即采集必须先选择一个券商账号',true);return;}
+  var button=document.getElementById('funds-collect');button.disabled=true;
+  _fundsRequest('/api/admin/finance/collect',{method:'POST',headers:{'Content-Type':'application/json','X-SM-CSRF':ADMIN_CSRF_TOKEN},body:JSON.stringify({account_key:account})}).then(function(){_fundsMessage('采集任务已发送，完成后可刷新查询',false);}).catch(function(error){_fundsMessage(error.message,true);}).finally(function(){button.disabled=false;});
+}
+
+function _fundsRefreshDeleteAccounts(){
+  var checks=document.getElementById('funds-delete-accounts');
+  var start=document.getElementById('funds-delete-start').value;
+  var end=document.getElementById('funds-delete-end').value;
+  if(!checks||!start||!end||start>end){
+    if(checks) checks.innerHTML='<span class="funds-muted">请选择有效的美东时间范围</span>';
+    return Promise.resolve();
+  }
+  var selected=_fundsSelectedDeleteAccounts();
+  var url='/api/admin/finance/accounts?start_date='+encodeURIComponent(start.slice(0,10))+'&end_date='+encodeURIComponent(end.slice(0,10));
+  return _fundsRequest(url).then(function(accounts){
+    checks.innerHTML=(accounts||[]).map(function(account){
+      var checked=selected.indexOf(account.account_key)>=0?' checked':'';
+      return '<label><input type="checkbox" value="'+escapeHtml(account.account_key)+'"'+checked+'>'+escapeHtml(_fundsBroker(account.broker_type)+' / '+String(account.broker_account_id||''))+'</label>';
+    }).join('')||'<span class="funds-muted">该时间范围没有可删除的账号数据</span>';
+  }).catch(function(error){
+    checks.innerHTML='<span class="funds-muted">账号列表加载失败</span>';
+    _fundsMessage(error.message,true);
+  });
+}
+
+function _fundsSelectedDeleteAccounts(){return Array.prototype.slice.call(document.querySelectorAll('#funds-delete-accounts input:checked')).map(function(input){return input.value;});}
+function _fundsPreviewDelete(){
+  var deleteEnd=_fundsDateTimeInNewYork();
+  document.getElementById('funds-delete-end').max=deleteEnd;
+  var payload={start_at:document.getElementById('funds-delete-start').value,end_at:document.getElementById('funds-delete-end').value,account_keys:_fundsSelectedDeleteAccounts()};
+  if(!payload.start_at||!payload.end_at||payload.start_at>payload.end_at){_fundsMessage('请选择有效的美东时间范围',true);return;}
+  if(!payload.account_keys.length){_fundsMessage('删除前必须选择至少一个券商账号',true);return;}
+  _fundsRequest('/api/admin/finance/delete-preview',{method:'POST',headers:{'Content-Type':'application/json','X-SM-CSRF':ADMIN_CSRF_TOKEN},body:JSON.stringify(payload)}).then(function(data){_fundsDeletePreview=data;document.getElementById('funds-delete-summary').innerHTML='<p>美东时间范围：<strong>'+escapeHtml(_fundsFormatEastern(data.start_at))+' 至 '+escapeHtml(_fundsFormatEastern(data.end_at))+'</strong></p><p>账号数量：<strong>'+data.account_count+'</strong>，覆盖 <strong>'+data.calendar_days+'</strong> 个交易日期。</p><p>将删除 '+data.trade_events+' 条成交、'+data.snapshots+' 条快照，并重建 '+data.daily_accounts+' 条受影响的账号日汇总。</p><p>后续上报不会重新写入这个时间范围。</p>';var modal=document.getElementById('funds-delete-modal');modal.classList.add('open');modal.setAttribute('aria-hidden','false');}).catch(function(error){_fundsMessage(error.message,true);});
+}
+function _fundsCloseDelete(){var modal=document.getElementById('funds-delete-modal');if(modal){modal.classList.remove('open');modal.setAttribute('aria-hidden','true');}}
+function _fundsConfirmDelete(){if(!_fundsDeletePreview)return;var button=document.getElementById('funds-delete-confirm');button.disabled=true;var payload={start_at:_fundsDeletePreview.start_at,end_at:_fundsDeletePreview.end_at,account_keys:_fundsDeletePreview.account_keys,confirm:true};_fundsRequest('/api/admin/finance/delete',{method:'POST',headers:{'Content-Type':'application/json','X-SM-CSRF':ADMIN_CSRF_TOKEN},body:JSON.stringify(payload)}).then(function(){_fundsCloseDelete();_fundsDeletePreview=null;_fundsMessage('资金数据已删除，时间阻断已生效',false);_fundsQuery();}).catch(function(error){_fundsMessage(error.message,true);}).finally(function(){button.disabled=false;});}
+
 if(location.hash==='#docs' || location.hash.indexOf('#docs/')===0){
   var docsNav=document.querySelector('.nav-item[data-module="docs"]');
   if(docsNav) docsNav.click();
@@ -1429,6 +1654,10 @@ if(location.hash==='#docs' || location.hash.indexOf('#docs/')===0){
 if(location.hash==='#software'){
   var softwareNav=document.querySelector('.nav-item[data-module="software"]');
   if(softwareNav) softwareNav.click();
+}
+if(location.hash==='#funds'){
+  var fundsNav=document.querySelector('.nav-item[data-module="funds"]');
+  if(fundsNav) fundsNav.click();
 }
 
 // ═══════════════════════════════════════════════════

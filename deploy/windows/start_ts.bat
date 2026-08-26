@@ -13,6 +13,9 @@ if not defined TS_CADDY_EXE set "TS_CADDY_EXE=%~dp0caddy\caddy.exe"
 if not defined TS_CADDY_DIR set "TS_CADDY_DIR=%~dp0caddy"
 if not defined TS_CADDY_ADMIN set "TS_CADDY_ADMIN=127.0.0.1:2020"
 if not defined TS_CADDY_START_TIMEOUT set "TS_CADDY_START_TIMEOUT=10"
+if not defined TS_FINANCE_ENABLED set "TS_FINANCE_ENABLED=1"
+if not defined TS_FINANCE_INTERVAL_SECONDS set "TS_FINANCE_INTERVAL_SECONDS=900"
+if not defined TS_FINANCE_REQUEST_TIMEOUT_SECONDS set "TS_FINANCE_REQUEST_TIMEOUT_SECONDS=12"
 
 if not exist "%~dp0TraderServer.exe" goto :app_missing
 "%~dp0TraderServer.exe"

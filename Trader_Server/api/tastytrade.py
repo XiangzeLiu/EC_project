@@ -10,12 +10,14 @@ Tastytrade 券商适配器
 
 import asyncio
 import datetime
+import hashlib
 import logging
 import time
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from .base import BaseBrokerAPI
+from .base import BaseBrokerAPI, FinanceCollectionSkipped
 
 log = logging.getLogger("trader_server.api.tastytrade")
 QUOTE_STREAM_MAX_AGE_SECONDS = 6 * 60 * 60
@@ -63,6 +65,304 @@ if _SDK_AVAILABLE:
 else:
     ACTION_MAP = {}
     TIF_MAP = {}
+
+
+def _finance_float(value: Any, *, nullable: bool = False) -> float | None:
+    if value is None or value == "":
+        return None if nullable else 0.0
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None if nullable else 0.0
+    if result != result or result in {float("inf"), float("-inf")}:
+        return None if nullable else 0.0
+    return result
+
+
+def _enum_text(value: Any) -> str:
+    return str(getattr(value, "value", value) or "").strip()
+
+
+def _transaction_trade_date(transaction: Any) -> datetime.date | None:
+    value = getattr(transaction, "transaction_date", None)
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=datetime.timezone.utc)
+        return value.astimezone(ZoneInfo("America/New_York")).date()
+    if isinstance(value, datetime.date):
+        return value
+    executed = getattr(transaction, "executed_at", None)
+    if isinstance(executed, datetime.datetime):
+        try:
+            if executed.tzinfo is None:
+                executed = executed.replace(tzinfo=datetime.timezone.utc)
+            return executed.astimezone(ZoneInfo("America/New_York")).date()
+        except Exception:
+            return executed.date()
+    return None
+
+
+def _transaction_executed_at(transaction: Any, fallback_day: datetime.date) -> datetime.datetime:
+    """Return a stable UTC timestamp for the TS-to-SM execution ledger."""
+    executed = getattr(transaction, "executed_at", None)
+    if isinstance(executed, datetime.datetime):
+        if executed.tzinfo is None:
+            executed = executed.replace(tzinfo=datetime.timezone.utc)
+        return executed.astimezone(datetime.timezone.utc)
+    if isinstance(executed, str) and executed.strip():
+        try:
+            parsed = datetime.datetime.fromisoformat(executed.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            return parsed.astimezone(datetime.timezone.utc)
+        except ValueError:
+            pass
+    return datetime.datetime.combine(
+        fallback_day,
+        datetime.time.min,
+        ZoneInfo("America/New_York"),
+    ).astimezone(
+        datetime.timezone.utc
+    )
+
+
+def _is_equity_transaction(transaction: Any) -> bool:
+    """Keep phase-one accounting scoped to US equity trades only."""
+    instrument_type = _enum_text(getattr(transaction, "instrument_type", None)).lower()
+    return not instrument_type or instrument_type == "equity"
+
+
+def _transaction_execution_key(
+    transaction: Any,
+    *,
+    account_id: str,
+    executed_at: datetime.datetime,
+    symbol: str,
+    side: str,
+    quantity: float,
+    gross_amount: float,
+    occurrence: int,
+) -> str:
+    transaction_id = str(getattr(transaction, "id", "") or "").strip()
+    if transaction_id:
+        return f"tt:{transaction_id}"
+    fingerprint = ":".join((
+        account_id,
+        executed_at.isoformat(),
+        symbol,
+        side,
+        str(quantity),
+        str(gross_amount),
+        str(occurrence),
+    ))
+    return f"tt:missing:{hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()[:40]}"
+
+
+def _build_tastytrade_finance_report(
+    *,
+    account: Any,
+    trade_date: datetime.date,
+    transactions: list[Any],
+    transactions_complete: bool,
+    balance: Any | None,
+    positions: list[Any],
+    equity_open: float | None,
+    equity_close: float | None,
+) -> dict:
+    buy_amount = 0.0
+    sell_amount = 0.0
+    total_fees = 0.0
+    trade_count = 0
+    symbols: dict[str, dict[str, Any]] = {}
+    trade_events: list[dict[str, Any]] = []
+    seen_transactions: set[str] = set()
+    synthetic_occurrences: dict[str, int] = {}
+    skipped_non_equity = 0
+    reversed_ids = {
+        str(getattr(transaction, "reverses_id", "") or "")
+        for transaction in transactions
+        if getattr(transaction, "reverses_id", None)
+    }
+
+    for transaction in transactions:
+        if _transaction_trade_date(transaction) not in {None, trade_date}:
+            continue
+        transaction_id = str(getattr(transaction, "id", "") or "")
+        if transaction_id in reversed_ids or getattr(transaction, "reverses_id", None):
+            continue
+        if transaction_id and transaction_id in seen_transactions:
+            continue
+        if transaction_id:
+            seen_transactions.add(transaction_id)
+
+        action = _enum_text(getattr(transaction, "action", None))
+        transaction_type = str(getattr(transaction, "transaction_type", "") or "")
+        transaction_sub_type = str(getattr(transaction, "transaction_sub_type", "") or "")
+        description = str(getattr(transaction, "description", "") or "")
+        classification = " ".join((transaction_type, transaction_sub_type, description)).lower()
+        quantity = abs(_finance_float(getattr(transaction, "quantity", 0)) or 0.0)
+        price = abs(_finance_float(getattr(transaction, "price", 0)) or 0.0)
+        value = _finance_float(getattr(transaction, "value", 0)) or 0.0
+        net_value = _finance_float(getattr(transaction, "net_value", value)) or 0.0
+        fees = sum(
+            abs(_finance_float(getattr(transaction, field, 0)) or 0.0)
+            for field in (
+                "regulatory_fees",
+                "clearing_fees",
+                "commission",
+                "proprietary_index_option_fees",
+                "other_charge",
+            )
+        )
+
+        is_trade = bool(action and ("buy" in action.lower() or "sell" in action.lower()))
+        is_trade = is_trade or transaction_type.strip().lower() == "trade"
+        if not is_trade:
+            continue
+        if not _is_equity_transaction(transaction):
+            skipped_non_equity += 1
+            continue
+
+        gross = abs(value) or abs(quantity * price)
+        is_buy = action.lower().startswith("buy")
+        is_sell = action.lower().startswith("sell")
+        if not is_buy and not is_sell:
+            is_buy = value < 0
+            is_sell = not is_buy
+        side = "buy" if is_buy else "sell"
+        if is_buy:
+            buy_amount += gross
+        else:
+            sell_amount += gross
+        total_fees += fees
+        trade_count += 1
+        symbol = str(
+            getattr(transaction, "symbol", "")
+            or getattr(transaction, "underlying_symbol", "")
+            or "UNKNOWN"
+        ).strip().upper()[:64] or "UNKNOWN"
+        row = symbols.setdefault(symbol, {
+            "symbol": symbol,
+            "buy_quantity": 0.0,
+            "sell_quantity": 0.0,
+            "buy_amount": 0.0,
+            "sell_amount": 0.0,
+            "fees": 0.0,
+            "trade_count": 0,
+        })
+        if is_buy:
+            row["buy_quantity"] += quantity
+            row["buy_amount"] += gross
+        else:
+            row["sell_quantity"] += quantity
+            row["sell_amount"] += gross
+        row["fees"] += fees
+        row["trade_count"] += 1
+        executed_at = _transaction_executed_at(transaction, trade_date)
+        synthetic_base = ":".join((executed_at.isoformat(), symbol, side, str(quantity), str(gross)))
+        occurrence = synthetic_occurrences.get(synthetic_base, 0) + 1
+        synthetic_occurrences[synthetic_base] = occurrence
+        trade_events.append({
+            "execution_key": _transaction_execution_key(
+                transaction,
+                account_id=str(getattr(account, "account_number", "") or ""),
+                executed_at=executed_at,
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                gross_amount=gross,
+                occurrence=occurrence,
+            ),
+            "executed_at": executed_at.isoformat(),
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "gross_amount": gross,
+            "fee": fees,
+            "realized_pnl": None,
+        })
+
+    realized_pnl = None
+    unrealized_pnl = None
+    if positions:
+        realized_pnl = 0.0
+        unrealized_pnl = 0.0
+        for position in positions:
+            realized_date = getattr(position, "realized_today_date", None)
+            if realized_date in {None, trade_date}:
+                realized_pnl += _finance_float(getattr(position, "realized_today", 0)) or 0.0
+            quantity = abs(_finance_float(getattr(position, "quantity", 0)) or 0.0)
+            direction = str(getattr(position, "quantity_direction", "Long") or "Long").lower()
+            signed_quantity = -quantity if direction.startswith("short") else quantity
+            mark = _finance_float(
+                getattr(position, "mark_price", None),
+                nullable=True,
+            )
+            if mark is None:
+                mark = _finance_float(getattr(position, "mark", None), nullable=True)
+            if mark is None:
+                mark = _finance_float(getattr(position, "close_price", None), nullable=True)
+            average = _finance_float(getattr(position, "average_open_price", None), nullable=True)
+            multiplier = _finance_float(getattr(position, "multiplier", 1)) or 1.0
+            if mark is not None and average is not None:
+                unrealized_pnl += (mark - average) * signed_quantity * multiplier
+
+    symbol_rows = []
+    for row in symbols.values():
+        row["trade_net_flow"] = row["sell_amount"] - row["buy_amount"] - row["fees"]
+        symbol_rows.append(row)
+    symbol_rows.sort(key=lambda item: item["buy_amount"] + item["sell_amount"], reverse=True)
+
+    net_liquidating = (
+        _finance_float(getattr(balance, "net_liquidating_value", None), nullable=True)
+        if balance is not None else None
+    )
+    if equity_close is None:
+        equity_close = net_liquidating
+    return {
+        "broker_account_id": str(getattr(account, "account_number", "") or ""),
+        "currency": "USD",
+        "balances": {
+            "net_liquidating_value": net_liquidating,
+            "cash_balance": _finance_float(getattr(balance, "cash_balance", None), nullable=True) if balance is not None else None,
+            "buying_power": _finance_float(getattr(balance, "equity_buying_power", None), nullable=True) if balance is not None else None,
+        },
+        "trades": {
+            "buy_amount": buy_amount,
+            "sell_amount": sell_amount,
+            "fees": total_fees,
+            "trade_net_flow": sell_amount - buy_amount - total_fees,
+            "trade_count": trade_count,
+        },
+        "cash_flows": {
+            "deposits": None,
+            "withdrawals": None,
+            "dividends": None,
+            "interest": None,
+            "other_cash_flow": None,
+        },
+        "pnl": {
+            "realized_pnl": realized_pnl,
+            "unrealized_pnl": unrealized_pnl,
+            "equity_open": equity_open,
+            "equity_close": equity_close,
+        },
+        "symbols": symbol_rows,
+        "trade_events": trade_events,
+        "coverage": {
+            "transactions_complete": bool(transactions_complete),
+            "balances_available": balance is not None,
+            "cash_flows_available": False,
+            "fees_available": True,
+            "pnl_available": bool(positions),
+            "equity_open_scope": "broker_bod_snapshot" if equity_open is not None else "first_collected_snapshot",
+            "broker_scope": "oauth_account_api",
+        },
+        "warnings": (
+            [f"Skipped {skipped_non_equity} non-equity transaction(s) in phase-one finance reporting"]
+            if skipped_non_equity else []
+        ),
+    }
 
 
 
@@ -136,6 +436,9 @@ class TastytradeBroker(BaseBrokerAPI):
         self._account_stream_error: Exception | None = None
         self._account_event_restart_task: asyncio.Task | None = None
         self._account_event_lock = asyncio.Lock()
+        self._finance_lock = asyncio.Lock()
+        self._trade_activity = 0
+        self._finance_equity_open_cache: dict[str, float] = {}
         self._last_connect_detail: dict[str, Any] = {}
 
     def set_connection_error(
@@ -173,6 +476,7 @@ class TastytradeBroker(BaseBrokerAPI):
         self._account = None
         self._account_authority = "unknown"
         self._equity_cache = {}
+        self._finance_equity_open_cache.clear()
 
         if not _SDK_AVAILABLE:
             self.set_connection_error("BROKER_SDK_MISSING", "Tastytrade SDK not installed", retryable=False)
@@ -555,6 +859,13 @@ class TastytradeBroker(BaseBrokerAPI):
 
     async def place_order(self, order_params: dict) -> dict:
         """下单"""
+        self._trade_activity += 1
+        try:
+            return await self._place_order_impl(order_params)
+        finally:
+            self._trade_activity = max(0, self._trade_activity - 1)
+
+    async def _place_order_impl(self, order_params: dict) -> dict:
         tif_str = str(order_params.get("tif") or "Day").strip() or "Day"
         if tif_str not in self.supported_tifs():
             return {
@@ -642,10 +953,138 @@ class TastytradeBroker(BaseBrokerAPI):
 
     async def cancel_order(self, order_id: str) -> dict:
         """撤单"""
-        s, a = await self._get_fresh()
-        await a.delete_order(s, order_id)
-        log.info(f"Order cancelled: {order_id}")
-        return {"success": True}
+        self._trade_activity += 1
+        try:
+            s, a = await self._get_fresh()
+            await a.delete_order(s, order_id)
+            log.info(f"Order cancelled: {order_id}")
+            return {"success": True}
+        finally:
+            self._trade_activity = max(0, self._trade_activity - 1)
+
+    async def collect_finance_report(self, trade_date: str, timeout: float = 12.0) -> dict:
+        """Collect account finance data without refreshing or replacing the TT session."""
+        if self._finance_lock.locked() or self._trade_activity:
+            raise FinanceCollectionSkipped("FINANCE_BUSY", "Tastytrade finance read already in progress")
+        try:
+            await asyncio.wait_for(self._finance_lock.acquire(), timeout=0.05)
+        except asyncio.TimeoutError as exc:
+            raise FinanceCollectionSkipped("FINANCE_BUSY", "Tastytrade finance read lock unavailable") from exc
+
+        try:
+            session = self._session
+            account = self._account
+            if self._trade_activity or not self._connected or session is None or account is None:
+                raise FinanceCollectionSkipped("BROKER_NOT_READY", "Tastytrade session is not connected")
+
+            try:
+                day = datetime.date.fromisoformat(str(trade_date or ""))
+            except ValueError as exc:
+                raise ValueError("trade_date must use YYYY-MM-DD") from exc
+
+            async def collect() -> dict:
+                from zoneinfo import ZoneInfo
+
+                def ensure_idle() -> None:
+                    if self._trade_activity:
+                        raise FinanceCollectionSkipped(
+                            "FINANCE_PREEMPTED",
+                            "Tastytrade trade request preempted finance collection",
+                        )
+
+                ny_today = datetime.datetime.now(ZoneInfo("America/New_York")).date()
+                is_current = day == ny_today
+                transactions: list[Any] = []
+                transactions_complete = True
+                page_size = 250
+                for page_offset in range(20):
+                    ensure_idle()
+                    page = await account.get_history(
+                        session,
+                        per_page=page_size,
+                        page_offset=page_offset,
+                        sort="Asc",
+                        start_date=day,
+                        end_date=day,
+                    )
+                    transactions.extend(page)
+                    if len(page) < page_size:
+                        break
+                else:
+                    transactions_complete = False
+
+                balance = None
+                equity_open = None
+                equity_close = None
+                positions: list[Any] = []
+                if is_current:
+                    ensure_idle()
+                    balance = await account.get_balances(session, currency="USD")
+                    ensure_idle()
+                    positions = await account.get_positions(
+                        session,
+                        include_closed=True,
+                        include_marks=True,
+                    )
+                    equity_close = _finance_float(getattr(balance, "net_liquidating_value", None), nullable=True)
+                    equity_open = self._finance_equity_open_cache.get(day.isoformat())
+                    if equity_open is None:
+                        ensure_idle()
+                        bod = await account.get_balance_snapshots(
+                            session,
+                            snapshot_date=day,
+                            time_of_day="BOD",
+                            currency="USD",
+                        )
+                        if bod:
+                            equity_open = _finance_float(
+                                getattr(bod[-1], "net_liquidating_value", None),
+                                nullable=True,
+                            )
+                            if equity_open is not None:
+                                self._finance_equity_open_cache[day.isoformat()] = equity_open
+                else:
+                    ensure_idle()
+                    bod = await account.get_balance_snapshots(
+                        session,
+                        snapshot_date=day,
+                        time_of_day="BOD",
+                        currency="USD",
+                    )
+                    ensure_idle()
+                    eod = await account.get_balance_snapshots(
+                        session,
+                        snapshot_date=day,
+                        time_of_day="EOD",
+                        currency="USD",
+                    )
+                    if bod:
+                        equity_open = _finance_float(getattr(bod[-1], "net_liquidating_value", None), nullable=True)
+                    if eod:
+                        balance = eod[-1]
+                        equity_close = _finance_float(getattr(balance, "net_liquidating_value", None), nullable=True)
+
+                ensure_idle()
+                return _build_tastytrade_finance_report(
+                    account=account,
+                    trade_date=day,
+                    transactions=transactions,
+                    transactions_complete=transactions_complete,
+                    balance=balance,
+                    positions=positions,
+                    equity_open=equity_open,
+                    equity_close=equity_close,
+                )
+
+            try:
+                report = await asyncio.wait_for(collect(), timeout=max(2.0, float(timeout)))
+            except asyncio.TimeoutError as exc:
+                raise FinanceCollectionSkipped("FINANCE_TIMEOUT", "Tastytrade finance read timed out") from exc
+            if self._session is not session or self._account is not account or not self._connected:
+                raise FinanceCollectionSkipped("BROKER_CHANGED", "Tastytrade session changed during finance read")
+            return report
+        finally:
+            self._finance_lock.release()
 
     async def get_positions(self, filters: dict | None = None) -> list[dict]:
         """获取持仓列表"""

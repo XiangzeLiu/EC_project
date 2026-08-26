@@ -12,6 +12,15 @@ import logging
 log = logging.getLogger("trader_server.api.base")
 
 
+class FinanceCollectionSkipped(RuntimeError):
+    """A low-priority finance read was skipped to protect trading traffic."""
+
+    def __init__(self, code: str, message: str):
+        self.code = str(code or "FINANCE_COLLECTION_SKIPPED")
+        self.message = str(message or "Finance collection skipped")
+        super().__init__(f"{self.code}: {self.message}")
+
+
 class BaseBrokerAPI(ABC):
     """
     券商适配器统一接口
@@ -180,6 +189,23 @@ class BaseBrokerAPI(ABC):
     async def get_account_summary(self, account_id: str = "") -> dict:
         """Return a non-normalized account summary for validation/diagnostics."""
         raise NotImplementedError("Account summary not supported by this broker adapter")
+
+    async def collect_finance_report(self, trade_date: str, timeout: float = 12.0) -> dict:
+        """Return one full day-to-date finance report without changing broker state.
+
+        Implementations must use an already-connected session and must never
+        reconnect, place orders, cancel orders, or hold a trading lifecycle
+        lock while waiting for broker data.
+        """
+        raise NotImplementedError("Finance reporting not supported by this broker adapter")
+
+    async def collect_finance_late_fee_report(self, trade_date: str) -> dict | None:
+        """Return passive late fee updates without issuing a broker query.
+
+        Adapters that cannot receive asynchronous fee callbacks simply return
+        ``None``.  This keeps the finance reporter from querying prior days.
+        """
+        return None
 
     async def get_symbol_order_options(self, symbol: str) -> dict[str, Any]:
         """Return safe order-entry options for one confirmed symbol.

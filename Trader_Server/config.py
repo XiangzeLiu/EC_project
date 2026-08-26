@@ -60,6 +60,17 @@ TS_CADDY_START_TIMEOUT = max(
     1.0,
     float(os.getenv("TS_CADDY_START_TIMEOUT", "10")),
 )
+TS_FINANCE_ENABLED = os.getenv("TS_FINANCE_ENABLED", "1").strip().lower() not in {
+    "0", "false", "no", "off",
+}
+TS_FINANCE_INTERVAL_SECONDS = max(
+    60,
+    int(os.getenv("TS_FINANCE_INTERVAL_SECONDS", "900")),
+)
+TS_FINANCE_REQUEST_TIMEOUT_SECONDS = max(
+    2.0,
+    min(30.0, float(os.getenv("TS_FINANCE_REQUEST_TIMEOUT_SECONDS", "12"))),
+)
 DEFAULT_TS_LOGIN_USERNAME = os.getenv("TS_LOGIN_USERNAME", "")
 DEFAULT_TS_LOGIN_PASSWORD = os.getenv("TS_LOGIN_PASSWORD", "")
 

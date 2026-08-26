@@ -59,6 +59,11 @@ def get_current_broker() -> BaseBrokerAPI | None:
     return _current_broker
 
 
+def get_broker_snapshot() -> tuple[BaseBrokerAPI | None, int]:
+    """Return an atomic broker identity/config snapshot for low-priority readers."""
+    return _current_broker, _local_config_version
+
+
 def get_node_broker_health() -> dict[str, object]:
     """Return a broker-neutral health snapshot for SM node monitoring."""
     now = int(time.time())
@@ -714,7 +719,17 @@ async def _config_event_loop():
                 except Exception:
                     continue
 
-                if data.get("type") != "CONFIG_CHANGED":
+                event_type = str(data.get("type") or "")
+                if event_type == "FINANCE_COLLECT":
+                    try:
+                        from .finance_reporter import request_manual_collection
+
+                        request_manual_collection(str(data.get("account_key") or ""))
+                    except Exception as exc:
+                        log.warning("Finance collection event ignored: %s", exc)
+                    continue
+
+                if event_type != "CONFIG_CHANGED":
                     continue
 
                 version = int(data.get("config_version", 0) or 0)
