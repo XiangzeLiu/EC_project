@@ -536,6 +536,10 @@ def _software_release_for_api(release: dict) -> dict:
     return result
 
 
+def _software_artifact_for_api(artifact: dict) -> dict:
+    return {key: value for key, value in artifact.items() if key != "storage_key"}
+
+
 @app.get("/admin/software")
 async def admin_software_page(request: Request):
     if not _software_admin_session(request):
@@ -571,27 +575,73 @@ async def admin_software_upload(
     version: str = Form(""),
     artifact_type: str = Form("installer"),
     platform: str = Form("windows-x64"),
+    replace: bool = Form(False),
+    expected_artifact_id: str = Form(""),
     file: UploadFile = File(...),
 ):
     session = _software_admin_session(request, require_csrf=True)
     if not session:
         return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
     try:
-        release = await software_release_service.save_uploaded_file(
+        result = await software_release_service.save_uploaded_file(
             file,
             product_type=product_type,
             version=version,
             artifact_type=artifact_type,
             platform=platform,
             created_by=str(session.get("username") or "admin"),
+            replace=replace,
+            expected_artifact_id=expected_artifact_id,
+        )
+    except software_release_service.SoftwareArtifactConflict as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "code": "SOFTWARE_ARTIFACT_CONFLICT",
+                "error": str(exc),
+                "conflict": {
+                    "release_id": str(exc.release.get("release_id") or ""),
+                    "version": str(exc.release.get("version") or version),
+                    "status": str(exc.release.get("status") or ""),
+                    "trader_visible": bool(exc.release.get("trader_visible")),
+                    "is_default": bool(exc.release.get("is_default")),
+                    "artifact": _software_artifact_for_api(exc.artifact),
+                },
+            },
         )
     except software_release_service.SoftwareReleaseError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
     except Exception as exc:
         log.warning(f"software upload failed: {exc}")
         return JSONResponse(status_code=500, content={"ok": False, "error": "软件上传失败"})
-    _record_admin_event(request, "SOFTWARE_UPLOAD", "software_release", f"Uploaded {release['release_id']}")
-    return {"ok": True, "data": _software_release_for_api(release)}
+    release = result["release"]
+    previous = result.get("previous_artifact") or {}
+    current = next(
+        (
+            item
+            for item in release.get("artifacts") or []
+            if item.get("artifact_type") == str(artifact_type or "").strip().lower()
+        ),
+        {},
+    )
+    audit_action = "SOFTWARE_REPLACE" if result.get("action") == "replaced" else "SOFTWARE_UPLOAD"
+    _record_admin_event(
+        request,
+        audit_action,
+        "software_release",
+        (
+            f"{result.get('action')} release={release['release_id']} type={current.get('artifact_type', '')} "
+            f"new={current.get('artifact_id', '')}:{current.get('sha256', '')} "
+            f"old={previous.get('artifact_id', '')}:{previous.get('sha256', '')} "
+            f"visible={int(bool(release.get('trader_visible')))}"
+        ),
+    )
+    return {
+        "ok": True,
+        "action": result.get("action"),
+        "data": _software_release_for_api(release),
+    }
 
 
 @app.post("/api/admin/software/{release_id}/status")
@@ -648,6 +698,33 @@ async def admin_software_delete(request: Request, release_id: str):
         log.warning(f"software release file cleanup failed: {release_id}: {exc}")
     _record_admin_event(request, "SOFTWARE_DELETE", "software_release", f"Deleted {release_id}")
     return {"ok": True}
+
+
+@app.delete("/api/admin/software/{release_id}/artifacts/{artifact_id}")
+async def admin_software_artifact_delete(request: Request, release_id: str, artifact_id: str):
+    session = _software_admin_session(request, require_csrf=True)
+    if not session:
+        return JSONResponse(status_code=403, content={"ok": False, "error": "管理员操作校验失败"})
+    result = database.delete_software_artifact_record(release_id, artifact_id)
+    if not result.get("ok"):
+        messages = {
+            "not_found": "软件文件不存在",
+            "legacy_read_only": "历史便携包仅支持下载，不能单独删除",
+            "active_last_artifact": "已上架版本至少需要保留一个可下载文件，请先下架版本",
+        }
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": messages.get(result.get("code"), "软件文件删除失败")},
+        )
+    software_release_service.delete_artifact_files(result)
+    artifact = result.get("artifact") or {}
+    _record_admin_event(
+        request,
+        "SOFTWARE_ARTIFACT_DELETE",
+        "software_release",
+        f"Deleted release={release_id} artifact={artifact_id} type={artifact.get('artifact_type', '')}",
+    )
+    return {"ok": True, "data": _software_release_for_api(result["release"])}
 
 
 @app.get("/admin/software/releases/{release_id}/download")

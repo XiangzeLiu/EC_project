@@ -27,6 +27,7 @@ DB_SCHEMA_VERSION_V6 = 6
 DB_SCHEMA_VERSION_V7 = 7
 DB_SCHEMA_VERSION_V8 = 8
 DB_SCHEMA_VERSION_V9 = 9
+DB_SCHEMA_VERSION_V10 = 10
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -255,6 +256,31 @@ ON software_releases(product_type, trader_visible, status, published_at);
 
 CREATE INDEX IF NOT EXISTS idx_software_artifacts_release
 ON software_artifacts(release_id);
+"""
+
+V10_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS software_artifact_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    history_id TEXT NOT NULL UNIQUE,
+    release_id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    artifact_type TEXT NOT NULL,
+    file_name TEXT NOT NULL DEFAULT '',
+    storage_key TEXT NOT NULL UNIQUE,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    sha256 TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 1,
+    replaced_by_artifact_id TEXT NOT NULL DEFAULT '',
+    replaced_by TEXT NOT NULL DEFAULT '',
+    replaced_at TEXT NOT NULL DEFAULT '',
+    release_status TEXT NOT NULL DEFAULT '',
+    trader_visible INTEGER NOT NULL DEFAULT 0,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(release_id) REFERENCES software_releases(release_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_software_artifact_history_release_type
+ON software_artifact_history(release_id, artifact_type, revision DESC);
 """
 
 V8_SCHEMA_SQL = """
@@ -565,6 +591,25 @@ def _ensure_v9_schema(conn: sqlite3.Connection) -> None:
         "is_voided",
         "is_voided INTEGER NOT NULL DEFAULT 0",
     )
+
+
+def _ensure_v10_schema(conn: sqlite3.Connection) -> None:
+    _ensure_column(
+        conn,
+        "software_artifacts",
+        "revision",
+        "revision INTEGER NOT NULL DEFAULT 1",
+    )
+    _ensure_column(
+        conn,
+        "software_artifacts",
+        "updated_at",
+        "updated_at TEXT NOT NULL DEFAULT ''",
+    )
+    conn.execute(
+        "UPDATE software_artifacts SET updated_at=created_at WHERE updated_at=''"
+    )
+    conn.executescript(V10_SCHEMA_SQL)
 
 
 def _has_v2_schema(conn: sqlite3.Connection) -> bool:
@@ -1143,6 +1188,15 @@ def migrate_v8_to_v9(conn: sqlite3.Connection) -> dict:
     }
 
 
+def migrate_v9_to_v10(conn: sqlite3.Connection) -> dict:
+    _ensure_v10_schema(conn)
+    _set_user_version(conn, DB_SCHEMA_VERSION_V10)
+    return {
+        "software_artifact_revision_added": 1,
+        "software_artifact_history_created": 1,
+    }
+
+
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
     _ensure_legacy_schema(conn)
@@ -1154,6 +1208,7 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     _ensure_v7_schema(conn)
     _ensure_v8_schema(conn)
     _ensure_v9_schema(conn)
+    _ensure_v10_schema(conn)
     version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
@@ -1204,6 +1259,12 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
         report = migrate_v8_to_v9(conn)
         report["from_version"] = version
         report["to_version"] = DB_SCHEMA_VERSION_V9
+        reports.append(report)
+        version = DB_SCHEMA_VERSION_V9
+    if version < DB_SCHEMA_VERSION_V10:
+        report = migrate_v9_to_v10(conn)
+        report["from_version"] = version
+        report["to_version"] = DB_SCHEMA_VERSION_V10
         reports.append(report)
     return reports
 
@@ -3619,7 +3680,7 @@ def _software_release_dict(conn: sqlite3.Connection, row: sqlite3.Row | None) ->
     artifacts = conn.execute(
         """
         SELECT artifact_id, artifact_type, file_name, storage_key,
-               file_size, sha256, created_at
+               file_size, sha256, revision, created_at, updated_at
         FROM software_artifacts
         WHERE release_id = ?
         ORDER BY id ASC
@@ -3632,8 +3693,14 @@ def _software_release_dict(conn: sqlite3.Connection, row: sqlite3.Row | None) ->
     return item
 
 
-def create_software_release_record(release: dict, artifact: dict) -> dict | None:
-    """Create one immutable release record and its uploaded artifact."""
+def save_software_artifact_record(
+    release: dict,
+    artifact: dict,
+    *,
+    replace: bool = False,
+    expected_artifact_id: str = "",
+) -> dict:
+    """Append or atomically replace an artifact within a software release."""
     conn = _get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -3643,6 +3710,8 @@ def create_software_release_record(release: dict, artifact: dict) -> dict | None
         ).fetchone()
         release_id = str(existing["release_id"] if existing else release["release_id"])
         now = datetime.now(timezone.utc).isoformat()
+        restored = bool(existing and existing["status"] == "deleted")
+        obsolete_storage_keys: list[str] = []
         if not existing:
             conn.execute(
                 """
@@ -3662,51 +3731,192 @@ def create_software_release_record(release: dict, artifact: dict) -> dict | None
                     release.get("updated_at") or now,
                 ),
             )
-        elif existing["status"] == "deleted":
+        elif restored:
+            obsolete_storage_keys.extend(
+                row["storage_key"]
+                for row in conn.execute(
+                    "SELECT storage_key FROM software_artifacts WHERE release_id=?",
+                    (release_id,),
+                ).fetchall()
+            )
+            obsolete_storage_keys.extend(
+                row["storage_key"]
+                for row in conn.execute(
+                    "SELECT storage_key FROM software_artifact_history WHERE release_id=?",
+                    (release_id,),
+                ).fetchall()
+            )
+            conn.execute("DELETE FROM software_artifact_history WHERE release_id=?", (release_id,))
+            conn.execute("DELETE FROM software_artifacts WHERE release_id=?", (release_id,))
+            conn.execute(
+                """
+                UPDATE software_releases
+                SET status='draft', trader_visible=0, is_default=0,
+                    created_by=?, created_at=?, published_at='', updated_at=?, deleted_at=''
+                WHERE release_id=?
+                """,
+                (
+                    release.get("created_by") or "",
+                    release.get("created_at") or now,
+                    now,
+                    release_id,
+                ),
+            )
+
+        current = conn.execute(
+            "SELECT * FROM software_artifacts WHERE release_id=? AND artifact_type=?",
+            (release_id, artifact.get("artifact_type") or "installer"),
+        ).fetchone()
+        if current and not replace:
             conn.rollback()
-            return None
+            current_release = conn.execute(
+                "SELECT * FROM software_releases WHERE release_id=?",
+                (release_id,),
+            ).fetchone()
+            return {
+                "ok": False,
+                "code": "conflict",
+                "release": _software_release_dict(conn, current_release),
+            }
+        if current and expected_artifact_id and current["artifact_id"] != expected_artifact_id:
+            conn.rollback()
+            current_release = conn.execute(
+                "SELECT * FROM software_releases WHERE release_id=?",
+                (release_id,),
+            ).fetchone()
+            return {
+                "ok": False,
+                "code": "conflict",
+                "release": _software_release_dict(conn, current_release),
+            }
+
+        previous_artifact = dict(current) if current else None
+        action = "restored" if restored else ("replaced" if current else ("appended" if existing else "created"))
+        if current:
+            next_revision = int(current["revision"] or 1) + 1
+            conn.execute(
+                """
+                INSERT INTO software_artifact_history (
+                    history_id, release_id, artifact_id, artifact_type, file_name,
+                    storage_key, file_size, sha256, revision,
+                    replaced_by_artifact_id, replaced_by, replaced_at,
+                    release_status, trader_visible, is_default
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"hist_{artifact['artifact_id']}",
+                    release_id,
+                    current["artifact_id"],
+                    current["artifact_type"],
+                    current["file_name"],
+                    current["storage_key"],
+                    current["file_size"],
+                    current["sha256"],
+                    int(current["revision"] or 1),
+                    artifact["artifact_id"],
+                    release.get("created_by") or "",
+                    now,
+                    existing["status"] if existing else "draft",
+                    int(existing["trader_visible"] or 0) if existing else 0,
+                    int(existing["is_default"] or 0) if existing else 0,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE software_artifacts
+                SET artifact_id=?, file_name=?, storage_key=?, file_size=?, sha256=?,
+                    revision=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    artifact["artifact_id"],
+                    artifact.get("file_name") or "",
+                    artifact["storage_key"],
+                    int(artifact.get("file_size") or 0),
+                    artifact.get("sha256") or "",
+                    next_revision,
+                    now,
+                    current["id"],
+                ),
+            )
+            history_rows = conn.execute(
+                """
+                SELECT id, storage_key FROM software_artifact_history
+                WHERE release_id=? AND artifact_type=?
+                ORDER BY revision DESC, id DESC
+                """,
+                (release_id, current["artifact_type"]),
+            ).fetchall()
+            for stale in history_rows[1:]:
+                obsolete_storage_keys.append(stale["storage_key"])
+                conn.execute("DELETE FROM software_artifact_history WHERE id=?", (stale["id"],))
+        else:
+            conn.execute(
+                """
+                INSERT INTO software_artifacts (
+                    artifact_id, release_id, artifact_type, file_name,
+                    storage_key, file_size, sha256, revision, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (
+                    artifact["artifact_id"],
+                    release_id,
+                    artifact.get("artifact_type") or "installer",
+                    artifact.get("file_name") or "",
+                    artifact["storage_key"],
+                    int(artifact.get("file_size") or 0),
+                    artifact.get("sha256") or "",
+                    artifact.get("created_at") or now,
+                    now,
+                ),
+            )
         conn.execute(
-            """
-            INSERT INTO software_artifacts (
-                artifact_id, release_id, artifact_type, file_name,
-                storage_key, file_size, sha256, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                artifact["artifact_id"],
-                release_id,
-                artifact.get("artifact_type") or "installer",
-                artifact.get("file_name") or "",
-                artifact["storage_key"],
-                int(artifact.get("file_size") or 0),
-                artifact.get("sha256") or "",
-                artifact.get("created_at") or datetime.now(timezone.utc).isoformat(),
-            ),
+            "UPDATE software_releases SET updated_at=? WHERE release_id=?",
+            (now, release_id),
         )
         conn.commit()
         row = conn.execute(
             "SELECT * FROM software_releases WHERE release_id = ?",
             (release_id,),
         ).fetchone()
-        return _software_release_dict(conn, row)
-    except sqlite3.IntegrityError:
+        return {
+            "ok": True,
+            "action": action,
+            "release": _software_release_dict(conn, row),
+            "previous_artifact": previous_artifact,
+            "obsolete_storage_keys": obsolete_storage_keys,
+        }
+    except sqlite3.IntegrityError as exc:
         conn.rollback()
-        return None
+        log.warning(f"save_software_artifact_record integrity error: {exc}")
+        return {"ok": False, "code": "integrity_error"}
     except Exception as exc:
         conn.rollback()
-        log.warning(f"create_software_release_record failed: {exc}")
-        return None
+        log.warning(f"save_software_artifact_record failed: {exc}")
+        return {"ok": False, "code": "database_error"}
     finally:
         conn.close()
 
 
-def find_software_release(product_type: str, version: str, platform: str = "windows-x64") -> dict | None:
+def create_software_release_record(release: dict, artifact: dict) -> dict | None:
+    """Backward-compatible append helper used by older internal callers."""
+    result = save_software_artifact_record(release, artifact)
+    return result.get("release") if result.get("ok") else None
+
+
+def find_software_release(
+    product_type: str,
+    version: str,
+    platform: str = "windows-x64",
+    *,
+    include_deleted: bool = False,
+) -> dict | None:
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT * FROM software_releases WHERE product_type=? AND version=? AND platform=? AND status != 'deleted'",
-            (product_type, version, platform),
-        ).fetchone()
+        query = "SELECT * FROM software_releases WHERE product_type=? AND version=? AND platform=?"
+        if not include_deleted:
+            query += " AND status != 'deleted'"
+        row = conn.execute(query, (product_type, version, platform)).fetchone()
         return _software_release_dict(conn, row)
     finally:
         conn.close()
@@ -3721,6 +3931,87 @@ def get_software_release(release_id: str, include_deleted: bool = False) -> dict
             query += " AND status != 'deleted'"
         row = conn.execute(query, args).fetchone()
         return _software_release_dict(conn, row)
+    finally:
+        conn.close()
+
+
+def list_software_artifact_history(release_id: str) -> list[dict]:
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT artifact_id, artifact_type, file_name, storage_key,
+                   file_size, sha256, revision, replaced_by_artifact_id,
+                   replaced_by, replaced_at
+            FROM software_artifact_history
+            WHERE release_id=?
+            ORDER BY artifact_type, revision DESC, id DESC
+            """,
+            (release_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def delete_software_artifact_record(release_id: str, artifact_id: str) -> dict:
+    """Delete one current artifact while keeping the containing release."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        release = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id=? AND status != 'deleted'",
+            (release_id,),
+        ).fetchone()
+        artifact = conn.execute(
+            "SELECT * FROM software_artifacts WHERE release_id=? AND artifact_id=?",
+            (release_id, artifact_id),
+        ).fetchone()
+        if not release or not artifact:
+            conn.rollback()
+            return {"ok": False, "code": "not_found"}
+        if artifact["artifact_type"] == "portable":
+            conn.rollback()
+            return {"ok": False, "code": "legacy_read_only"}
+        artifact_count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM software_artifacts WHERE release_id=?",
+                (release_id,),
+            ).fetchone()[0]
+        )
+        if release["status"] == "published" and artifact_count <= 1:
+            conn.rollback()
+            return {"ok": False, "code": "active_last_artifact"}
+
+        history = conn.execute(
+            "SELECT storage_key FROM software_artifact_history WHERE release_id=? AND artifact_type=?",
+            (release_id, artifact["artifact_type"]),
+        ).fetchall()
+        conn.execute(
+            "DELETE FROM software_artifact_history WHERE release_id=? AND artifact_type=?",
+            (release_id, artifact["artifact_type"]),
+        )
+        conn.execute("DELETE FROM software_artifacts WHERE id=?", (artifact["id"],))
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE software_releases SET updated_at=? WHERE release_id=?",
+            (now, release_id),
+        )
+        conn.commit()
+        updated_release = conn.execute(
+            "SELECT * FROM software_releases WHERE release_id=?",
+            (release_id,),
+        ).fetchone()
+        return {
+            "ok": True,
+            "artifact": dict(artifact),
+            "history_storage_keys": [row["storage_key"] for row in history],
+            "release": _software_release_dict(conn, updated_release),
+        }
+    except Exception as exc:
+        conn.rollback()
+        log.warning(f"delete_software_artifact_record failed: {exc}")
+        return {"ok": False, "code": "database_error"}
     finally:
         conn.close()
 
@@ -3771,6 +4062,15 @@ def set_software_release_status(release_id: str, status: str) -> dict | None:
             conn.rollback()
             return None
         if status == "published":
+            artifact_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM software_artifacts WHERE release_id=?",
+                    (release_id,),
+                ).fetchone()[0]
+            )
+            if artifact_count < 1:
+                conn.rollback()
+                return None
             conn.execute(
                 "UPDATE software_releases SET status='published', published_at=CASE WHEN published_at='' THEN ? ELSE published_at END, updated_at=? WHERE release_id=?",
                 (now, now, release_id),

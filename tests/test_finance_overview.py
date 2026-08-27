@@ -154,7 +154,7 @@ class FinanceDatabaseTests(unittest.TestCase):
         reports = database.init_db()
         conn = sqlite3.connect(old_path)
         try:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 10)
             names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         finally:
             conn.close()

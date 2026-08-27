@@ -91,15 +91,16 @@ async def trader_software_download(request: Request, release_id: str):
     release = database.get_software_release(release_id)
     if not release or release.get("product_type") != "client" or release.get("status") != "published" or not release.get("trader_visible"):
         return RedirectResponse("/software/trader?error=unavailable", status_code=303)
+    artifact_id = str(request.query_params.get("artifact_id") or "").strip()
     try:
-        release, artifact, path = software_release_service.resolve_artifact(release_id)
+        release, artifact, path = software_release_service.resolve_artifact(release_id, artifact_id)
     except FileNotFoundError:
         return RedirectResponse("/software/trader?error=unavailable", status_code=303)
     database.record_audit_log(
         str(session.get("username") or ""),
         "SOFTWARE_DOWNLOAD",
         "software_release",
-        f"Downloaded client release {release_id}",
+        f"Downloaded client release {release_id} artifact {artifact.get('artifact_id', '')}",
         request.client.host if request.client else "",
     )
     return FileResponse(
