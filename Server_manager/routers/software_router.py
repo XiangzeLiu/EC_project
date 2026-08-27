@@ -29,6 +29,14 @@ def _trader_release_view(release: dict) -> dict:
     return item
 
 
+@router.get("/download")
+@router.get("/download/")
+async def trader_download_entry(request: Request):
+    if software_access.get_trader_session(request):
+        return RedirectResponse("/software/trader", status_code=302)
+    return RedirectResponse("/software/login", status_code=302)
+
+
 @router.get("/software/login")
 async def software_login_page(request: Request):
     if software_access.get_trader_session(request):

@@ -65,6 +65,30 @@ class SoftwareCenterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()["data"]
 
+    def test_download_shortcut_routes_by_trader_session(self):
+        for path in ("/download", "/download/"):
+            response = self.client.get(path, follow_redirects=False)
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers["location"], "/software/login")
+
+        self._admin_login()
+        admin_response = self.client.get("/download", follow_redirects=False)
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertEqual(admin_response.headers["location"], "/software/login")
+        self.client.get("/admin/logout", follow_redirects=False)
+
+        login = self.client.post(
+            "/software/login",
+            data={"username": "software-trader", "password": "trader-pw"},
+            follow_redirects=False,
+        )
+        self.assertEqual(login.status_code, 302)
+
+        trader_response = self.client.get("/download", follow_redirects=False)
+        self.assertEqual(trader_response.status_code, 302)
+        self.assertEqual(trader_response.headers["location"], "/software/trader")
+        self.assertEqual(self.client.get("/download").status_code, 200)
+
     def test_trader_can_download_visible_client_but_never_ts(self):
         csrf = self._admin_login()
         client_release = self._upload(csrf, "v_2026082501")
