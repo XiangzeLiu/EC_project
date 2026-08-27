@@ -887,8 +887,18 @@ class FinanceAccessTests(unittest.TestCase):
         self.assertIn('data-account-view="register"', dashboard.text)
         self.assertIn('id="inp-username"', dashboard.text)
         self.assertIn('id="inp-se-addr"', dashboard.text)
+        self.assertIn('class="account-status-table"', dashboard.text)
+        self.assertIn('id="accounts-admin-body"', dashboard.text)
         self.assertIn('id="accounts-trader-body"', dashboard.text)
         self.assertIn("function switchAccountTab", dashboard.text)
+        self.assertIn("function renderRows", dashboard.text)
+        self.assertIn('onclick="showSuperAdminRename()"', dashboard.text)
+        self.assertIn('onclick="showSuperAdminPasswordModal()"', dashboard.text)
+        self.assertIn("showAccountDetail(", dashboard.text)
+        self.assertIn("showAccountEdit(", dashboard.text)
+        self.assertIn("suspendAccount(", dashboard.text)
+        self.assertIn("resumeAccount(", dashboard.text)
+        self.assertIn("deleteAccount(", dashboard.text)
         self.assertIn("overflow-wrap:anywhere", dashboard.text)
 
     def test_node_and_domain_management_use_tabbed_views_without_removing_controls(self):

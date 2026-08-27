@@ -261,6 +261,18 @@
     .account-register-form .toolbar-row:last-child { grid-template-columns:minmax(0,1fr) auto; }
     .account-refresh-hidden { display:none; }
     .account-super-summary { padding:16px 16px 4px; max-width:440px; }
+    .account-status-table-wrap { overflow-x:auto; padding:16px 20px 20px; }
+    .account-status-table { width:100%; min-width:1020px; border-collapse:collapse; font-size:13px; }
+    .account-status-table th { padding:11px 12px; text-align:left; color:#8a93ab; font-weight:600; background:#f7f8fb; border-top:1px solid #eef0f6; border-bottom:1px solid #eef0f6; white-space:nowrap; }
+    .account-status-table td { padding:12px; color:#3f475f; border-bottom:1px solid #eef0f6; vertical-align:middle; }
+    .account-status-table tbody:last-child tr:last-child td { border-bottom:0; }
+    .account-status-table tbody tr:hover { background:#f8faff; }
+    .account-table-name { min-width:0; color:#1d2236; font-size:13px; font-weight:700; }
+    .account-table-sub { margin-top:3px; color:#8a93ab; font-size:11px; line-height:1.4; overflow-wrap:anywhere; }
+    .account-table-address { min-width:220px; max-width:340px; font-family:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace; font-size:12px; line-height:1.45; overflow-wrap:anywhere; word-break:break-word; }
+    .account-table-description { min-width:150px; max-width:260px; line-height:1.45; overflow-wrap:anywhere; }
+    .account-table-actions { display:flex; flex-wrap:wrap; gap:6px; min-width:210px; }
+    .account-table-empty { padding:36px 16px !important; text-align:center; color:#94a3b8 !important; }
 
     /* Management sub-tabs */
     .management-tabs { display:flex; align-items:center; gap:4px; padding:0 24px; border-bottom:1px solid #eef0f6; }
@@ -663,6 +675,10 @@
     body.sm-dark .account-tab { color:#a7b0c0; }
     body.sm-dark .account-tab:hover { color:#a9c0ff; background:rgba(59,99,246,.12); }
     body.sm-dark .account-tab.active { color:#a9c0ff; border-bottom-color:#86a8ff; }
+    body.sm-dark .account-status-table th { background:rgba(15,23,42,.64); color:#94a3b8; border-color:rgba(148,163,184,.18); }
+    body.sm-dark .account-status-table td { color:#d1d5db; border-color:rgba(148,163,184,.18); }
+    body.sm-dark .account-status-table tbody tr:hover { background:rgba(59,99,246,.10); }
+    body.sm-dark .account-table-name { color:#f8fafc; }
     body.sm-dark .management-tabs { border-color:rgba(148,163,184,.18); }
     body.sm-dark .management-tab { color:#a7b0c0; }
     body.sm-dark .management-tab:hover { color:#a9c0ff; background:rgba(59,99,246,.12); }
@@ -691,6 +707,7 @@
       .account-register-form { padding:16px 14px 22px; }
       .account-register-form .toolbar-row, .account-register-form .toolbar-row:last-child { grid-template-columns:1fr; }
       .account-register-form .btn-primary-lg { width:100%; justify-content:center; }
+      .account-status-table-wrap { padding:14px; }
       .management-tabs { padding:0 14px; overflow-x:auto; }
       .management-tab { flex:1; min-width:104px; }
       .node-status-table-wrap, .node-review-table-wrap { padding:14px; }
@@ -903,39 +920,27 @@
           </div>
 
           <div class="account-view active" data-account-view="status" role="tabpanel">
-          {% if is_super_admin %}
-          <div class="account-super-summary">
-            <div class="acct-card acct-super" style="border-style:dashed;">
-              <div class="acct-head">
-                <div class="acct-head-left">
-                  <span class="nc-status-pill" style="background:#b45309;box-shadow:0 2px 6px rgba(180,83,9,0.3)">超级管理员专属</span>
-                  <span class="acct-name">{{ admin_username }}</span>
-                </div>
-              </div>
-              <div class="acct-info">
-                <div class="acct-row"><span class="acct-label">角色</span><span class="acct-value">超级管理员</span></div>
-                <div class="acct-row"><span class="acct-label">说明</span><span class="acct-value">可创建管理员/交易员，可停用或删除管理员与交易员；可修改本账户名称和密码</span></div>
-              </div>
-              <div class="acct-actions">
-                <button class="btn-xs btn-pri" onclick="showSuperAdminRename()"><i class="ri-edit-line"></i> 修改账户名称</button>
-                <button class="btn-xs btn-warn" onclick="showSuperAdminPasswordModal()"><i class="ri-lock-password-line"></i> 修改密码</button>
-              </div>
-            </div>
-          </div>
-          {% endif %}
-
-          <div id="accounts-admin-section" style="display:none;">
-            <div class="subheader" style="padding:0 16px; margin-bottom:0;">
-              <h3><i class="ri-shield-user-line" style="color:#64748b;margin-right:4px;"></i>管理员账户</h3>
-            </div>
-            <div class="grid-accts" id="accounts-admin-body"></div>
-          </div>
-
-          <div id="accounts-trader-section">
-            <div class="subheader" style="padding:0 16px; margin-bottom:0;">
-              <h3><i class="ri-user-3-line" style="color:#3b63f6;margin-right:4px;"></i>交易员账户</h3>
-            </div>
-            <div class="grid-accts" id="accounts-trader-body"></div>
+          <div class="account-status-table-wrap">
+            <table class="account-status-table">
+              <thead><tr><th>状态</th><th>账户 / 角色</th><th>券商</th><th>TS 地址</th><th>描述 / 创建时间</th><th>操作</th></tr></thead>
+              {% if is_super_admin %}
+              <tbody>
+                <tr>
+                  <td><span class="nc-status-pill" style="background:#b45309;box-shadow:0 2px 6px rgba(180,83,9,0.3)"><i class="ri-vip-crown-fill" style="margin-right:4px;font-size:11px"></i>超级管理员专属</span></td>
+                  <td><div class="account-table-name">{{ admin_username }}</div><div class="account-table-sub">超级管理员</div></td>
+                  <td>-</td>
+                  <td class="account-table-address">-</td>
+                  <td><div class="account-table-description">可创建管理员/交易员，可停用或删除管理员与交易员；可修改本账户名称和密码</div></td>
+                  <td><div class="account-table-actions">
+                    <button class="btn-xs btn-pri" onclick="showSuperAdminRename()"><i class="ri-edit-line"></i> 修改账户名称</button>
+                    <button class="btn-xs btn-warn" onclick="showSuperAdminPasswordModal()"><i class="ri-lock-password-line"></i> 修改密码</button>
+                  </div></td>
+                </tr>
+              </tbody>
+              {% endif %}
+              <tbody id="accounts-admin-body" style="display:none"></tbody>
+              <tbody id="accounts-trader-body"><tr><td colspan="6" class="account-table-empty">加载中...</td></tr></tbody>
+            </table>
           </div>
           </div>
         </div>
@@ -2871,9 +2876,9 @@ function renderAccounts(accounts){
     return;
   }
   _accountsRenderSig=sig;
-  var adminSection=document.getElementById('accounts-admin-section');
   var adminBody=document.getElementById('accounts-admin-body');
   var traderBody=document.getElementById('accounts-trader-body');
+  var adminSection=adminBody;
 
   var roleTextMap={trader:'交易员',admin:'管理员',super_admin:'超级管理员'};
 
@@ -2886,9 +2891,9 @@ function renderAccounts(accounts){
     if(n.occupied_by){ addTsAddressMap(seOccupiedMap,n.public_endpoint,n.occupied_by); }
   });
 
-  function renderCards(list){
+  function renderRows(list){
     if(!list||list.length===0){
-      return '<div class="empty-state"><i class="ri-user-line"></i>暂无账户</div>';
+      return '<tr><td colspan="6" class="account-table-empty"><i class="ri-user-line"></i> 暂无账户</td></tr>';
     }
     return list.map(function(a){
       var role=(a.role||'trader');
@@ -2897,12 +2902,6 @@ function renderAccounts(accounts){
       var isSuspended = (st!=='active');
       var occupier = seAddr ? getTsAddressMap(seOccupiedMap,seAddr) : '';
       var isInUse = (role==='trader' && !isSuspended && occupier===a.username);
-
-      var cardClass='acct-card acct-active';
-      if(role==='super_admin') cardClass='acct-card acct-super';
-      else if(role==='admin') cardClass='acct-card acct-admin';
-      else if(isSuspended) cardClass='acct-card acct-suspended';
-      else if(isInUse) cardClass='acct-card acct-inuse';
 
       var statusLabel='可使用', statusIcon='ri-checkbox-circle-fill', pillBg='#16a34a', pillShadow='rgba(22,163,74,0.3)';
       if(role==='super_admin'){ statusLabel='超级管理员'; statusIcon='ri-vip-crown-fill'; pillBg='#b45309'; pillShadow='rgba(180,83,9,0.3)'; }
@@ -2938,20 +2937,14 @@ function renderAccounts(accounts){
         ab += '<button class="btn-xs btn-del" onclick="deleteAccount('+a.id+')">删除</button>';
       }
 
-      var seAddrRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">TS 地址</span><span class="acct-value-mono">'+escapeHtml(seAddr||'-')+'</span></div>' : '';
-      var brokerRow = (role==='trader') ? '<div class="acct-row"><span class="acct-label">券商</span><span class="acct-value">'+escapeHtml(brokers)+'</span></div>' : '';
-
-      return '<div class="'+cardClass+'">'
-        +'<div class="acct-head"><div class="acct-head-left">'+sb
-        +'<span class="acct-name">'+escapeHtml(a.username)+'</span></div></div>'
-        +'<div class="acct-info">'
-        +'  <div class="acct-row"><span class="acct-label">角色</span><span class="acct-value">'+escapeHtml(roleTextMap[role]||role)+'</span></div>'
-        +seAddrRow
-        +brokerRow
-        +'  <div class="acct-row"><span class="acct-label">描述</span><span class="acct-value">'+escapeHtml(desc)+'</span></div>'
-        +'  <div class="acct-row"><span class="acct-label">创建时间</span><span style="color:#5b6480">'+fmtTime(a.created_at)+'</span></div>'
-        +'</div>'
-        +'<div class="acct-actions">'+ab+'</div></div>';
+      return '<tr>'
+        +'<td>'+sb+'</td>'
+        +'<td><div class="account-table-name">'+escapeHtml(a.username)+'</div><div class="account-table-sub">'+escapeHtml(roleTextMap[role]||role)+'</div></td>'
+        +'<td>'+escapeHtml(role==='trader'?brokers:'-')+'</td>'
+        +'<td class="account-table-address" title="'+escapeHtml(role==='trader'?(seAddr||'-'):'-')+'">'+escapeHtml(role==='trader'?(seAddr||'-'):'-')+'</td>'
+        +'<td><div class="account-table-description">'+escapeHtml(desc)+'</div><div class="account-table-sub">'+fmtTime(a.created_at)+'</div></td>'
+        +'<td><div class="account-table-actions">'+ab+'</div></td>'
+        +'</tr>';
     }).join('');
   }
 
@@ -2959,8 +2952,8 @@ function renderAccounts(accounts){
   var traderAccounts=(accounts||[]).filter(function(a){return (a.role||'trader')==='trader';});
 
   adminSection.style.display=adminAccounts.length>0?'':'none';
-  adminBody.innerHTML=renderCards(adminAccounts);
-  traderBody.innerHTML=renderCards(traderAccounts);
+  adminBody.innerHTML=renderRows(adminAccounts);
+  traderBody.innerHTML=renderRows(traderAccounts);
 
   if(_overviewInited) renderOverview();
 }
