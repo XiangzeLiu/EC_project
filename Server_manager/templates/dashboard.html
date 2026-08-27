@@ -262,6 +262,35 @@
     .account-refresh-hidden { display:none; }
     .account-super-summary { padding:16px 16px 4px; max-width:440px; }
 
+    /* Management sub-tabs */
+    .management-tabs { display:flex; align-items:center; gap:4px; padding:0 24px; border-bottom:1px solid #eef0f6; }
+    .management-tab { height:42px; padding:0 16px; border:0; border-bottom:2px solid transparent; background:transparent; color:#6b7280; cursor:pointer; font:600 13px inherit; }
+    .management-tab:hover { color:#2563eb; background:#f8faff; }
+    .management-tab.active { color:#2563eb; border-bottom-color:#2563eb; }
+    .management-view { display:none; }
+    .management-view.active { display:block; }
+
+    /* Node management tables */
+    .node-status-table-wrap, .node-review-table-wrap { overflow-x:auto; padding:16px 20px 20px; }
+    .node-status-table, .node-review-table { width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }
+    .node-status-table th, .node-review-table th { padding:11px 12px; text-align:left; color:#8a93ab; font-weight:600; background:#f7f8fb; border-top:1px solid #eef0f6; border-bottom:1px solid #eef0f6; white-space:nowrap; }
+    .node-status-table td, .node-review-table td { padding:12px; color:#3f475f; border-bottom:1px solid #eef0f6; vertical-align:middle; }
+    .node-status-table tr:last-child td, .node-review-table tr:last-child td { border-bottom:0; }
+    .node-status-table tbody tr:hover, .node-review-table tbody tr:hover { background:#f8faff; }
+    .node-table-name { min-width:0; font-size:13px; font-weight:700; color:#1d2236; }
+    .node-table-sub { margin-top:3px; color:#8a93ab; font:11px ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace; overflow-wrap:anywhere; }
+    .node-table-value { min-width:0; line-height:1.45; overflow-wrap:anywhere; }
+    .node-table-alert { margin-top:4px; color:#b45309; font-size:11px; line-height:1.4; overflow-wrap:anywhere; }
+    .node-table-actions { display:flex; flex-wrap:wrap; gap:6px; min-width:210px; }
+    .node-table-empty { padding:36px 16px !important; text-align:center; color:#94a3b8 !important; }
+    .node-review-capabilities { display:flex; flex-wrap:wrap; gap:4px; min-width:120px; }
+    .node-review-host { min-width:160px; }
+
+    /* Domain management views */
+    .domain-import-panel { max-width:860px; padding:20px 24px 28px; }
+    .domain-import-panel .domain-toolbar { padding:0; border:0; }
+    .domain-dns-view .dns-config-panel { border-bottom:0; }
+
     /* ═══ Node Card (complete — pure CSS) ═══ */
     .node-card {
       border-radius: 12px; padding: 16px;
@@ -634,6 +663,14 @@
     body.sm-dark .account-tab { color:#a7b0c0; }
     body.sm-dark .account-tab:hover { color:#a9c0ff; background:rgba(59,99,246,.12); }
     body.sm-dark .account-tab.active { color:#a9c0ff; border-bottom-color:#86a8ff; }
+    body.sm-dark .management-tabs { border-color:rgba(148,163,184,.18); }
+    body.sm-dark .management-tab { color:#a7b0c0; }
+    body.sm-dark .management-tab:hover { color:#a9c0ff; background:rgba(59,99,246,.12); }
+    body.sm-dark .management-tab.active { color:#a9c0ff; border-bottom-color:#86a8ff; }
+    body.sm-dark .node-status-table th, body.sm-dark .node-review-table th { background:rgba(15,23,42,.64); color:#94a3b8; border-color:rgba(148,163,184,.18); }
+    body.sm-dark .node-status-table td, body.sm-dark .node-review-table td { color:#d1d5db; border-color:rgba(148,163,184,.18); }
+    body.sm-dark .node-status-table tbody tr:hover, body.sm-dark .node-review-table tbody tr:hover { background:rgba(59,99,246,.10); }
+    body.sm-dark .node-table-name { color:#f8fafc; }
     @media (max-width: 1180px) { .overview-grid.ov-main { grid-template-columns:1fr; } .ov-audit-panel .audit-list { max-height:360px; } }
 
     /* Responsive */
@@ -654,6 +691,10 @@
       .account-register-form { padding:16px 14px 22px; }
       .account-register-form .toolbar-row, .account-register-form .toolbar-row:last-child { grid-template-columns:1fr; }
       .account-register-form .btn-primary-lg { width:100%; justify-content:center; }
+      .management-tabs { padding:0 14px; overflow-x:auto; }
+      .management-tab { flex:1; min-width:104px; }
+      .node-status-table-wrap, .node-review-table-wrap { padding:14px; }
+      .domain-import-panel { padding:16px 14px 22px; }
     }
   </style>
 </head>
@@ -906,29 +947,34 @@
           <div class="panel-header">
             <div class="panel-header-left">
               <div class="tile-icon ti-purple"><i class="ri-node-tree"></i></div>
-                <h2 class="panel-title">节点状态</h2>
+                <h2 class="panel-title">TS 节点管理</h2>
               <span id="node-count" class="badge" style="background:#eef4ff;color:#3b63f6">加载中...</span>
+              <span id="online-count" class="badge" style="background:#ecfdf5;color:#15803d;display:none">0 在线</span>
+              <span id="pending-count" class="badge" style="background:#fffbeb;color:#d97706;display:none">0 条待处理</span>
             </div>
             <button id="btn-refresh-nodes" onclick="refreshNodes()" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
           </div>
 
-          <div style="padding:20px;display:flex;flex-direction:column;gap:24px;">
-            <!-- 待审核 -->
-            <div class="node-subsection">
-              <div class="subheader">
-                <h3><i class="ri-time-line" style="color:#f59e0b;margin-right:4px;"></i>待审核节点</h3>
-                <span id="pending-count" class="badge" style="background:#fffbeb;color:#d97706;display:none">0 条待处理</span>
-              </div>
-              <div class="grid-nodes" id="pending-body"></div>
-            </div>
+          <div id="nodes-tabs" class="management-tabs" role="tablist" aria-label="TS 节点管理页签">
+            <button class="management-tab active" type="button" data-node-tab="status" role="tab" aria-selected="true">节点状态</button>
+            <button class="management-tab" type="button" data-node-tab="review" role="tab" aria-selected="false">注册审核</button>
+          </div>
 
-            <!-- 已注册 -->
-            <div class="node-subsection">
-              <div class="subheader">
-                <h3><i class="ri-checkbox-circle-line" style="color:#22c55e;margin-right:4px;"></i>已注册节点</h3>
-                <span id="online-count" class="badge" style="background:#eef4ff;color:#3b63f6;display:none">0 在线</span>
-              </div>
-              <div class="grid-nodes" id="nodes-body"></div>
+          <div class="management-view active" data-node-view="status" role="tabpanel">
+            <div class="node-status-table-wrap">
+              <table class="node-status-table">
+                <thead><tr><th>状态</th><th>节点 / Server ID</th><th>券商 / 域名</th><th>主机 / IP</th><th>心跳 / 占用</th><th>操作</th></tr></thead>
+                <tbody id="nodes-body"><tr><td colspan="6" class="node-table-empty">加载中...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="management-view" data-node-view="review" role="tabpanel">
+            <div class="node-review-table-wrap">
+              <table class="node-review-table">
+                <thead><tr><th>节点名称</th><th>券商 / 能力</th><th>主机 / 公网 IP</th><th>来源 IP</th><th>提交时间</th><th>操作</th></tr></thead>
+                <tbody id="pending-body"><tr><td colspan="6" class="node-table-empty">加载中...</td></tr></tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -945,37 +991,56 @@
             </div>
             <button id="btn-refresh-domains" onclick="refreshDomainPool(_domainPage)" class="btn-xs btn-pri"><i class="ri-refresh-line"></i> 刷新</button>
           </div>
-          {% if is_super_admin %}
-          <div class="dns-config-panel" id="dns-config-panel">
-            <div class="dns-config-head">
-              <div class="dns-config-title"><i class="ri-key-2-line"></i><span>DNSPod 认证</span></div>
-              <span id="dns-config-status" class="domain-tag domain-deleting">未加载</span>
+
+          <div id="domain-tabs" class="management-tabs" role="tablist" aria-label="子域名池页签">
+            <button class="management-tab active" type="button" data-domain-tab="status" role="tab" aria-selected="true">域名状态</button>
+            <button class="management-tab" type="button" data-domain-tab="import" role="tab" aria-selected="false">导入域名</button>
+            {% if is_super_admin %}
+            <button class="management-tab" type="button" data-domain-tab="dns" role="tab" aria-selected="false">DNS 设置</button>
+            {% endif %}
+          </div>
+
+          <div class="management-view active" data-domain-view="status" role="tabpanel">
+            <div class="domain-table-wrap">
+              <table class="domain-table">
+                <thead><tr><th>域名 / WSS</th><th>状态</th><th>占用 TS</th><th>占用 IP</th><th>DNS</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="domain-pool-body"><tr><td colspan="7" style="text-align:center;padding:36px;color:#94a3b8">加载中...</td></tr></tbody>
+              </table>
             </div>
-            <div class="dns-config-grid">
-              <div class="dns-config-field"><label for="dns-secret-id">SecretId</label><input class="inp" id="dns-secret-id" autocomplete="off" /></div>
-              <div class="dns-config-field"><label for="dns-secret-key">SecretKey</label><input class="inp" id="dns-secret-key" type="password" autocomplete="new-password" /></div>
-            </div>
-            <div class="dns-config-actions">
-              <div class="dns-config-buttons">
-                <button class="btn-xs" onclick="showDnsConfigImport()"><i class="ri-import-line"></i> 导入认证</button>
-                <button class="btn-xs btn-pri" onclick="testDnsConfig(this)"><i class="ri-pulse-line"></i> 测试权限</button>
-                <button class="btn-xs btn-ok" onclick="saveDnsConfig(this,false)"><i class="ri-save-line"></i> 保存</button>
+            <div class="domain-pager" id="domain-pool-pager"></div>
+          </div>
+
+          <div class="management-view" data-domain-view="import" role="tabpanel">
+            <div class="domain-import-panel">
+              <div class="domain-toolbar">
+                <textarea class="inp domain-import-input" id="domain-import-input" placeholder="输入域名，多个域名用逗号或换行分隔" autocomplete="off"></textarea>
+                <button class="btn-xs btn-pri" onclick="importDomainPool()"><i class="ri-download-line"></i> 导入</button>
               </div>
             </div>
-            <div id="dns-test-result" class="dns-test-result" style="display:none"></div>
+          </div>
+
+          {% if is_super_admin %}
+          <div class="management-view domain-dns-view" data-domain-view="dns" role="tabpanel">
+            <div class="dns-config-panel" id="dns-config-panel">
+              <div class="dns-config-head">
+                <div class="dns-config-title"><i class="ri-key-2-line"></i><span>DNSPod 认证</span></div>
+                <span id="dns-config-status" class="domain-tag domain-deleting">未加载</span>
+              </div>
+              <div class="dns-config-grid">
+                <div class="dns-config-field"><label for="dns-secret-id">SecretId</label><input class="inp" id="dns-secret-id" autocomplete="off" /></div>
+                <div class="dns-config-field"><label for="dns-secret-key">SecretKey</label><input class="inp" id="dns-secret-key" type="password" autocomplete="new-password" /></div>
+              </div>
+              <div class="dns-config-actions">
+                <div class="dns-config-buttons">
+                  <button class="btn-xs" onclick="showDnsConfigImport()"><i class="ri-import-line"></i> 导入认证</button>
+                  <button class="btn-xs btn-pri" onclick="testDnsConfig(this)"><i class="ri-pulse-line"></i> 测试权限</button>
+                  <button class="btn-xs btn-ok" onclick="saveDnsConfig(this,false)"><i class="ri-save-line"></i> 保存</button>
+                </div>
+              </div>
+              <div id="dns-test-result" class="dns-test-result" style="display:none"></div>
+            </div>
           </div>
           {% endif %}
-          <div class="domain-toolbar">
-            <textarea class="inp domain-import-input" id="domain-import-input" placeholder="输入域名，多个域名用逗号或换行分隔" autocomplete="off"></textarea>
-            <button class="btn-xs btn-pri" onclick="importDomainPool()"><i class="ri-download-line"></i> 导入</button>
-          </div>
-          <div class="domain-table-wrap">
-            <table class="domain-table">
-              <thead><tr><th>域名 / WSS</th><th>状态</th><th>占用 TS</th><th>占用 IP</th><th>DNS</th><th>更新时间</th><th>操作</th></tr></thead>
-              <tbody id="domain-pool-body"><tr><td colspan="7" style="text-align:center;padding:36px;color:#94a3b8">加载中...</td></tr></tbody>
-            </table>
-          </div>
-          <div class="domain-pager" id="domain-pool-pager"></div>
         </div>
       </section>
 
@@ -1741,7 +1806,7 @@ function renderPending(nodes){
   if(sig===_pendingRenderSig) return;
   _pendingRenderSig=sig;
   if(!nodes.length){
-    c.innerHTML='<div class="empty-state"><i class="ri-emotion-happy-line"></i>暂无待审核的注册请求</div>';
+    c.innerHTML='<tr><td colspan="6" class="node-table-empty"><i class="ri-emotion-happy-line"></i> 暂无待审核的注册请求</td></tr>';
     b.style.display='none'; return;
   }
   b.style.display=''; b.textContent=nodes.length+' 条待处理';
@@ -1750,22 +1815,16 @@ function renderPending(nodes){
     var caps=(typeof n.capabilities==='string')?n.capabilities:JSON.stringify(n.caps||[]);
     try{caps=JSON.parse(caps);}catch(e){caps=[];}
     var capTags=caps.length?caps.map(function(c){return '<span class="badge" style="background:#eff6ff;color:#2563eb">'+escapeHtml(c)+'</span>';}).join(''):'<span style="color:#b9c0d2;font-size:13px">-</span>';
-    return '<div class="node-card nc-pending">'
-      +'<div class="nc-head"><div class="nc-head-left"><span class="nc-status-pending" style="display:inline-flex;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:#ea580c">&#9002; 待审核</span><span class="nc-name">'+escapeHtml(n.node_name)+'</span></div></div>'
-      +'<div class="nc-info">'
-      +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">能力</span><div style="display:flex;flex-wrap:wrap;gap:4px">'+capTags+'</div></div>'
-      +'  <div class="nc-row"><span class="nc-label">主机</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.host||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">公网 IP</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.public_ip||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">来源 IP</span><span class="nc-value-mono" style="font-size:11px">'+escapeHtml(n.source_ip||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">联系</span><span class="nc-value">'+escapeHtml(n.contact||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">Request ID</span><span style="color:#b9c0d2;font-family:ui-monospace,monospace;font-size:10px">'+escapeHtml(n.request_id)+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">提交时间</span><span style="color:#5b6480">'+fmtTime(n.created_at)+'</span></div>'
-      +'</div>'
-      +'<div class="nc-actions">'
-      +'  <button class="btn-xs btn-ok" onclick="approveNode(\''+n.request_id+'\',this)"> <i class="ri-check-line"></i> 通过</button>'
-      +'  <button class="btn-xs btn-del" onclick="rejectNode(\''+n.request_id+'\',this)"> <i class="ri-close-line"></i> 拒绝</button>'
-      +'</div></div>';
+    return '<tr>'
+      +'<td><div class="node-table-name">'+escapeHtml(n.node_name)+'</div><div class="node-table-sub">Request ID: '+escapeHtml(n.request_id)+'</div></td>'
+      +'<td><div class="node-table-value">'+escapeHtml(n.region||'-')+'</div><div class="node-review-capabilities" style="margin-top:5px">'+capTags+'</div></td>'
+      +'<td class="node-review-host"><div class="node-table-value">'+escapeHtml(n.host||'-')+'</div><div class="node-table-sub">公网 IP: '+escapeHtml(n.public_ip||'-')+'</div></td>'
+      +'<td><div class="node-table-value">'+escapeHtml(n.source_ip||'-')+'</div><div class="node-table-sub">联系: '+escapeHtml(n.contact||'-')+'</div></td>'
+      +'<td>'+fmtTime(n.created_at)+'</td>'
+      +'<td><div class="node-table-actions">'
+      +'<button class="btn-xs btn-ok" onclick="approveNode(\''+n.request_id+'\',this)"><i class="ri-check-line"></i> 通过</button>'
+      +'<button class="btn-xs btn-del" onclick="rejectNode(\''+n.request_id+'\',this)"><i class="ri-close-line"></i> 拒绝</button>'
+      +'</div></td></tr>';
   }).join('');
 }
 
@@ -1786,6 +1845,49 @@ function setTextIfChanged(id,value){
   var el=document.getElementById(id);
   if(el && el.textContent!==String(value)){el.textContent=String(value);}
 }
+function switchNodeTab(tab){
+  var root=document.getElementById('nodes-tabs');
+  if(!root||(tab!=='status'&&tab!=='review'))return;
+  root.querySelectorAll('[data-node-tab]').forEach(function(button){
+    var active=button.getAttribute('data-node-tab')===tab;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',active?'true':'false');
+  });
+  document.querySelectorAll('#mod-server-economic [data-node-view]').forEach(function(view){
+    view.classList.toggle('active',view.getAttribute('data-node-view')===tab);
+  });
+}
+function initNodeTabs(){
+  var root=document.getElementById('nodes-tabs');
+  if(!root||root.dataset.initialized==='1')return;
+  root.dataset.initialized='1';
+  root.querySelectorAll('[data-node-tab]').forEach(function(button){
+    button.addEventListener('click',function(){switchNodeTab(button.getAttribute('data-node-tab'));});
+  });
+  switchNodeTab('status');
+}
+function switchDomainTab(tab){
+  var root=document.getElementById('domain-tabs');
+  if(!root||['status','import','dns'].indexOf(tab)<0)return;
+  if(!root.querySelector('[data-domain-tab="'+tab+'"]'))return;
+  root.querySelectorAll('[data-domain-tab]').forEach(function(button){
+    var active=button.getAttribute('data-domain-tab')===tab;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',active?'true':'false');
+  });
+  document.querySelectorAll('#mod-domain-pool [data-domain-view]').forEach(function(view){
+    view.classList.toggle('active',view.getAttribute('data-domain-view')===tab);
+  });
+}
+function initDomainTabs(){
+  var root=document.getElementById('domain-tabs');
+  if(!root||root.dataset.initialized==='1')return;
+  root.dataset.initialized='1';
+  root.querySelectorAll('[data-domain-tab]').forEach(function(button){
+    button.addEventListener('click',function(){switchDomainTab(button.getAttribute('data-domain-tab'));});
+  });
+  switchDomainTab('status');
+}
 function renderNodes(nodes){
   nodes = nodes||[];
   _nodesCache = nodes;
@@ -1799,7 +1901,7 @@ function renderNodes(nodes){
   }
   _nodesRenderSig=sig;
   if(!nodes.length){
-    c.innerHTML='<div class="empty-state"><i class="ri-server-line"></i>暂无已注册节点</div>';
+    c.innerHTML='<tr><td colspan="6" class="node-table-empty"><i class="ri-server-line"></i> 暂无已注册节点</td></tr>';
     b.style.display='none'; cb.textContent='0 个节点'; return;
   }
 
@@ -1870,21 +1972,16 @@ function renderNodes(nodes){
         +'<button class="btn-xs btn-del" onclick="deleteNode(\''+escapeHtml(n.serverId||n.server_id)+'\',this)" '+lk+'>删除</button>';
     }
 
-    return '<div class="node-card '+cc+'">'
-      +'<div class="nc-head"><div class="nc-head-left">'
-      +'<span class="nc-status-pill" style="background:'+ic+'"><i class="ri-checkbox-circle-fill" style="margin-right:4px;font-size:11px"></i>'+sl+'</span>'
-      +'<span class="nc-name">'+escapeHtml(n.node_name)+'</span></div></div>'
-      +(isOcc?'<div class="nc-row" style="margin-bottom:10px"><span class="nc-label">占用者</span><span style="color:#9333ea;font-weight:600;font-size:13px">'+escapeHtml(n.occupied_by)+'</span></div>':'')
-      +(st==='degraded'?'<div class="nc-row" style="margin-bottom:10px"><span class="nc-label">功能告警</span><span style="color:#b45309;font-weight:600;font-size:13px">'+escapeHtml(n.broker_health_message||'券商状态异常')+'</span></div>':'')
-      +'<div class="nc-info">'
-      +'  <div class="nc-row"><span class="nc-label">Server ID</span><span class="nc-value-mono">'+escapeHtml(n.server_id||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">券商</span><span class="nc-value">'+escapeHtml(n.region||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">域名</span><span class="nc-value-mono">'+escapeHtml(n.assigned_domain||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">当前 IP</span><span class="nc-value">'+escapeHtml(n.current_ip||n.host||'-')+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">最后心跳</span><span class="nc-value">'+hbInfo+'</span></div>'
-      +'  <div class="nc-row"><span class="nc-label">Token</span><span class="token-copy" title="点击复制 Token" data-token="'+encodeURIComponent(n.token||'')+'" onclick="copyToken(decodeURIComponent(this.dataset.token),this)">'+ts+'</span></div>'
-      +'</div>'
-      +'<div class="nc-actions">'+ab+'</div></div>';
+    return '<tr>'
+      +'<td><span class="nc-status-pill" style="background:'+ic+'"><i class="ri-checkbox-circle-fill" style="margin-right:4px;font-size:11px"></i>'+sl+'</span>'
+      +(st==='degraded'?'<div class="node-table-alert">'+escapeHtml(n.broker_health_message||'券商状态异常')+'</div>':'')+'</td>'
+      +'<td><div class="node-table-name">'+escapeHtml(n.node_name)+'</div><div class="node-table-sub">'+escapeHtml(n.server_id||'-')+'</div><div class="node-table-sub">Token: <span class="token-copy" title="点击复制 Token" data-token="'+encodeURIComponent(n.token||'')+'" onclick="copyToken(decodeURIComponent(this.dataset.token),this)">'+ts+'</span></div></td>'
+      +'<td><div class="node-table-value">'+escapeHtml(n.region||'-')+'</div><div class="node-table-sub">'+escapeHtml(n.assigned_domain||'-')+'</div></td>'
+      +'<td><div class="node-table-value">'+escapeHtml(n.current_ip||n.host||'-')+'</div><div class="node-table-sub">'+escapeHtml(n.host||'-')+'</div></td>'
+      +'<td><div class="node-table-value">'+hbInfo+'</div>'
+      +(isOcc?'<div class="node-table-alert" style="color:#7e22ce"><i class="ri-lock-line"></i> '+escapeHtml(n.occupied_by)+'</div>':'')+'</td>'
+      +'<td><div class="node-table-actions">'+ab+'</div></td>'
+      +'</tr>';
   }).join('');
   if(_overviewInited) renderOverview();
 }
@@ -3376,6 +3473,8 @@ function tryRenderOverview(){
 
 /* 初始化创建表单角色联动 */
 initAccountTabs();
+initNodeTabs();
+initDomainTabs();
 onCreateRoleChanged();
 refreshDomainOptions();
 [

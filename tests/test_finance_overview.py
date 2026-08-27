@@ -891,6 +891,35 @@ class FinanceAccessTests(unittest.TestCase):
         self.assertIn("function switchAccountTab", dashboard.text)
         self.assertIn("overflow-wrap:anywhere", dashboard.text)
 
+    def test_node_and_domain_management_use_tabbed_views_without_removing_controls(self):
+        self._session("super_admin")
+        dashboard = self.client.get("/admin/dashboard")
+
+        self.assertIn('id="nodes-tabs"', dashboard.text)
+        self.assertIn('data-node-tab="status"', dashboard.text)
+        self.assertIn('data-node-tab="review"', dashboard.text)
+        self.assertIn('id="nodes-body"', dashboard.text)
+        self.assertIn('id="pending-body"', dashboard.text)
+        self.assertIn('id="btn-refresh-nodes"', dashboard.text)
+        self.assertIn("function switchNodeTab", dashboard.text)
+        self.assertIn("function renderNodes", dashboard.text)
+        self.assertIn("function renderPending", dashboard.text)
+
+        self.assertIn('id="domain-tabs"', dashboard.text)
+        self.assertIn('data-domain-tab="status"', dashboard.text)
+        self.assertIn('data-domain-tab="import"', dashboard.text)
+        self.assertIn('data-domain-tab="dns"', dashboard.text)
+        self.assertIn('id="domain-pool-body"', dashboard.text)
+        self.assertIn('id="domain-import-input"', dashboard.text)
+        self.assertIn('id="dns-config-panel"', dashboard.text)
+        self.assertIn("function switchDomainTab", dashboard.text)
+        self.assertIn("function importDomainPool", dashboard.text)
+
+        self._session("admin")
+        admin_dashboard = self.client.get("/admin/dashboard")
+        self.assertNotIn('data-domain-tab="dns"', admin_dashboard.text)
+        self.assertNotIn('id="dns-config-panel"', admin_dashboard.text)
+
     def test_mutations_require_csrf_and_delete_requires_confirmation(self):
         self._session("super_admin")
         response = self.client.post("/api/admin/finance/delete-preview", json={})
