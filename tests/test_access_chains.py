@@ -2254,10 +2254,10 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
             async def place_order(params):
                 return {
                     "success": False,
-                    "code": "ORDER_REJECTED",
+                    "code": "TT_PRICE_REJECTED",
                     "order_id": "7",
                     "status": "Rejected",
-                    "status_message": "price outside allowed range",
+                    "status_message": "tastytrade price outside allowed range",
                 }
 
         try:
@@ -2282,7 +2282,9 @@ class WebSocketAccessTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(result["success"])
             self.assertEqual(result["code"], "ORDER_REJECTED")
-            self.assertEqual(result["message"], "price outside allowed range")
+            self.assertEqual(result["error_code"], "ORDER_REJECTED")
+            self.assertEqual(result["message"], "订单价格超出允许范围")
+            self.assertNotIn("tastytrade", str(result).lower())
         finally:
             ts_trading_svc.ensure_broker_connected = original_connected
             ts_trading_svc.get_current_broker = original_current

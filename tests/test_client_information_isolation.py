@@ -1,21 +1,50 @@
+import re
 from types import SimpleNamespace
+from pathlib import Path
 
 from Client.network.ts_websocket import TSWebSocketClient
 from Client.services.trading_session import TradingSession, safe_user_message, sanitize
 from Client.ui_qt.main_window import localize_user_message
-from Trader_Server.services.client_security import safe_order_record
+from Trader_Server.services.client_security import safe_error_payload, safe_order_record
 from Trader_Server.services.config_sync import _client_status
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+CLIENT_PROVIDER_PATTERN = re.compile(
+    r"tastytrade|tastyworks|interactive(?:[\s_-]+)brokers?|\bibkr\b|"
+    r"\bib(?:[\s_-]+)gateway\b|\bgateway\b|\btws\b|"
+    r"\b(?:ib|tt)_[a-z0-9_]+\b|\b(?:ib|tt)\b|\bU\d{5,}\b",
+    re.I,
+)
+
+
+def test_client_source_contains_no_provider_identifiers():
+    checked_extensions = {".py", ".json", ".svg", ".txt", ".ps1", ".bat"}
+    matches = []
+    for path in (ROOT_DIR / "Client").rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in checked_extensions:
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if CLIENT_PROVIDER_PATTERN.search(text):
+            matches.append(str(path.relative_to(ROOT_DIR)))
+    assert matches == []
 
 
 def test_client_message_sanitizer_removes_direct_resource_information():
     message = (
-        "Interactive Brokers interactive_brokers IB IBKR TT Gateway wss://www.ts01.scjrdomain.com/ws "
-        "127.0.0.1:4001 [::1]:4002 account U1234567 client_id=7 session=sess_abc trace=trc_def"
+        "wss://www.ts01.scjrdomain.com/ws 127.0.0.1:4001 [::1]:4002 "
+        "account U1234567 client_id=7 session=sess_abc trace=trc_def"
     )
     sanitized = sanitize(message)
     lowered = sanitized.lower()
-    for forbidden in ("interactive brokers", "interactive_brokers", " ib ", "ibkr", " tt ", "gateway", "scjrdomain.com", "127.0.0.1", "::1", "4001", "4002", "u1234567", "client_id", "sess_abc", "trc_def"):
+    for forbidden in ("scjrdomain.com", "127.0.0.1", "::1", "4001", "4002", "u1234567", "client_id", "sess_abc", "trc_def"):
         assert forbidden not in lowered
+
+
+def test_client_message_sanitizer_keeps_generic_account_redaction():
+    assert "U1234567" not in sanitize("request failed for U1234567")
 
 
 def test_client_safe_user_message_hides_technical_exception_details():
@@ -86,15 +115,34 @@ def test_order_record_keeps_business_fields_and_removes_resource_fields():
         "id": "701",
         "symbol": "AAPL",
         "status": "Rejected",
+        "code": "IB_PRICE_REJECTED",
         "status_message": "IB Gateway price too far from NBBO",
+        "message": "IB Gateway rejected the order",
+        "error": "IB Gateway internal error",
         "account_id": "U1234567",
         "broker_type": "interactive_brokers",
     })
     assert safe["id"] == "701"
     assert safe["symbol"] == "AAPL"
+    assert safe["code"] == "ORDER_REJECTED"
     assert safe["status_message"] == "订单价格超出允许范围"
     assert "account_id" not in safe
     assert "broker_type" not in safe
+    assert "message" not in safe
+    assert "error" not in safe
+
+
+def test_ts_error_payload_maps_provider_code_and_message_to_public_contract():
+    safe = safe_error_payload({
+        "success": False,
+        "code": "IB_ROUTE_UNAVAILABLE",
+        "message": "IB route ARCA is not available",
+        "status_message": "IB Gateway rejected the route",
+    })
+    assert safe["code"] == "ORDER_ROUTE_UNAVAILABLE"
+    assert safe["error_code"] == "ORDER_ROUTE_UNAVAILABLE"
+    assert safe["message"] == "当前账户或股票不支持所选ROUTE，订单未提交，请改用SMART"
+    assert "status_message" not in safe
 
 
 def test_production_endpoint_policy_accepts_pool_and_rejects_external_targets():

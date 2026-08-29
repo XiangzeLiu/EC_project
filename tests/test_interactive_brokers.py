@@ -450,7 +450,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["code"], "ORDER_RESPONSE_INVALID")
         self.assertFalse(result["retryable"])
 
-    async def test_unavailable_ib_route_keeps_structured_client_error(self):
+    async def test_unavailable_ib_route_maps_to_provider_neutral_client_error(self):
         class FakeBroker:
             @staticmethod
             def effective_capabilities():
@@ -480,10 +480,10 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertFalse(result["success"])
-        self.assertEqual(result["code"], "IB_ROUTE_UNAVAILABLE")
+        self.assertEqual(result["code"], "ORDER_ROUTE_UNAVAILABLE")
         self.assertEqual(
             result["message"],
-            "当前股票或IB账户不支持所选ROUTE，订单未提交，请改用SMART",
+            "当前账户或股票不支持所选ROUTE，订单未提交，请改用SMART",
         )
         self.assertFalse(result["retryable"])
 

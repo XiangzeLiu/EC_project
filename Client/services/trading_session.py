@@ -47,10 +47,6 @@ class QueryResult:
     message: str = ""
 
 # ── User-visible message sanitization ──────────────────────────────────────────
-_TRADING_PROVIDER_RE = re.compile(
-    r"\b(?:tastytrade|tastyworks|interactive(?:\s+|_)brokers?|ibkr|ib|tt|ib\s+gateway|gateway|tws)\b",
-    re.I,
-)
 _URL_RE = re.compile(r"\b(?:https?|wss?)://[^\s\]\[<>()]+", re.I)
 _IP_PORT_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?![\w.])")
 _IPV6_RE = re.compile(r"\[(?=[0-9a-f:]*:)[0-9a-f:]+\](?::\d{1,5})?", re.I)
@@ -63,7 +59,7 @@ _INTERNAL_ID_RE = re.compile(
     r"\b(?:sess|trc|conn|connection|session|trace)[-_:= ]+[a-z0-9_-]+\b",
     re.I,
 )
-_ACCOUNT_ID_RE = re.compile(r"\bU\d{5,}\b", re.I)
+_GENERIC_ACCOUNT_ID_RE = re.compile(r"\b[a-z]\d{5,}\b", re.I)
 _LABELED_ACCOUNT_RE = re.compile(r"\b(?:account|acct|client_id|账户)[\s:=#-]+[a-z0-9-]+\b", re.I)
 
 
@@ -78,9 +74,8 @@ _TECHNICAL_ERROR_RE = re.compile(
 
 
 def sanitize(text: str) -> str:
-    """Remove provider, infrastructure, and internal identifiers from UI text."""
+    """Remove infrastructure and internal identifiers from UI text."""
     value = str(text or "")
-    value = _TRADING_PROVIDER_RE.sub("交易服务", value)
     value = _URL_RE.sub("[服务地址]", value)
     value = _IP_PORT_RE.sub("[服务地址]", value)
     value = _IPV6_RE.sub("[服务地址]", value)
@@ -88,7 +83,7 @@ def sanitize(text: str) -> str:
     value = _WINDOWS_PATH_RE.sub("[本地路径]", value)
     value = _INTERNAL_ID_RE.sub("[内部标识]", value)
     value = _LABELED_ACCOUNT_RE.sub("[账户]", value)
-    value = _ACCOUNT_ID_RE.sub("[账户]", value)
+    value = _GENERIC_ACCOUNT_ID_RE.sub("[账户]", value)
     return value
 
 

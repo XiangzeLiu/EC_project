@@ -57,6 +57,10 @@ class ClientPackagingTests(unittest.TestCase):
         self.assertIn('set "ICON_DIR=%ROOT_DIR%\\Client\\assets\\icons"', script)
         self.assertIn('--add-data "%ICON_DIR%;Client\\assets\\icons"', script)
         self.assertIn("--package-self-test", script)
+        self.assertIn("Checking Client source for provider identifiers", script)
+        self.assertIn("Checking packaged application for provider identifiers", script)
+        self.assertIn("provider identifiers found in Client source", script)
+        self.assertIn("provider identifiers found in packaged application", script)
         self.assertIn("ALLOW_PORTABLE_ONLY", script)
         self.assertRegex(script, re.compile(r"Inno Setup 6 was not found.*goto :fail", re.S))
 

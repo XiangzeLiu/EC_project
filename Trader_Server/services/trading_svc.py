@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from .config_sync import ensure_broker_connected, get_broker_status, get_current_broker
-from .client_security import safe_client_message, safe_order_record
+from .client_security import safe_client_error_code, safe_client_message, safe_order_record
 
 log = logging.getLogger("trader_server.trading_svc")
 
@@ -51,11 +51,12 @@ def _error(
     retryable: bool = False,
     source: str = "TS",
 ) -> dict[str, Any]:
+    client_code = safe_client_error_code(code)
     return {
         "success": False,
-        "code": code,
-        "error_code": code,
-        "message": message,
+        "code": client_code,
+        "error_code": client_code,
+        "message": safe_client_message(client_code, message),
         "retryable": retryable,
         "source": source,
         "trace_id": _mk_trace_id(trace_id),
@@ -209,7 +210,10 @@ async def place_order(params: dict[str, Any], session_id: str, username: str = "
         result = await broker.place_order(order)
         order_id = result.get("order_id", "")
         if result.get("success") is False:
-            code = str(result.get("code") or "ORDER_REJECTED")
+            code = safe_client_error_code(
+                str(result.get("code") or ""),
+                "ORDER_REJECTED",
+            )
             message = str(
                 result.get("status_message")
                 or result.get("message")

@@ -53,6 +53,10 @@ if not exist "%BUILD_REQUIREMENTS%" (
   goto :fail
 )
 
+echo [Client Package] Checking Client source for provider identifiers...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $extensions=@('.py','.json','.svg','.txt','.ps1','.bat'); $pattern='(?i)tastytrade|tastyworks|interactive(?:[\s_-]+)brokers?|\bibkr\b|\bib(?:[\s_-]+)gateway\b|\bgateway\b|\btws\b|\b(?:ib|tt)_[a-z0-9_]+\b|\b(?:ib|tt)\b|\bU\d{5,}\b'; $files=Get-ChildItem -LiteralPath '%ROOT_DIR%\Client' -Recurse -File | Where-Object { ($extensions -contains $_.Extension.ToLowerInvariant()) -and ($_.FullName -notmatch '\\__pycache__\\') }; $bad=$files | Select-String -Pattern $pattern; if($bad){Write-Host '[Client Package] ERROR: provider identifiers found in Client source:'; $bad | ForEach-Object { Write-Host ($_.Path + ':' + $_.LineNumber) }; exit 1}"
+if errorlevel 1 goto :fail
+
 set "ISCC_EXE="
 for %%P in ("%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do (
   if exist "%%~P" set "ISCC_EXE=%%~P"
@@ -154,6 +158,10 @@ if not exist "%APP_OUT%\%APP_EXE_NAME%.exe" (
   echo [Client Package] ERROR: PyInstaller did not create %APP_EXE_NAME%.exe.
   goto :fail
 )
+
+echo [Client Package] Checking packaged application for provider identifiers...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $pattern='(?i)tastytrade|tastyworks|interactive(?:[\s_-]+)brokers?|\bibkr\b|\bib(?:[\s_-]+)gateway\b|\b(?:ib|tt)_[a-z0-9_]+\b'; $extensions=@('.exe','.pyd','.dll','.zip','.pyz','.json','.txt'); $bad=@(); Get-ChildItem -LiteralPath '%APP_OUT%' -Recurse -File | Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() } | ForEach-Object { $bytes=[IO.File]::ReadAllBytes($_.FullName); $ascii=[Text.Encoding]::ASCII.GetString($bytes); if($ascii -match $pattern){$bad += $_.FullName} }; if($bad){Write-Host '[Client Package] ERROR: provider identifiers found in packaged application:'; $bad; exit 1}"
+if errorlevel 1 goto :fail
 
 echo [Client Package] Including temporary latency diagnostic tools...
 mkdir "%APP_OUT%\diagnostics-tools" >nul 2>nul

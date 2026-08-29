@@ -3304,7 +3304,7 @@ class TradingTerminalQt(QMainWindow):
         hidden = bool(requested_hidden and self._hidden_order_supported(sym))
         if not self._route_available_for_symbol(sym, route):
             self._log_user_error_once(
-                f"{sym} \u5f53\u524d\u80a1\u7968\u6216IB\u8d26\u6237\u4e0d\u652f\u6301\u6240\u9009ROUTE {route}\uff0c\u8ba2\u5355\u672a\u63d0\u4ea4\uff0c\u8bf7\u6539\u7528SMART",
+                f"{sym} 当前账户或股票不支持所选ROUTE {route}，订单未提交，请改用SMART",
                 "warn",
             )
             return

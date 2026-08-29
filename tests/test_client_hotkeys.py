@@ -1140,7 +1140,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders, [])
         self.assertEqual(
             tips,
-            [("AAPL 当前股票或IB账户不支持所选ROUTE ARCA，订单未提交，请改用SMART", "warn")],
+            [("AAPL 当前账户或股票不支持所选ROUTE ARCA，订单未提交，请改用SMART", "warn")],
         )
 
     def test_non_smart_route_is_blocked_until_symbol_routes_are_validated(self):
