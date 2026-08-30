@@ -87,10 +87,11 @@ def _run_package_self_test() -> int:
         for font_name in ("Inter-Variable.ttf", "JetBrainsMono-Variable.ttf"):
             if not (theme.FONT_DIR / font_name).is_file():
                 raise RuntimeError(f"missing bundled font: {font_name}")
-        search_icon = Path(__file__).resolve().parent / "assets" / "icons" / "search.svg"
+        icon_dir = theme.PROJECT_ROOT / "Client" / "assets" / "icons"
+        search_icon = icon_dir / "search.svg"
         if not search_icon.is_file():
             raise RuntimeError("missing bundled search icon")
-        application_icon = Path(__file__).resolve().parent / "assets" / "icons" / "sc-client.ico"
+        application_icon = icon_dir / "sc-client.ico"
         if not application_icon.is_file():
             raise RuntimeError("missing bundled application icon")
         if QIcon(str(application_icon)).isNull():

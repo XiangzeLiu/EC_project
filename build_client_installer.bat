@@ -10,7 +10,6 @@ set "ENTRY_FILE=%ROOT_DIR%\Client\main.py"
 set "FONT_DIR=%ROOT_DIR%\Client\assets\fonts"
 set "ICON_DIR=%ROOT_DIR%\Client\assets\icons"
 set "APP_ICON=%ICON_DIR%\sc-client.ico"
-set "DIAGNOSTIC_TOOLS_DIR=%ROOT_DIR%\Client\tools"
 set "BUILD_REQUIREMENTS=%ROOT_DIR%\Client\requirements-build.txt"
 set "DIST_ROOT=%ROOT_DIR%\dist\ClientInstaller"
 set "APP_DIST=%DIST_ROOT%\app"
@@ -47,10 +46,6 @@ if not exist "%ICON_DIR%\search.svg" (
 )
 if not exist "%APP_ICON%" (
   echo [Client Package] ERROR: missing Client application icon.
-  goto :fail
-)
-if not exist "%DIAGNOSTIC_TOOLS_DIR%\collect_latency_diagnostics.ps1" (
-  echo [Client Package] ERROR: missing temporary latency diagnostic collector.
   goto :fail
 )
 if not exist "%BUILD_REQUIREMENTS%" (
@@ -155,8 +150,8 @@ echo [Client Package] Building portable application...
   --add-data "%FONT_DIR%;Client\assets\fonts" ^
   --add-data "%ICON_DIR%;Client\assets\icons" ^
   --add-data "%BUILD_INFO%;Client" ^
-  --collect-all tzdata ^
-  --collect-all websockets ^
+  --collect-data tzdata ^
+  --collect-submodules websockets ^
   "%ENTRY_FILE%"
 if errorlevel 1 goto :fail
 
@@ -166,13 +161,7 @@ if not exist "%APP_OUT%\%APP_EXE_NAME%.exe" (
 )
 
 echo [Client Package] Checking packaged application for provider identifiers...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $pattern='(?i)tastytrade|tastyworks|interactive(?:[\s_-]+)brokers?|\bibkr\b|\bib(?:[\s_-]+)gateway\b|\b(?:ib|tt)_[a-z0-9_]+\b'; $extensions=@('.exe','.pyd','.dll','.zip','.pyz','.json','.txt'); $bad=@(); Get-ChildItem -LiteralPath '%APP_OUT%' -Recurse -File | Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() } | ForEach-Object { $bytes=[IO.File]::ReadAllBytes($_.FullName); $ascii=[Text.Encoding]::ASCII.GetString($bytes); if($ascii -match $pattern){$bad += $_.FullName} }; if($bad){Write-Host '[Client Package] ERROR: provider identifiers found in packaged application:'; $bad; exit 1}"
-if errorlevel 1 goto :fail
-
-echo [Client Package] Including temporary latency diagnostic tools...
-mkdir "%APP_OUT%\diagnostics-tools" >nul 2>nul
-copy /Y "%DIAGNOSTIC_TOOLS_DIR%\collect_latency_diagnostics.ps1" "%APP_OUT%\diagnostics-tools\" >nul
-copy /Y "%DIAGNOSTIC_TOOLS_DIR%\run_latency_diagnostics.bat" "%APP_OUT%\diagnostics-tools\" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $pattern='(?i)tastytrade|tastyworks|interactive(?:[\s_-]+)brokers?|\bibkr\b|\bib(?:[\s_-]+)gateway\b|\bib_[a-z0-9][a-z0-9_]*\b|\btt_(?!ru\b)[a-z0-9][a-z0-9_]*\b'; $extensions=@('.exe','.pyd','.dll','.zip','.pyz','.json','.txt'); $bad=@(); Get-ChildItem -LiteralPath '%APP_OUT%' -Recurse -File | Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() } | ForEach-Object { $bytes=[IO.File]::ReadAllBytes($_.FullName); $ascii=[Text.Encoding]::ASCII.GetString($bytes); if($ascii -match $pattern){$bad += $_.FullName} }; if($bad){Write-Host '[Client Package] ERROR: provider identifiers found in packaged application:'; $bad; exit 1}"
 if errorlevel 1 goto :fail
 
 echo [Client Package] Running packaged application self-test...
@@ -256,7 +245,7 @@ if not exist "%INSTALLER_FILE%" (
 
 :finalize
 echo [Client Package] Creating SHA-256 checksums...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $files=@('%PORTABLE_ZIP%'); $installer='%INSTALLER_FILE%'; if($installer -and (Test-Path -LiteralPath $installer)){$files += $installer}; $lines=$files | ForEach-Object { $hash=(Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash; '{0}  {1}' -f $hash,(Split-Path $_ -Leaf) }; $lines | Set-Content -LiteralPath '%CHECKSUM_FILE%' -Encoding ASCII"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $root=[IO.Path]::GetFullPath('%DIST_ROOT%').TrimEnd('\'); $files=@('%PORTABLE_ZIP%'); $installer='%INSTALLER_FILE%'; if($installer -and (Test-Path -LiteralPath $installer)){$files += $installer}; $lines=$files | ForEach-Object { $full=[IO.Path]::GetFullPath($_); if(-not $full.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Checksum target is outside Client dist root'}; $relative=$full.Substring($root.Length+1).Replace('\','/'); $hash=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash; '{0}  {1}' -f $hash,$relative }; $lines | Set-Content -LiteralPath '%CHECKSUM_FILE%' -Encoding ASCII"
 if errorlevel 1 goto :fail
 if not exist "%CHECKSUM_FILE%" goto :fail
 

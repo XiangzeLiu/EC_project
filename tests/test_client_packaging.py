@@ -58,6 +58,10 @@ class ClientPackagingTests(unittest.TestCase):
         self.assertIn('set "APP_ICON=%ICON_DIR%\\sc-client.ico"', script)
         self.assertIn('--icon "%APP_ICON%"', script)
         self.assertIn('--add-data "%ICON_DIR%;Client\\assets\\icons"', script)
+        self.assertIn("--collect-data tzdata", script)
+        self.assertIn("--collect-submodules websockets", script)
+        self.assertNotIn("--collect-all tzdata", script)
+        self.assertNotIn("--collect-all websockets", script)
         self.assertIn("SetupIconFile=%APP_ICON%", script)
         self.assertIn("UninstallDisplayIcon={app}\\{#MyAppExeName}", script)
         self.assertIn('IconFilename: "{app}\\{#MyAppExeName}"', script)
@@ -66,8 +70,13 @@ class ClientPackagingTests(unittest.TestCase):
         self.assertIn("Checking packaged application for provider identifiers", script)
         self.assertIn("provider identifiers found in Client source", script)
         self.assertIn("provider identifiers found in packaged application", script)
+        self.assertIn(r"\btt_(?!ru\b)[a-z0-9][a-z0-9_]*\b", script)
         self.assertIn("ALLOW_PORTABLE_ONLY", script)
         self.assertRegex(script, re.compile(r"Inno Setup 6 was not found.*goto :fail", re.S))
+        self.assertNotIn("collect_latency_diagnostics", script)
+        self.assertNotIn("run_latency_diagnostics", script)
+        self.assertIn("$full.Substring($root.Length+1).Replace('\\','/')", script)
+        self.assertNotIn("(Split-Path $_ -Leaf)", script)
 
 
 if __name__ == "__main__":

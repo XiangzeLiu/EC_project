@@ -1,2 +1,4 @@
 *.bat text eol=crlf
 *.bat.example text eol=crlf
+/dist/**/*.zip filter=lfs diff=lfs merge=lfs -text
+/dist/**/*.exe filter=lfs diff=lfs merge=lfs -text
