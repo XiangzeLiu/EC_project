@@ -9,8 +9,28 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+
+_IS_FROZEN = bool(getattr(sys, "frozen", False))
+_DEFAULT_ENVIRONMENT = "production" if _IS_FROZEN else "development"
+SM_ENVIRONMENT = os.environ.get("SM_ENVIRONMENT", _DEFAULT_ENVIRONMENT).strip().lower()
+if SM_ENVIRONMENT not in {"development", "production", "selftest"}:
+    SM_ENVIRONMENT = _DEFAULT_ENVIRONMENT
+
+
+def _default_data_dir() -> Path:
+    configured = os.environ.get("SM_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if _IS_FROZEN:
+        program_data = os.environ.get("PROGRAMDATA", "").strip()
+        if program_data:
+            return (Path(program_data) / "SC" / "ServerManager" / "data").resolve()
+    return Path(__file__).resolve().parent / "data"
+
+
 # ── 日志配置 ──────────────────────────────────────────────────────────────
-DATA_DIR = Path(__file__).resolve().parent / "data"
+DATA_DIR = _default_data_dir()
+RUNTIME_DIR = DATA_DIR.parent
 LOG_DIR = DATA_DIR / "logs"
 LOG_FILE = LOG_DIR / "sm.log"
 ERROR_LOG_FILE = LOG_DIR / "sm_error.log"
@@ -156,13 +176,19 @@ SM_FINANCE_CLEANUP_INTERVAL_SECONDS = max(
 SM_BOOTSTRAP_ADMIN_USERNAME = (
     os.environ.get("SM_BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
 )
-SM_BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("SM_BOOTSTRAP_ADMIN_PASSWORD", "admin123")
+SM_BOOTSTRAP_ADMIN_PASSWORD = os.environ.get(
+    "SM_BOOTSTRAP_ADMIN_PASSWORD",
+    "admin123" if SM_ENVIRONMENT == "development" else "",
+)
 
 # ── Local Caddy process management ──────────────────────────────────────
 SM_CADDY_AUTO_MANAGE = _env_bool("SM_CADDY_AUTO_MANAGE", True)
 SM_CADDY_REQUIRED = _env_bool("SM_CADDY_REQUIRED", False)
 SM_CADDY_EXE = os.environ.get("SM_CADDY_EXE", "").strip()
-SM_CADDY_DIR = os.environ.get("SM_CADDY_DIR", "").strip()
+SM_CADDY_DIR = os.environ.get(
+    "SM_CADDY_DIR",
+    str(RUNTIME_DIR / "caddy") if _IS_FROZEN else "",
+).strip()
 SM_CADDY_ADMIN = os.environ.get("SM_CADDY_ADMIN", "127.0.0.1:2019").strip() or "127.0.0.1:2019"
 SM_CADDY_START_TIMEOUT = max(
     1.0,
@@ -176,10 +202,10 @@ if not SM_TS_WS_PATH.startswith("/"):
     SM_TS_WS_PATH = f"/{SM_TS_WS_PATH}"
 
 SM_DOMAIN_POOL_REQUIRED = _env_bool("SM_DOMAIN_POOL_REQUIRED", True)
-# 联调阶段默认关闭；正式上线前通过环境变量恢复为 1800 秒。
+_DEFAULT_DOMAIN_COOLDOWN_SECONDS = 1800 if SM_ENVIRONMENT == "production" else 0
 SM_DOMAIN_COOLDOWN_SECONDS = max(
     0,
-    int(os.environ.get("SM_DOMAIN_COOLDOWN_SECONDS", "0")),
+    int(os.environ.get("SM_DOMAIN_COOLDOWN_SECONDS", str(_DEFAULT_DOMAIN_COOLDOWN_SECONDS))),
 )
 
 # Production is always real mode. The environment override remains available to
@@ -213,4 +239,32 @@ active_client_tokens: dict[str, dict] = {}  # {token: {username, created_at}}
 def is_configured() -> bool:
     """检查 Tastytrade 凭据是否已配置"""
     return bool(_TASTY_SECRET and _TASTY_TOKEN)
+
+
+def production_config_errors(database_path: str | Path) -> list[str]:
+    """Return fail-closed production configuration errors without secret values."""
+    if SM_ENVIRONMENT != "production":
+        return []
+
+    errors: list[str] = []
+    if SERVER_HOST not in {"127.0.0.1", "localhost", "::1"}:
+        errors.append("SERVER_HOST must be loopback in production")
+    if not SM_PUBLIC_BASE_URL.lower().startswith("https://"):
+        errors.append("SM_PUBLIC_BASE_URL must use HTTPS in production")
+    if not SM_COOKIE_SECURE:
+        errors.append("SM_COOKIE_SECURE must be enabled in production")
+    if not SM_CADDY_AUTO_MANAGE or not SM_CADDY_REQUIRED:
+        errors.append("Caddy auto-management and required mode must be enabled in production")
+    if SM_DOMAIN_COOLDOWN_SECONDS < 1800:
+        errors.append("SM_DOMAIN_COOLDOWN_SECONDS must be at least 1800 in production")
+    if SM_DOMAIN_POOL_REQUIRED:
+        if SM_DNSPOD_MODE != "real":
+            errors.append("SM_DNSPOD_MODE must be real when the production domain pool is required")
+        if not SM_DNSPOD_SECRET_ID or not SM_DNSPOD_SECRET_KEY:
+            errors.append("DNSPod credentials are required for the production domain pool")
+
+    if not Path(database_path).expanduser().is_file():
+        if not SM_BOOTSTRAP_ADMIN_PASSWORD or SM_BOOTSTRAP_ADMIN_PASSWORD == "admin123":
+            errors.append("a non-default bootstrap administrator password is required for a new database")
+    return errors
 

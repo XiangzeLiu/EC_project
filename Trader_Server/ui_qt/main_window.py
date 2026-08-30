@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QTextCursor
+from PySide6.QtGui import QColor, QIcon, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -50,6 +50,9 @@ from Trader_Server.config import (
 )
 from Trader_Server.ui_qt.api_client import TSApiClient
 from Trader_Server.services.public_ip import detect_public_ipv4, validate_public_ipv4
+
+
+APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "icons" / "trader-server.ico"
 
 
 STATUS_LABELS = {
@@ -1491,8 +1494,13 @@ class TraderServerWindow(QMainWindow):
 
 def run() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
+    app_icon = QIcon(str(APP_ICON_PATH))
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     theme.load_fonts()
     window = TraderServerWindow()
+    if not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     window.show()
     return app.exec()
 

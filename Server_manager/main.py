@@ -57,6 +57,7 @@ from config import (
     SM_CADDY_REQUIRED,
     SM_FINANCE_CLEANUP_INTERVAL_SECONDS, SM_FINANCE_ENABLED,
     SM_FINANCE_RETENTION_MONTHS,
+    production_config_errors,
 )
 
 import database
@@ -3255,6 +3256,10 @@ async def startup():
     """应用启动时执行初始化"""
     from services.caddy_manager import configure_and_start_caddy
 
+    config_errors = production_config_errors(database.get_db_path())
+    if config_errors:
+        raise RuntimeError("SM production configuration invalid: " + "; ".join(config_errors))
+
     caddy_result = await asyncio.to_thread(configure_and_start_caddy)
     if caddy_result.get("ok"):
         log.info("[Startup] Caddy setup: %s", caddy_result)
@@ -3325,7 +3330,98 @@ async def shutdown():
 
 # ── 直接运行 ──────────────────────────────────────────────────────────────
 
+
+def _run_package_self_test() -> int:
+    """Validate the frozen runtime without starting listeners or external services."""
+    try:
+        import json
+        import struct
+        import subprocess
+        from pathlib import Path
+        from zoneinfo import ZoneInfo
+
+        import certifi
+        import fastapi
+        import jinja2
+        import pydantic
+        import starlette
+        import tastytrade
+        import tencentcloud
+        import tzdata
+        import uvicorn
+
+        from config import DATA_DIR
+
+        if struct.calcsize("P") * 8 != 64:
+            raise RuntimeError("Server Manager package requires 64-bit Python/Windows")
+        ZoneInfo("America/New_York")
+        for dependency in (
+            certifi,
+            fastapi,
+            jinja2,
+            pydantic,
+            starlette,
+            tastytrade,
+            tencentcloud,
+            tzdata,
+            uvicorn,
+        ):
+            if not getattr(dependency, "__name__", ""):
+                raise RuntimeError("runtime dependency metadata is unavailable")
+
+        for template_name in (
+            "login.html",
+            "dashboard.html",
+            "product_docs_fragment.html",
+            "software_center_fragment.html",
+            "software_login.html",
+            "software_portal.html",
+        ):
+            templates.env.get_template(template_name)
+
+        pdf_path = Path(_SCRIPT_DIR) / "resources" / "product_docs" / "SC_Product_Maintenance_Document.pdf"
+        if not pdf_path.is_file() or pdf_path.stat().st_size == 0:
+            raise RuntimeError("missing packaged product maintenance PDF")
+
+        route_paths = {getattr(route, "path", "") for route in app.routes}
+        for required_path in ("/ping", "/admin/login", "/admin/product-docs/download"):
+            if required_path not in route_paths:
+                raise RuntimeError(f"missing packaged route: {required_path}")
+
+        data_dir = Path(DATA_DIR).resolve()
+        database_path = Path(database.get_db_path()).resolve()
+        if database_path.parent != data_dir:
+            raise RuntimeError("Server Manager database is outside SM_DATA_DIR")
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        if getattr(sys, "frozen", False):
+            build_info_path = Path(_SCRIPT_DIR) / "server_manager_build_info.json"
+            build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
+            version = str(build_info.get("version") or "")
+            if not re.fullmatch(r"v_sm_\d{14}", version):
+                raise RuntimeError("invalid packaged Server Manager build metadata")
+            caddy_path = Path(sys.executable).resolve().parent / "caddy" / "caddy.exe"
+            if not caddy_path.is_file():
+                raise RuntimeError("missing external Caddy executable")
+            result = subprocess.run(
+                [str(caddy_path), "version"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if result.returncode != 0 or "v2.11.4" not in (result.stdout + result.stderr):
+                raise RuntimeError("unexpected packaged Caddy version")
+    except Exception as exc:
+        print(f"Server Manager package self-test failed: {exc}")
+        return 1
+    print("Server Manager package self-test passed")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--package-self-test" in sys.argv:
+        raise SystemExit(_run_package_self_test())
     import uvicorn
     uvicorn.run(
         app,

@@ -19,14 +19,25 @@ def _install_packaged_exception_handler() -> None:
     def handle_exception(_exc_type, _exc_value, _traceback) -> None:
         try:
             from PySide6.QtWidgets import QMessageBox
+            from Client.ui_qt import theme
 
-            QMessageBox.critical(
-                None,
-                "SC Client",
-                "程序发生异常，请重新启动；如重复出现，请联系管理员。",
-            )
+            message_box = QMessageBox()
+            message_box.setObjectName("clientMessageBox")
+            message_box.setIcon(QMessageBox.Critical)
+            message_box.setWindowTitle("SC Client")
+            message_box.setText("程序发生异常，请重新启动；如重复出现，请联系管理员。")
+            message_box.setStandardButtons(QMessageBox.Ok)
+            message_box.setStyleSheet(theme.POPUP_QSS)
+            message_box.exec()
         except Exception:
-            pass
+            try:
+                QMessageBox.critical(
+                    None,
+                    "SC Client",
+                    "程序发生异常，请重新启动；如重复出现，请联系管理员。",
+                )
+            except Exception:
+                pass
 
     sys.excepthook = handle_exception
 
@@ -59,6 +70,7 @@ def _run_package_self_test() -> int:
 
         import PySide6
         import websockets
+        from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import QApplication
 
         from Client.ui_qt import theme
@@ -78,6 +90,11 @@ def _run_package_self_test() -> int:
         search_icon = Path(__file__).resolve().parent / "assets" / "icons" / "search.svg"
         if not search_icon.is_file():
             raise RuntimeError("missing bundled search icon")
+        application_icon = Path(__file__).resolve().parent / "assets" / "icons" / "sc-client.ico"
+        if not application_icon.is_file():
+            raise RuntimeError("missing bundled application icon")
+        if QIcon(str(application_icon)).isNull():
+            raise RuntimeError("invalid bundled application icon")
         if getattr(sys, "frozen", False) and not packaged_build_info_available():
             raise RuntimeError("missing packaged build metadata")
         if not re.fullmatch(r"v_0_\d{14}", client_version()):

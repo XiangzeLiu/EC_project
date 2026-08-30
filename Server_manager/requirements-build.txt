@@ -1,0 +1,12 @@
+# Pinned versions for reproducible Server Manager Windows builds.
+PyInstaller==6.21.0
+fastapi==0.115.14
+uvicorn[standard]==0.51.0
+starlette==0.41.3
+python-multipart==0.0.32
+Jinja2==3.1.4
+pydantic==2.13.4
+certifi==2026.6.17
+tencentcloud-sdk-python==3.1.140
+tastytrade==13.1.0
+tzdata==2026.3

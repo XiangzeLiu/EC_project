@@ -9,13 +9,11 @@ import sqlite3
 import logging
 from datetime import datetime, timedelta, timezone
 
+from config import DATA_DIR
+
 log = logging.getLogger("server_manager")
 
-_DEFAULT_DB_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "data",
-    "server_manager.db",
-)
+_DEFAULT_DB_PATH = str(DATA_DIR / "server_manager.db")
 _DB_PATH = os.environ.get("SERVER_MANAGER_DB_PATH", _DEFAULT_DB_PATH)
 
 DB_SCHEMA_VERSION_V1 = 1

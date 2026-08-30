@@ -1,0 +1,17 @@
+{
+  "inno_setup": {
+    "version": "6.7.3",
+    "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe",
+    "installer_sha256": "9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732",
+    "compiler_sha256": "0A8757031B33777E4C9CBFFEE40F11A5062B36D25CBE144C1DB73B6102B80AD7",
+    "signer_contains": "Pyrsys B.V."
+  },
+  "windows_sdk_build_tools": {
+    "version": "10.0.28000.2705",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/10.0.28000.2705/microsoft.windows.sdk.buildtools.10.0.28000.2705.nupkg",
+    "package_sha512_base64": "47kp42eMb8rF3bjDuZHVkzGRb9Fr7wyFZDIT2sWr3StwnTCoDHIisDe0SPWGwerwVUw/eQQO/OxDb0YYHbfNvA==",
+    "signtool_relative_path": "bin/10.0.28000.0/x64/signtool.exe",
+    "signtool_sha256": "D6C04707C59A67FCE9FA4BB5FE76C79445B60E1E326D8B500A2F2BA8707C590A",
+    "signer_contains": "Microsoft Corporation"
+  }
+}

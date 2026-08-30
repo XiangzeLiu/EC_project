@@ -94,6 +94,9 @@ from Client.ui_qt.hotkey_config import (
 from Client.ui_qt.shortcut_controller import ShortcutController, validate_shortcut_sequences
 
 
+APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "icons" / "sc-client.ico"
+
+
 ACTION_LABELS = {
     "Buy to Open": "买开",
     "Buy to Close": "买平",
@@ -591,170 +594,7 @@ class TradingTerminalQt(QMainWindow):
         if app is not None:
             app.focusChanged.connect(self._on_focus_changed)
 
-        root = self._create_root_widget()
-        self.setCentralWidget(root)
-
-        shell = QVBoxLayout(root)
-        shell.setContentsMargins(22, 22, 22, 22)
-        shell.setSpacing(16)
-        shell.addStretch(1)
-
-        card = QFrame()
-        card.setObjectName("slotCard")
-        card.setMinimumWidth(760)
-        card.setMaximumWidth(820)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(34, 34, 34, 34)
-        card_layout.setSpacing(0)
-
-        title = make_label("登录", color=theme.ACCENT_BLUE, font=theme.mono_font(30, bold=True))
-        title.setObjectName("loginTitle")
-        title.setAlignment(Qt.AlignCenter)
-        title.setMinimumHeight(40)
-        title.setStyleSheet(f'color: {theme.ACCENT_BLUE}; font-size: 30px; font-weight: 900; letter-spacing: 1px; line-height: 1.0;')
-        card_layout.addWidget(title)
-        card_layout.addSpacing(36)
-
-        self._login_form = QWidget()
-        login_layout = QVBoxLayout(self._login_form)
-        login_layout.setContentsMargins(0, 0, 0, 0)
-        login_layout.setSpacing(14)
-
-        form_wrap = QWidget()
-        form_wrap.setMinimumWidth(340)
-        form_wrap.setMaximumWidth(340)
-        form_wrap_layout = QVBoxLayout(form_wrap)
-        form_wrap_layout.setContentsMargins(0, 0, 0, 0)
-        form_wrap_layout.setSpacing(8)
-
-        def login_field(label_text: str, field: QLineEdit) -> QWidget:
-            row = QWidget()
-            row_layout = QGridLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setHorizontalSpacing(14)
-            row_layout.setColumnMinimumWidth(0, 54)
-            row_layout.setColumnMinimumWidth(1, 210)
-            row_layout.setColumnMinimumWidth(2, 54)
-            label = make_label(label_text, color=theme.TEXT_DIM, font=theme.ui_font(14, bold=True))
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            label.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: 14px; font-weight: 800;")
-            field.setMinimumHeight(40)
-            field.setFixedWidth(210)
-            field.setFont(theme.ui_font(14))
-            field.setStyleSheet(
-                f"background: {theme.INPUT_BG}; color: {theme.TEXT_PRIMARY}; border: 1px solid {theme.BORDER}; "
-                "border-radius: 8px; padding: 4px 10px; font-size: 14px; font-weight: 700;"
-            )
-            row_layout.addWidget(label, 0, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
-            row_layout.addWidget(field, 0, 1, alignment=Qt.AlignCenter)
-            return row
-
-        self._login_user_entry = make_input("")
-        self._login_pass_entry = make_input("", password=True)
-        form_wrap_layout.addWidget(login_field("账号", self._login_user_entry))
-        form_wrap_layout.addWidget(login_field("密码", self._login_pass_entry))
-        login_layout.addWidget(form_wrap, alignment=Qt.AlignHCenter)
-        self._auth_notice_label = self._make_auth_notice_label("")
-        login_layout.addWidget(self._auth_notice_label)
-        login_layout.addSpacing(46)
-
-        login_buttons = QWidget()
-        login_buttons.setMaximumWidth(560)
-        login_button_layout = QGridLayout(login_buttons)
-        login_button_layout.setContentsMargins(0, 0, 0, 0)
-        login_button_layout.setHorizontalSpacing(0)
-        login_button_layout.setColumnStretch(0, 1)
-        login_button_layout.setColumnStretch(1, 1)
-        login_button_layout.setColumnMinimumWidth(0, 250)
-        login_button_layout.setColumnMinimumWidth(1, 250)
-        self._login_exit_btn = make_button("退出", min_width=128)
-        self._login_exit_btn.setStyleSheet(
-            f"background: {theme.PANEL_ALT_BG}; color: {theme.TEXT_DIM}; border: 1px solid {theme.PANEL_ALT_BG}; "
-            "border-radius: 8px; font-size: 14px; font-weight: 700; padding: 8px 16px; min-height: 34px;"
-        )
-        self._login_submit_btn = make_button("登录", object_name="loginButton", min_width=128)
-        self._login_submit_btn.setStyleSheet(
-            f"background: {theme.ACCENT_BLUE}; color: #07121B; border: 1px solid {theme.ACCENT_BLUE}; "
-            "border-radius: 8px; font-size: 14px; font-weight: 700; padding: 8px 16px; min-height: 34px;"
-        )
-        self._login_submit_btn.clicked.connect(self._submit_inline_login)
-        self._login_exit_btn.clicked.connect(self.close)
-        self._login_pass_entry.returnPressed.connect(self._submit_inline_login)
-        login_button_layout.addWidget(self._login_exit_btn, 0, 0, alignment=Qt.AlignCenter)
-        login_button_layout.addWidget(self._login_submit_btn, 0, 1, alignment=Qt.AlignCenter)
-        login_layout.addWidget(login_buttons, alignment=Qt.AlignHCenter)
-        card_layout.addWidget(self._login_form)
-
-        self._init_status = QFrame()
-        self._init_status.setStyleSheet("background: transparent; border: none;")
-        status_layout = QVBoxLayout(self._init_status)
-        status_layout.setContentsMargins(0, 4, 0, 0)
-        status_layout.setSpacing(16)
-        subtitle = make_label("正在鉴权并连接...", color=theme.TEXT_DIM, font=theme.ui_font(12))
-        subtitle.setAlignment(Qt.AlignCenter)
-        status_layout.addWidget(subtitle)
-
-        self._init_progress = QProgressBar()
-        self._init_progress.setRange(0, 0)
-        self._init_progress.setTextVisible(False)
-        self._init_progress.setFixedHeight(8)
-        self._init_progress.setStyleSheet(
-            f"QProgressBar {{ background: #05070A; border: none; border-radius: 4px; }} "
-            f"QProgressBar::chunk {{ background: {theme.ACCENT_BLUE}; border-radius: 4px; }}"
-        )
-        status_layout.addWidget(self._init_progress)
-
-        self._init_steps = {}
-        for key, caption, default, color in (
-            ("auth", "账号登录", "等待中", theme.TEXT_MUTED),
-            ("sm", "管理服务", "等待中", theme.TEXT_MUTED),
-            ("se", "交易服务", "等待中", theme.TEXT_MUTED),
-        ):
-            row = QWidget()
-            row.setStyleSheet("background: transparent; border: none;")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(14)
-            name = make_label(caption, color=theme.TEXT_DIM, font=theme.ui_font(11))
-            name.setMinimumWidth(110)
-            status = make_label(default, color=color, font=theme.mono_font(10, bold=True))
-            row_layout.addWidget(name)
-            row_layout.addWidget(status, 1)
-            status_layout.addWidget(row)
-            self._init_steps[key] = (name, status)
-        card_layout.addWidget(self._init_status)
-        self._init_status.hide()
-
-        self._init_hint_label = make_label("", color=theme.ACCENT_RED, font=theme.ui_font(10))
-        self._init_hint_label.setWordWrap(True)
-        self._init_hint_label.setAlignment(Qt.AlignCenter)
-        card_layout.addWidget(self._init_hint_label)
-
-        btn_row = QWidget()
-        btn_layout = QHBoxLayout(btn_row)
-        btn_layout.setContentsMargins(0, 18, 0, 2)
-        btn_layout.setSpacing(16)
-        self._retry_btn = make_button("重试", min_width=92)
-        self._retry_btn.clicked.connect(self._on_init_retry)
-        self._cancel_btn = make_button("取消", min_width=92)
-        self._cancel_btn.clicked.connect(self._on_init_cancel)
-        btn_layout.addStretch(1)
-        btn_layout.addWidget(self._retry_btn)
-        btn_layout.addWidget(self._cancel_btn)
-        btn_layout.addStretch(1)
-        card_layout.addWidget(btn_row)
-        self._retry_btn.hide()
-        self._cancel_btn.hide()
-
-        center = QWidget()
-        center_layout = QHBoxLayout(center)
-        center_layout.setContentsMargins(24, 0, 24, 0)
-        center_layout.addStretch(1)
-        center_layout.addWidget(card)
-        center_layout.addStretch(1)
-        shell.addWidget(center, alignment=Qt.AlignCenter)
-        shell.addStretch(1)
-        self._login_user_entry.setFocus()
+        self._build_login_root()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(1000)
@@ -1849,6 +1689,7 @@ class TradingTerminalQt(QMainWindow):
             row_layout.setHorizontalSpacing(14)
             row_layout.setColumnMinimumWidth(0, 54)
             row_layout.setColumnMinimumWidth(1, 210)
+            row_layout.setColumnMinimumWidth(2, 54)
             label = make_label(label_text, color=theme.TEXT_DIM, font=theme.ui_font(14, bold=True))
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             label.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: 14px; font-weight: 800;")
@@ -1871,6 +1712,7 @@ class TradingTerminalQt(QMainWindow):
         login_buttons.setMaximumWidth(560)
         login_button_layout = QGridLayout(login_buttons)
         login_button_layout.setContentsMargins(0, 0, 0, 0)
+        login_button_layout.setHorizontalSpacing(0)
         login_button_layout.setColumnStretch(0, 1)
         login_button_layout.setColumnStretch(1, 1)
         login_button_layout.setColumnMinimumWidth(0, 250)
@@ -2203,13 +2045,7 @@ class TradingTerminalQt(QMainWindow):
         toast.setObjectName("weakToast")
         toast.setProperty("weakMessage", text)
         toast.setProperty("weakLevel", level)
-        toast.setStyleSheet(
-            "QFrame#weakToast {"
-            "background: rgba(44, 48, 56, 185);"
-            f"border: 1px solid {theme.BORDER_SOFT};"
-            "border-radius: 14px;"
-            "}"
-        )
+        toast.setStyleSheet(theme.TOAST_QSS)
         opacity = QGraphicsOpacityEffect(toast)
         opacity.setOpacity(1.0)
         toast.setGraphicsEffect(opacity)
@@ -3800,18 +3636,21 @@ class SessionActionDialog(QDialog):
         confirm_text: str,
     ):
         super().__init__(parent)
+        self.setObjectName("sessionActionDialog")
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(420)
         self.setMaximumWidth(460)
-        self.setStyleSheet(theme.APP_QSS)
+        self.setStyleSheet(theme.POPUP_QSS)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(26, 24, 26, 22)
         layout.setSpacing(14)
         heading = make_label(title, color=theme.TEXT_PRIMARY, font=theme.ui_font(16, bold=True))
+        heading.setObjectName("dialogTitle")
         heading.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         body = make_label(message, color=theme.TEXT_DIM, font=theme.ui_font(11))
+        body.setObjectName("dialogBody")
         body.setWordWrap(True)
         body.setMinimumHeight(42)
         layout.addWidget(heading)
@@ -3823,19 +3662,13 @@ class SessionActionDialog(QDialog):
         actions.setSpacing(10)
         actions.addStretch(1)
         cancel = make_button("取消", min_width=92)
+        cancel.setObjectName("dialogCancelButton")
         cancel.setMinimumHeight(32)
         cancel.setMaximumHeight(32)
-        cancel.setStyleSheet(
-            f"background: {theme.PANEL_ALT_BG}; color: {theme.TEXT_DIM}; border: 1px solid {theme.BORDER}; "
-            "border-radius: 7px; padding: 5px 14px; font-size: 12px; font-weight: 700;"
-        )
         confirm = make_button(confirm_text, min_width=96)
+        confirm.setObjectName("dialogConfirmButton")
         confirm.setMinimumHeight(32)
         confirm.setMaximumHeight(32)
-        confirm.setStyleSheet(
-            f"background: {theme.ACCENT_BLUE}; color: #07121B; border: 1px solid {theme.ACCENT_BLUE}; "
-            "border-radius: 7px; padding: 5px 14px; font-size: 12px; font-weight: 700;"
-        )
         cancel.clicked.connect(self.reject)
         confirm.clicked.connect(self.accept)
         actions.addWidget(cancel)
@@ -3856,10 +3689,11 @@ class DuplicateLoginDialog(SessionActionDialog):
 class ManagerLoginDialog(QDialog):
     def __init__(self, parent: QWidget | None = None, *, startup: bool = False):
         super().__init__(parent)
+        self.setObjectName("managerLoginDialog")
         self.setWindowTitle("SM??")
         self.setModal(True)
         self.setMinimumWidth(420)
-        self.setStyleSheet(theme.APP_QSS)
+        self.setStyleSheet(theme.POPUP_QSS)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -3879,13 +3713,15 @@ class ManagerLoginDialog(QDialog):
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.setObjectName("dialogButtonBox")
         ok_button = buttons.button(QDialogButtonBox.Ok)
         cancel_button = buttons.button(QDialogButtonBox.Cancel)
         if ok_button:
             ok_button.setText("??")
-            ok_button.setStyleSheet(f"background: {theme.ACCENT_BLUE}; color: #07121B; border: 1px solid {theme.ACCENT_BLUE}; border-radius: 8px; padding: 7px 16px; font-weight: 700;")
+            ok_button.setObjectName("loginConfirmButton")
         if cancel_button:
             cancel_button.setText("??" if startup else "??")
+            cancel_button.setObjectName("dialogCancelButton")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -3898,7 +3734,12 @@ class ManagerLoginDialog(QDialog):
 
 def run() -> int:
     app = QApplication(sys.argv)
+    app_icon = QIcon(str(APP_ICON_PATH))
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     window = TradingTerminalQt()
+    if not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     window.show()
     return app.exec()
 

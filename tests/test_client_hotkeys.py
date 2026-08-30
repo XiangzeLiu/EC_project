@@ -1581,6 +1581,43 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._return_to_login_after_force_disconnect()
         self.assertIs(self.window.centralWidget(), login_root)
 
+    def test_login_layout_is_stable_after_logout_rebuild(self):
+        window = TradingTerminalQt()
+        try:
+            window._timer.stop()
+            window._poll_timer.stop()
+            window._quote_ui_timer.stop()
+            window.show()
+            self.app.processEvents()
+
+            def snapshot():
+                root = window.centralWidget()
+                card = root.findChild(QLabel, "loginTitle").parentWidget()
+                field_layout = window._login_user_entry.parentWidget().layout()
+                button_layout = window._login_submit_btn.parentWidget().layout()
+                return (
+                    root.sizeHint().width(),
+                    root.sizeHint().height(),
+                    card.sizeHint().width(),
+                    card.sizeHint().height(),
+                    window._login_user_entry.geometry().getRect(),
+                    window._login_pass_entry.geometry().getRect(),
+                    window._login_exit_btn.geometry().getRect(),
+                    window._login_submit_btn.geometry().getRect(),
+                    tuple(field_layout.columnMinimumWidth(index) for index in range(3)),
+                    button_layout.horizontalSpacing(),
+                )
+
+            initial = snapshot()
+            window._reset_to_login_page("已退出登录。")
+            self.app.processEvents()
+            after_logout = snapshot()
+
+            self.assertEqual(after_logout, initial)
+        finally:
+            window.close()
+            self.app.processEvents()
+
     def test_shortcut_trade_still_obeys_broker_capability(self):
         self.session.broker_detail["capabilities"]["orders"] = False
         self.window._submit_market_order("buy", 1)

@@ -7,8 +7,7 @@ from pathlib import Path
 from PySide6.QtGui import QFont, QFontDatabase
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FONT_DIR = PROJECT_ROOT / "Client" / "assets" / "fonts"
+FONT_DIR = Path(__file__).resolve().parents[1] / "assets" / "fonts"
 
 FONT_UI = "Inter"
 FONT_MONO = "JetBrains Mono"

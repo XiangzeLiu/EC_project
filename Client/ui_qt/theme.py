@@ -37,6 +37,7 @@ TEXT_MUTED = "#8A95A5"
 TEXT_LOW = "#677281"
 
 BUY_BUTTON_FG = "#06140E"
+TOAST_BG = "rgba(44, 48, 56, 185)"
 _FONTS_LOADED = False
 
 
@@ -159,12 +160,110 @@ QListView#comboPopup::item:selected {{
 
 QListView#comboPopup::item:disabled {{
     background: {INPUT_BG};
-    color: {TEXT_LOW};
+    color: {TEXT_MUTED};
 }}
 """ + SCROLLBAR_QSS
 
 
+POPUP_QSS = f"""
+QDialog,
+QMessageBox {{
+    background: {PANEL_BG};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER};
+    font-family: "{FONT_UI}", "SimHei", "Microsoft YaHei UI", "Microsoft YaHei";
+    font-size: 10pt;
+}}
+
+QDialog QLabel,
+QMessageBox QLabel {{
+    color: {TEXT_PRIMARY};
+}}
+
+QDialog QLabel#dialogBody {{
+    color: {TEXT_DIM};
+}}
+
+QDialog QLineEdit {{
+    background: {INPUT_BG};
+    border: 1px solid {BORDER};
+    border-radius: 7px;
+    color: {TEXT_PRIMARY};
+    min-height: 28px;
+    padding: 5px 9px;
+    selection-background-color: {ACCENT_BLUE};
+    selection-color: #07121B;
+}}
+
+QDialog QLineEdit:focus {{
+    border-color: {ACCENT_BLUE};
+}}
+
+QDialog QDialogButtonBox {{
+    background: transparent;
+}}
+
+QDialog QPushButton,
+QMessageBox QPushButton {{
+    background: {PANEL_ALT_BG};
+    border: 1px solid {BORDER};
+    border-radius: 7px;
+    color: {TEXT_PRIMARY};
+    min-height: 30px;
+    padding: 5px 14px;
+}}
+
+QDialog QPushButton:hover,
+QMessageBox QPushButton:hover {{
+    background: #252C34;
+    border-color: {TEXT_LOW};
+}}
+
+QDialog QPushButton:pressed,
+QMessageBox QPushButton:pressed {{
+    background: {INPUT_BG};
+    border-color: {BORDER_WARN};
+}}
+
+QDialog QPushButton#dialogConfirmButton,
+QDialog QPushButton#loginConfirmButton {{
+    background: {ACCENT_BLUE};
+    border-color: {ACCENT_BLUE};
+    color: #07121B;
+    font-weight: 700;
+}}
+
+QDialog QPushButton#dialogConfirmButton:hover,
+QDialog QPushButton#loginConfirmButton:hover {{
+    background: #A5DFFF;
+    border-color: #A5DFFF;
+}}
+
+QDialog QPushButton#dialogConfirmButton:pressed,
+QDialog QPushButton#loginConfirmButton:pressed {{
+    background: #5CB8E8;
+    border-color: #5CB8E8;
+}}
+
+QDialog QPushButton#dialogCancelButton {{
+    color: {TEXT_DIM};
+}}
+"""
+
+
+TOAST_QSS = f"""
+QFrame#weakToast {{
+    background: {TOAST_BG};
+    border: 1px solid {BORDER_SOFT};
+    border-radius: 14px;
+}}
+"""
+
+
 APP_QSS = f"""
+{POPUP_QSS}
+{TOAST_QSS}
+
 QWidget {{
     color: {TEXT_PRIMARY};
     font-family: "{FONT_UI}", "SimHei", "Microsoft YaHei UI", "Microsoft YaHei";
@@ -456,7 +555,7 @@ QWidget#settingsOverlay QCheckBox::indicator:checked:disabled {{
 
 QCheckBox#hiddenOrderCheck:disabled,
 QWidget#settingsOverlay QCheckBox:disabled {{
-    color: {TEXT_LOW};
+    color: {TEXT_MUTED};
 }}
 
 QPushButton#cancelOrderButton {{
@@ -588,7 +687,7 @@ QLabel#settingsCapabilityNotice {{
 }}
 
 QLabel#settingsTableHeader {{
-    color: {TEXT_LOW};
+    color: {TEXT_MUTED};
 }}
 
 QLabel#settingsKeyCell {{

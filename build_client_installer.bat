@@ -9,6 +9,7 @@ set "ROOT_DIR=%cd%"
 set "ENTRY_FILE=%ROOT_DIR%\Client\main.py"
 set "FONT_DIR=%ROOT_DIR%\Client\assets\fonts"
 set "ICON_DIR=%ROOT_DIR%\Client\assets\icons"
+set "APP_ICON=%ICON_DIR%\sc-client.ico"
 set "DIAGNOSTIC_TOOLS_DIR=%ROOT_DIR%\Client\tools"
 set "BUILD_REQUIREMENTS=%ROOT_DIR%\Client\requirements-build.txt"
 set "DIST_ROOT=%ROOT_DIR%\dist\ClientInstaller"
@@ -42,6 +43,10 @@ if not exist "%FONT_DIR%\JetBrainsMono-Variable.ttf" (
 )
 if not exist "%ICON_DIR%\search.svg" (
   echo [Client Package] ERROR: missing Client search icon.
+  goto :fail
+)
+if not exist "%APP_ICON%" (
+  echo [Client Package] ERROR: missing Client application icon.
   goto :fail
 )
 if not exist "%DIAGNOSTIC_TOOLS_DIR%\collect_latency_diagnostics.ps1" (
@@ -142,6 +147,7 @@ echo [Client Package] Building portable application...
   --windowed ^
   --disable-windowed-traceback ^
   --name "%APP_EXE_NAME%" ^
+  --icon "%APP_ICON%" ^
   --distpath "%APP_DIST%" ^
   --workpath "%WORK_DIR%" ^
   --specpath "%SPEC_DIR%" ^
@@ -218,7 +224,9 @@ echo [Client Package] Creating Inno Setup script...
   echo WizardStyle=modern
   echo PrivilegesRequired=lowest
   echo CloseApplications=yes
+  echo SetupIconFile=%APP_ICON%
   echo UninstallDisplayName={#MyAppName}
+  echo UninstallDisplayIcon={app}\{#MyAppExeName}
   echo.
   echo [Languages]
   echo Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -230,8 +238,8 @@ echo [Client Package] Creating Inno Setup script...
   echo Source: "%APP_OUT%\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
   echo.
   echo [Icons]
-  echo Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-  echo Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+  echo Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+  echo Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
   echo.
   echo [Run]
   echo Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

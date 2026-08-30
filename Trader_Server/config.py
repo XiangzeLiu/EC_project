@@ -19,7 +19,26 @@ from pathlib import Path
 
 # Trader_Server 包所在目录
 _PKG_DIR = Path(__file__).resolve().parent
-_DATA_DIR = _PKG_DIR / "data"
+_IS_FROZEN = bool(getattr(sys, "frozen", False))
+_DEFAULT_ENVIRONMENT = "production" if _IS_FROZEN else "development"
+TS_ENVIRONMENT = os.getenv("TS_ENVIRONMENT", _DEFAULT_ENVIRONMENT).strip().lower()
+if TS_ENVIRONMENT not in {"development", "production", "selftest"}:
+    TS_ENVIRONMENT = _DEFAULT_ENVIRONMENT
+
+
+def _default_data_dir() -> Path:
+    configured = os.getenv("TS_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if _IS_FROZEN:
+        program_data = os.getenv("PROGRAMDATA", "").strip()
+        if program_data:
+            return (Path(program_data) / "SC" / "TraderServer" / "data").resolve()
+    return _PKG_DIR / "data"
+
+
+_DATA_DIR = _default_data_dir()
+RUNTIME_DIR = _DATA_DIR.parent
 
 CONFIG_FILE = _DATA_DIR / "config.json"
 REGISTER_STATE_FILE = _DATA_DIR / ".register_state.json"
@@ -54,7 +73,10 @@ DEFAULT_WS_PORT = int(os.getenv("TS_WS_PORT", "8900"))
 TS_CADDY_AUTO_MANAGE = os.getenv("TS_CADDY_AUTO_MANAGE", "1").strip().lower() not in {"0", "false", "no", "off"}
 TS_CADDY_REQUIRED = os.getenv("TS_CADDY_REQUIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
 TS_CADDY_EXE = os.getenv("TS_CADDY_EXE", "").strip()
-TS_CADDY_DIR = os.getenv("TS_CADDY_DIR", "").strip()
+TS_CADDY_DIR = os.getenv(
+    "TS_CADDY_DIR",
+    str(RUNTIME_DIR / "caddy") if _IS_FROZEN else "",
+).strip()
 TS_CADDY_ADMIN = os.getenv("TS_CADDY_ADMIN", "127.0.0.1:2020").strip() or "127.0.0.1:2020"
 TS_CADDY_START_TIMEOUT = max(
     1.0,
@@ -73,6 +95,21 @@ TS_FINANCE_REQUEST_TIMEOUT_SECONDS = max(
 )
 DEFAULT_TS_LOGIN_USERNAME = os.getenv("TS_LOGIN_USERNAME", "")
 DEFAULT_TS_LOGIN_PASSWORD = os.getenv("TS_LOGIN_PASSWORD", "")
+
+
+def production_config_errors() -> list[str]:
+    """Return fail-closed production configuration errors."""
+    if TS_ENVIRONMENT != "production":
+        return []
+
+    errors: list[str] = []
+    if not DEFAULT_MANAGER_URL.lower().startswith("https://"):
+        errors.append("TS_MANAGER_URL must use HTTPS in production")
+    if DEFAULT_BIND_HOST not in {"127.0.0.1", "localhost", "::1"}:
+        errors.append("TS_BIND_HOST must be loopback in production")
+    if not TS_CADDY_AUTO_MANAGE or not TS_CADDY_REQUIRED:
+        errors.append("Caddy auto-management and required mode must be enabled in production")
+    return errors
 
 
 def ensure_dirs():

@@ -29,6 +29,15 @@ import threading
 import time
 from datetime import datetime, timezone
 
+
+_NULL_STREAMS = []
+for _stream_name in ("stdout", "stderr"):
+    if getattr(sys, _stream_name) is None:
+        _stream = open(os.devnull, "w", encoding="utf-8")
+        setattr(sys, _stream_name, _stream)
+        _NULL_STREAMS.append(_stream)
+
+
 # ── 包路径修正（兼容 python main.py 和 python -m 两种启动方式）──
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
@@ -61,6 +70,7 @@ from .config import (
     read_recent_error_lines,
     LOG_DIR,
     ERROR_LOG_FILE,
+    production_config_errors,
 )
 from .services.registration import (
     run_full_registration,
@@ -664,6 +674,9 @@ async def on_startup():
 
     init_logging("INFO")
     log = logging.getLogger("trader_server.main")
+    config_errors = production_config_errors()
+    if config_errors:
+        raise RuntimeError("TS production configuration invalid: " + "; ".join(config_errors))
 
     tls_status = tls_diagnostics()
     log.info(
@@ -856,7 +869,100 @@ def parse_args_from_env_or_default():
 
 # ── 直接运行 ────────────────────────────────────────────────────────────
 
+
+def _run_package_self_test() -> int:
+    """Validate the frozen TS runtime without starting listeners or broker sessions."""
+    try:
+        import json
+        import re
+        import struct
+        import subprocess
+        from pathlib import Path
+        from zoneinfo import ZoneInfo
+
+        import PySide6
+        import certifi
+        import fastapi
+        import httpx
+        import ibapi
+        import pydantic
+        import tastytrade
+        import tzdata
+        import uvicorn
+        import websockets
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QApplication
+
+        from .config import CONFIG_FILE, LOG_DIR
+        from .ui_qt import theme
+        from .ui_qt.main_window import APP_ICON_PATH
+
+        if struct.calcsize("P") * 8 != 64:
+            raise RuntimeError("Trader Server package requires 64-bit Python/Windows")
+        ZoneInfo("America/New_York")
+        for dependency in (
+            PySide6,
+            certifi,
+            fastapi,
+            httpx,
+            ibapi,
+            pydantic,
+            tastytrade,
+            tzdata,
+            uvicorn,
+            websockets,
+        ):
+            if not getattr(dependency, "__name__", ""):
+                raise RuntimeError("runtime dependency metadata is unavailable")
+
+        app_instance = QApplication.instance() or QApplication([])
+        theme.load_fonts()
+        for font_name in ("Inter-Variable.ttf", "JetBrainsMono-Variable.ttf"):
+            if not (theme.FONT_DIR / font_name).is_file():
+                raise RuntimeError(f"missing packaged TS font: {font_name}")
+        icon = QIcon(str(APP_ICON_PATH))
+        if icon.isNull():
+            raise RuntimeError("missing or invalid packaged TS application icon")
+
+        route_paths = {getattr(route, "path", "") for route in app.routes}
+        for required_path in ("/health", "/api/status", "/ws"):
+            if required_path not in route_paths:
+                raise RuntimeError(f"missing packaged TS route: {required_path}")
+
+        data_dir = Path(os.environ["TS_DATA_DIR"]).resolve()
+        if Path(CONFIG_FILE).resolve().parent != data_dir or Path(LOG_DIR).resolve().parent != data_dir:
+            raise RuntimeError("Trader Server runtime files are outside TS_DATA_DIR")
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        if getattr(sys, "frozen", False):
+            build_info_path = Path(_SCRIPT_DIR) / "trader_server_build_info.json"
+            build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
+            version = str(build_info.get("version") or "")
+            if not re.fullmatch(r"v_ts_\d{14}", version):
+                raise RuntimeError("invalid packaged Trader Server build metadata")
+            caddy_path = Path(sys.executable).resolve().parent / "caddy" / "caddy.exe"
+            if not caddy_path.is_file():
+                raise RuntimeError("missing external Caddy executable")
+            result = subprocess.run(
+                [str(caddy_path), "version"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if result.returncode != 0 or "v2.11.4" not in (result.stdout + result.stderr):
+                raise RuntimeError("unexpected packaged Caddy version")
+        del app_instance
+    except Exception as exc:
+        print(f"Trader Server package self-test failed: {exc}")
+        return 1
+    print("Trader Server package self-test passed")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--package-self-test" in sys.argv:
+        raise SystemExit(_run_package_self_test())
     parser = _build_arg_parser()
     args = parser.parse_args()
 
@@ -874,7 +980,7 @@ if __name__ == "__main__":
     # 后台线程启动 FastAPI 服务（不阻塞 GUI）
     _server_thread = threading.Thread(
         target=uvicorn.run,
-        args=("Trader_Server.main:app",),
+        args=(app,),
         kwargs=dict(
             host=args.bind_host,
             port=args.ws_port,

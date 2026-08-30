@@ -20,6 +20,9 @@ pydantic>=2.5.0
 # SSL 证书（可选，解决 Windows 证书链问题）
 certifi>=2023.0.0
 
+# Windows zoneinfo 数据（财务统计使用 America/New_York）
+tzdata>=2026.1
+
 # Tencent Cloud DNSPod API (TS domain-pool A records)
 tencentcloud-sdk-python>=3.0.1200
 

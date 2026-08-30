@@ -4,6 +4,7 @@ websockets>=12.0
 pydantic>=2.5.0
 httpx>=0.25.0
 certifi>=2025.0.0
+tzdata>=2026.1
 
 # 券商 SDK
 tastytrade>=12.3,<14  # Tastytrade 券商支持（已按 12/13 系列接口验证）

@@ -2,8 +2,6 @@
 rem Rename this file to sm.local.bat on the SM server and fill real secrets.
 set "SM_DNSPOD_SECRET_ID="
 set "SM_DNSPOD_SECRET_KEY="
-set "SM_DNSPOD_LINE="
-set "SM_DNS_TTL=600"
 set "CLIENT_TOKEN_TTL_SECONDS=86400"
 set "SM_BOOTSTRAP_ADMIN_USERNAME=admin"
-set "SM_BOOTSTRAP_ADMIN_PASSWORD=admin123"
+set "SM_BOOTSTRAP_ADMIN_PASSWORD="
