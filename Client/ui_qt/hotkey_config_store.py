@@ -17,13 +17,15 @@ from .hotkey_config import (
     OrderHotkeyRule,
     QuantityHotkey,
     bindings_from_config,
+    default_order_price_source,
     validate_bindings,
     validate_hotkey_config,
 )
 from .shortcut_controller import validate_shortcut_sequences
 
 
-CONFIG_VERSION = 4
+CONFIG_VERSION = 5
+PREVIOUS_CONFIG_VERSION = 4
 LEGACY_CONFIG_VERSION = 1
 APP_DIR_NAME = "SC Client"
 HOTKEY_FILE_NAME = "hotkey.json"
@@ -183,6 +185,8 @@ def _serialize_config(config: HotkeyRuntimeConfig) -> dict:
                 "tif": rule.tif,
                 "route": rule.route,
                 "price_offset": float(rule.price_offset),
+                "price_source": rule.price_source,
+                "quick_submit": bool(rule.quick_submit),
                 "hidden": bool(rule.hidden),
             }
             for rule in config.order_hotkeys
@@ -193,7 +197,8 @@ def _serialize_config(config: HotkeyRuntimeConfig) -> dict:
 def _parse_config(raw: object, default_config: HotkeyRuntimeConfig) -> HotkeyRuntimeConfig:
     if not isinstance(raw, dict):
         raise ValueError("根节点必须是对象")
-    if raw.get("version") != CONFIG_VERSION:
+    version = raw.get("version")
+    if version not in {PREVIOUS_CONFIG_VERSION, CONFIG_VERSION}:
         raise ValueError("配置版本不支持")
 
     default_route = str(raw.get("default_route") or default_config.default_route or "SMART").strip().upper()
@@ -212,7 +217,10 @@ def _parse_config(raw: object, default_config: HotkeyRuntimeConfig) -> HotkeyRun
     elif not isinstance(order_items, list):
         raise ValueError("order_hotkeys 必须是列表")
     else:
-        order_rules = tuple(_parse_order_rule(item, index) for index, item in enumerate(order_items))
+        order_rules = tuple(
+            _parse_order_rule(item, index, legacy_version=version == PREVIOUS_CONFIG_VERSION)
+            for index, item in enumerate(order_items)
+        )
 
     return HotkeyRuntimeConfig(
         default_route=default_route,
@@ -241,7 +249,7 @@ def _parse_quantity(item: object, index: int) -> QuantityHotkey:
     return QuantityHotkey(id=item_id, key=key, quantity=quantity, enabled=enabled)
 
 
-def _parse_order_rule(item: object, index: int) -> OrderHotkeyRule:
+def _parse_order_rule(item: object, index: int, *, legacy_version: bool = False) -> OrderHotkeyRule:
     if not isinstance(item, dict):
         raise ValueError(f"第 {index + 1} 条下单快捷键必须是对象")
     rule_id = str(item.get("id") or f"order_rule_{index + 1}").strip()
@@ -258,15 +266,32 @@ def _parse_order_rule(item: object, index: int) -> OrderHotkeyRule:
     hidden = item.get("hidden", False)
     if not isinstance(hidden, bool):
         raise ValueError(f"{rule_id} hidden 必须是布尔值")
+    side = str(item.get("side") or "buy").strip().lower()
+    tif = str(item.get("tif") or "Day").strip()
+    if legacy_version:
+        price_source = default_order_price_source(side, tif)
+        quick_submit = False
+    else:
+        raw_price_source = item.get("price_source")
+        if not isinstance(raw_price_source, str):
+            raise ValueError(f"{rule_id} price_source 必须是字符串")
+        price_source = raw_price_source.strip().lower()
+        quick_submit = item.get("quick_submit", False)
+        if not isinstance(quick_submit, bool):
+            raise ValueError(f"{rule_id} quick_submit 必须是布尔值")
+        if tif.upper() == "IOC":
+            quick_submit = False
     return OrderHotkeyRule(
         id=rule_id,
         key=key.strip() if isinstance(key, str) and key.strip() else None,
         enabled=enabled,
-        side=str(item.get("side") or "buy").strip().lower(),
+        side=side,
         order_type=str(item.get("order_type") or "limit").strip().lower(),
-        tif=str(item.get("tif") or "Day").strip(),
+        tif=tif,
         route=str(item.get("route") or "DEFAULT").strip().upper(),
         price_offset=price_offset,
+        price_source=price_source,
+        quick_submit=quick_submit,
         hidden=hidden,
     )
 

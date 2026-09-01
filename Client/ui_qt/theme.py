@@ -690,6 +690,31 @@ QLabel#settingsTableHeader {{
     color: {TEXT_MUTED};
 }}
 
+QWidget#settingsOverlay QWidget#settingsOrderRows QLineEdit,
+QWidget#settingsOverlay QWidget#settingsOrderRows QComboBox,
+QWidget#settingsOverlay QWidget#settingsOrderRows QSpinBox,
+QWidget#settingsOverlay QWidget#settingsOrderRows QDoubleSpinBox,
+QWidget#settingsOverlay QWidget#settingsOrderRows QPushButton,
+QWidget#settingsOverlay QWidget#settingsOrderRows QCheckBox {{
+    font-size: 9pt;
+}}
+
+QWidget#settingsOverlay QWidget#settingsOrderRows QLineEdit,
+QWidget#settingsOverlay QWidget#settingsOrderRows QComboBox {{
+    padding: 4px 6px;
+    min-height: 26px;
+}}
+
+QWidget#settingsOverlay QWidget#settingsOrderRows QDoubleSpinBox {{
+    padding: 4px 6px;
+    min-height: 26px;
+}}
+
+QWidget#settingsOverlay QWidget#settingsOrderRows QPushButton#settingsDangerButton {{
+    padding: 4px 6px;
+    min-height: 26px;
+}}
+
 QLabel#settingsKeyCell {{
     color: {TEXT_PRIMARY};
     background: {INPUT_BG};

@@ -78,6 +78,8 @@ class OrderHotkeyRule:
     tif: str = "Day"
     route: str = "DEFAULT"
     price_offset: float = 0.0
+    price_source: str = "bid"
+    quick_submit: bool = False
     hidden: bool = False
 
 
@@ -107,6 +109,7 @@ MAX_QUANTITY_HOTKEY_RULES = 20
 VALID_ORDER_SIDES = {"buy", "sell"}
 VALID_ORDER_TYPES = {"limit", "market"}
 VALID_TIFS = {"Day", "GTC", "IOC", "EXT", "GTC_EXT"}
+VALID_PRICE_SOURCES = {"bid", "ask"}
 DEFAULT_ORDER_KEYS = tuple(f"Shift+F{index}" for index in range(1, 13))
 NUMPAD_QUANTITY_KEYS = tuple(f"Num+{index}" for index in range(1, 10))
 DEFAULT_QUANTITY_HOTKEY_IDS = tuple(
@@ -172,6 +175,14 @@ def _default_quantity_hotkeys() -> tuple[QuantityHotkey, ...]:
     )
 
 
+def default_order_price_source(side: str, tif: str) -> str:
+    """Return the quote side used by pre-v5 order shortcut rules."""
+    normalized_side = str(side or "").strip().lower()
+    if str(tif or "").strip().upper() == "IOC":
+        return "ask" if normalized_side == "buy" else "bid"
+    return "bid" if normalized_side == "buy" else "ask"
+
+
 def _default_order_hotkeys() -> tuple[OrderHotkeyRule, ...]:
     defaults = (
         ("buy", "limit", "Day", 0.0, False),
@@ -197,6 +208,8 @@ def _default_order_hotkeys() -> tuple[OrderHotkeyRule, ...]:
             tif=tif,
             route="DEFAULT",
             price_offset=price_offset,
+            price_source=default_order_price_source(side, tif),
+            quick_submit=False,
             hidden=hidden,
         )
         for index, (side, order_type, tif, price_offset, hidden) in enumerate(defaults, start=1)
@@ -258,6 +271,8 @@ def bindings_from_config(config: HotkeyRuntimeConfig) -> tuple[HotkeyBinding, ..
                 tif=rule.tif,
                 route=rule.route,
                 price_offset=float(rule.price_offset),
+                price_source=str(rule.price_source or "").strip().lower(),
+                quick_submit=bool(rule.quick_submit and rule.tif.strip().upper() != "IOC"),
                 hidden=bool(rule.hidden),
             )
         )
@@ -280,6 +295,12 @@ def _validate_order_rule(rule: OrderHotkeyRule, errors: list[str]) -> None:
         errors.append(f"{rule.id} 类型无效")
     if rule.tif not in VALID_TIFS:
         errors.append(f"{rule.id} TIF 无效")
+    if str(rule.price_source or "").strip().lower() not in VALID_PRICE_SOURCES:
+        errors.append(f"{rule.id} 价格来源无效")
+    if not isinstance(rule.quick_submit, bool):
+        errors.append(f"{rule.id} 快速下单必须是布尔值")
+    elif rule.tif.strip().upper() == "IOC" and rule.quick_submit:
+        errors.append(f"{rule.id} IOC 不支持快速下单")
     if not str(rule.route or "").strip():
         errors.append(f"{rule.id} ROUTE 不能为空")
     elif not _ROUTE_RE.fullmatch(str(rule.route).strip().upper()):
@@ -382,6 +403,10 @@ def validate_bindings(bindings: Iterable[HotkeyBinding]) -> list[str]:
                     errors.append(f"invalid tif for {binding.id}")
                 if not str(params.get("route") or "").strip():
                     errors.append(f"invalid route for {binding.id}")
+                if params.get("price_source") not in VALID_PRICE_SOURCES:
+                    errors.append(f"invalid price source for {binding.id}")
+                if not isinstance(params.get("quick_submit"), bool):
+                    errors.append(f"invalid quick submit for {binding.id}")
         elif binding.action == HotkeyAction.QUANTITY_SET:
             value = params.get("value")
             if not isinstance(value, int) or value <= 0:

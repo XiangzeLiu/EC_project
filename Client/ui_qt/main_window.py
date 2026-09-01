@@ -560,8 +560,11 @@ class TradingTerminalQt(QMainWindow):
         self._quote_subscriptions.subscriptions_changed.connect(self._handle_quote_subscriptions_changed)
         self._canceling_order_ids: set[str] = set()
         self._batch_canceling_symbols: set[str] = set()
-        self._ioc_refresh_requests: dict[int, str] = {}
-        self._ioc_refresh_serial = 0
+        self._direct_quote_refresh_requests: dict[int, str] = {}
+        self._direct_quote_refresh_serial = 0
+        self._quick_order_flash_tokens: dict[int, tuple[int, str]] = {}
+        self._quick_order_flash_serial = 0
+        self._quick_order_flash_timers: dict[int, QTimer] = {}
         self._log_rows: list[tuple[str, str, str]] = []
         self._main_ui_built = False
         self._init_ready = False
@@ -2720,6 +2723,48 @@ class TradingTerminalQt(QMainWindow):
             slot.sell.setProperty("enterSelected", normalized == "SELL")
             self._repolish(slot.sell)
 
+    def _flash_quick_order_target(self, pid: int, side: str) -> None:
+        slot = self.slots.get(pid)
+        if not slot or side not in {"buy", "sell"}:
+            return
+        target = "BUY" if side == "buy" else "SELL"
+        button = slot.buy if target == "BUY" else slot.sell
+        if not button:
+            return
+        self._quick_order_flash_serial += 1
+        token = self._quick_order_flash_serial
+        self._quick_order_flash_tokens[pid] = (token, target)
+        existing_timer = self._quick_order_flash_timers.pop(pid, None)
+        if existing_timer:
+            existing_timer.stop()
+            existing_timer.deleteLater()
+        button.setProperty("enterSelected", True)
+        self._repolish(button)
+
+        def clear_flash() -> None:
+            if self._quick_order_flash_tokens.get(pid) != (token, target):
+                return
+            self._quick_order_flash_tokens.pop(pid, None)
+            timer = self._quick_order_flash_timers.pop(pid, None)
+            if timer:
+                timer.deleteLater()
+            current_slot = self.slots.get(pid)
+            if not current_slot or current_slot.enter_target == target:
+                return
+            current_button = current_slot.buy if target == "BUY" else current_slot.sell
+            if current_button:
+                try:
+                    current_button.setProperty("enterSelected", False)
+                    self._repolish(current_button)
+                except RuntimeError:
+                    return
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(clear_flash)
+        self._quick_order_flash_timers[pid] = timer
+        timer.start(180)
+
     def _handle_enter_target(self, pid: int) -> None:
         if pid not in self.slots:
             return
@@ -2777,6 +2822,8 @@ class TradingTerminalQt(QMainWindow):
 
     def _prepare_configured_order(self, params: dict, pid: int) -> None:
         tif = str(params.get("tif") or "Day")
+        is_ioc = tif.strip().upper() == "IOC"
+        quick_submit = params.get("quick_submit") is True
         self._prepare_order_entry(
             side=str(params.get("side") or ""),
             pid=pid,
@@ -2785,7 +2832,10 @@ class TradingTerminalQt(QMainWindow):
             route=str(params.get("route") or "DEFAULT"),
             hidden=bool(params.get("hidden", False)),
             price_offset=float(params.get("price_offset") or 0.0),
-            submit_immediately=tif.strip().upper() == "IOC",
+            price_source=str(params.get("price_source") or ""),
+            configured_price_source=True,
+            submit_immediately=is_ioc or quick_submit,
+            submit_source="hotkey_quick" if quick_submit and not is_ioc else "hotkey",
         )
 
     @staticmethod
@@ -2794,7 +2844,7 @@ class TradingTerminalQt(QMainWindow):
             return "ask" if side == "buy" else "bid"
         return "bid" if side == "buy" else "ask"
 
-    def _start_ioc_quote_refresh(
+    def _start_direct_quote_refresh(
         self,
         *,
         pid: int,
@@ -2806,15 +2856,19 @@ class TradingTerminalQt(QMainWindow):
         hidden: bool,
         price_offset: float,
         price_source: str,
+        submit_source: str,
     ) -> None:
-        if pid in self._ioc_refresh_requests:
-            self._log_user_error_once("当前 IOC 行情正在刷新，请稍候", "warn", window_seconds=1.0)
+        is_ioc = tif.strip().upper() == "IOC"
+        request_label = "IOC" if is_ioc else "快速下单"
+        failure_label = "IOC订单" if is_ioc else "快速下单"
+        if pid in self._direct_quote_refresh_requests:
+            self._log_user_error_once(f"当前{request_label}行情正在刷新，请稍候", "warn", window_seconds=1.0)
             return
-        self._ioc_refresh_serial += 1
-        token = f"ioc_quote_{self._ioc_refresh_serial}"
+        self._direct_quote_refresh_serial += 1
+        token = f"direct_quote_{self._direct_quote_refresh_serial}"
         generation = self._se_generation
         session = self.session
-        self._ioc_refresh_requests[pid] = token
+        self._direct_quote_refresh_requests[pid] = token
 
         def refresh_bg() -> None:
             try:
@@ -2828,9 +2882,9 @@ class TradingTerminalQt(QMainWindow):
                         timeout=IOC_QUOTE_REFRESH_TIMEOUT_MS / 1000,
                     )
             except Exception:
-                ok, quote, message = False, {}, "行情刷新失败，IOC订单未提交"
+                ok, quote, message = False, {}, f"行情刷新失败，{failure_label}未提交"
             self._ui(
-                lambda: self._finish_ioc_quote_refresh(
+                lambda: self._finish_direct_quote_refresh(
                     token,
                     pid,
                     symbol,
@@ -2841,6 +2895,8 @@ class TradingTerminalQt(QMainWindow):
                     hidden,
                     price_offset,
                     price_source,
+                    submit_source,
+                    failure_label,
                     generation,
                     bool(ok),
                     dict(quote or {}) if isinstance(quote, dict) else {},
@@ -2850,7 +2906,7 @@ class TradingTerminalQt(QMainWindow):
 
         self._run_bg(refresh_bg)
 
-    def _finish_ioc_quote_refresh(
+    def _finish_direct_quote_refresh(
         self,
         token: str,
         pid: int,
@@ -2862,30 +2918,32 @@ class TradingTerminalQt(QMainWindow):
         hidden: bool,
         price_offset: float,
         price_source: str,
+        submit_source: str,
+        failure_label: str,
         generation: int,
         ok: bool,
         quote: dict,
         message: str,
     ) -> None:
-        if self._ioc_refresh_requests.get(pid) != token:
+        if self._direct_quote_refresh_requests.get(pid) != token:
             return
-        self._ioc_refresh_requests.pop(pid, None)
+        self._direct_quote_refresh_requests.pop(pid, None)
         slot = self.slots.get(pid)
         if generation != self._se_generation or not slot or slot.symbol_text() != symbol or slot.current_symbol != symbol:
             return
         if not ok:
-            self._log_user_error_once(message or "行情刷新失败，IOC订单未提交", "warn")
+            self._log_user_error_once(message or f"行情刷新失败，{failure_label}未提交", "warn")
             return
         quote_value = float(quote.get(price_source, 0) or 0)
         if quote_value <= 0:
-            self._log_user_error_once("未获取到有效行情，IOC订单未提交", "warn")
+            self._log_user_error_once(f"未获取到有效行情，{failure_label}未提交", "warn")
             return
         self._ts_connection._cache_quote_message({"payload": quote}, generation)
         confirmed = self._latest_quote_snapshot(symbol)
         self._handle_quote_payload(confirmed)
         quote_value = float(confirmed.get(price_source, 0) or 0)
         if quote_value <= 0:
-            self._log_user_error_once("未获取到有效行情，IOC订单未提交", "warn")
+            self._log_user_error_once(f"未获取到有效行情，{failure_label}未提交", "warn")
             return
         adjusted = Decimal(str(quote_value)) + Decimal(str(price_offset or 0.0))
         quote_value = float(max(Decimal("0"), adjusted).quantize(Decimal("0.01")))
@@ -2894,6 +2952,8 @@ class TradingTerminalQt(QMainWindow):
             if order_type != "market":
                 slot.price.setText(f"{quote_value:.2f}")
         action = "Buy to Open" if side == "buy" else "Sell to Close"
+        if submit_source == "hotkey_quick":
+            self._flash_quick_order_target(pid, side)
         self._place_order(
             action,
             pid,
@@ -2902,7 +2962,7 @@ class TradingTerminalQt(QMainWindow):
             tif_override=tif,
             route_override=route,
             hidden_override=hidden,
-            source="hotkey",
+            source=submit_source,
         )
 
     def _prepare_order_entry(
@@ -2916,7 +2976,9 @@ class TradingTerminalQt(QMainWindow):
         hidden: bool,
         price_offset: float = 0.0,
         price_source: str = "",
+        configured_price_source: bool = False,
         submit_immediately: bool = False,
+        submit_source: str = "hotkey",
     ) -> None:
         if side not in {"buy", "sell"} or pid not in self.slots:
             return
@@ -2928,7 +2990,8 @@ class TradingTerminalQt(QMainWindow):
         symbol = self._shortcut_symbol(pid)
         if not symbol:
             return
-        if submit_immediately and not self._broker_supports_tif(tif, symbol):
+        is_ioc = tif.strip().upper() == "IOC"
+        if is_ioc and not self._broker_supports_tif(tif, symbol):
             self._log_user_error_once("当前交易通道不支持 IOC 订单，订单未提交", "warn")
             return
 
@@ -2951,12 +3014,14 @@ class TradingTerminalQt(QMainWindow):
         if slot.hidden_order:
             slot.hidden_order.setChecked(effective_hidden)
 
+        source = str(price_source or "").strip().lower() if configured_price_source else ""
+        if source not in {"bid", "ask"}:
+            source = self._quote_price_source(side, immediate=submit_immediately)
         quote_price = 0.0
         quote_needs_refresh = False
         if normalized_type == "limit":
             quote = self._latest_quote_snapshot(symbol)
             received_at = float(quote.get("received_monotonic", 0) or 0)
-            source = self._quote_price_source(side, immediate=submit_immediately)
             quote_price = float(quote.get(source, 0) or 0)
             quote_age_ms = round((time.monotonic() - received_at) * 1000) if received_at > 0 else None
             generation_matches = int(quote.get("connection_generation", -1)) == self._se_generation
@@ -2979,7 +3044,7 @@ class TradingTerminalQt(QMainWindow):
                 slot.price.selectAll()
         if submit_immediately:
             if normalized_type == "limit" and quote_needs_refresh:
-                self._start_ioc_quote_refresh(
+                self._start_direct_quote_refresh(
                     pid=pid,
                     symbol=symbol,
                     side=side,
@@ -2988,13 +3053,17 @@ class TradingTerminalQt(QMainWindow):
                     route=resolved_route,
                     hidden=effective_hidden,
                     price_offset=price_offset,
-                    price_source=self._quote_price_source(side, immediate=True),
+                    price_source=source,
+                    submit_source=submit_source,
                 )
                 return
             if normalized_type == "limit" and quote_price <= 0:
-                self._log_user_error_once("行情不可用，IOC订单未提交", "warn")
+                failure_label = "IOC订单" if is_ioc else "快速下单"
+                self._log_user_error_once(f"行情不可用，{failure_label}未提交", "warn")
                 return
             action = "Buy to Open" if side == "buy" else "Sell to Close"
+            if submit_source == "hotkey_quick":
+                self._flash_quick_order_target(pid, side)
             self._place_order(
                 action,
                 pid,
@@ -3003,7 +3072,7 @@ class TradingTerminalQt(QMainWindow):
                 tif_override=tif,
                 route_override=resolved_route,
                 hidden_override=effective_hidden,
-                source="hotkey",
+                source=submit_source,
             )
             return
         slot.pending_action = "Buy to Open" if side == "buy" else "Sell to Close"
@@ -3076,7 +3145,12 @@ class TradingTerminalQt(QMainWindow):
         self._cancel_all_pending_orders()
         for pid in self.slots:
             self._set_enter_target(pid, "NONE")
-        self._ioc_refresh_requests.clear()
+        self._direct_quote_refresh_requests.clear()
+        self._quick_order_flash_tokens.clear()
+        for timer in self._quick_order_flash_timers.values():
+            timer.stop()
+            timer.deleteLater()
+        self._quick_order_flash_timers.clear()
         self._action_limiter.reset()
         self._order_refresh.reset()
         self._canceling_order_ids.clear()
@@ -3164,7 +3238,10 @@ class TradingTerminalQt(QMainWindow):
         price_str = "Market" if order_type == "market" else f"${price:.2f}"
         action_label = ACTION_LABELS.get(action, action)
         tif_label = TIF_LABELS.get(tif, tif)
-        prefix = "[快捷] " if source == "hotkey" else ""
+        prefix = {
+            "hotkey": "[快捷] ",
+            "hotkey_quick": "[快捷直发] ",
+        }.get(source, "")
         route_label = f" | {route}" if route else ""
         hidden_label = " | HIDE" if hidden else ""
         self._append_log(f"{prefix}{action_label} {qty} \u80a1 {sym} @ {price_str} | {tif_label}{route_label}{hidden_label}", "inf")

@@ -52,6 +52,8 @@ SIDES = ("buy", "sell")
 SIDE_LABELS = {"buy": "BUY", "sell": "SELL"}
 TYPE_LABELS = {"limit": "LMT", "market": "MKT"}
 ORDER_TIFS = ("Day", "GTC", "IOC", "EXT", "GTC_EXT")
+PRICE_SOURCES = ("bid", "ask")
+PRICE_SOURCE_LABELS = {"bid": "BID", "ask": "ASK"}
 
 
 def set_combo_item_enabled(
@@ -149,7 +151,7 @@ class SettingsOverlay(QWidget):
     def _resize_panel(self) -> None:
         if not hasattr(self, "panel"):
             return
-        width = max(900, min(1020, self.width() - 48))
+        width = max(900, min(1160, self.width() - 32))
         height = max(520, min(806, self.height() - 48))
         self.panel.setFixedSize(width, height)
 
@@ -407,12 +409,15 @@ class SettingsOverlay(QWidget):
 
         self.order_scroll = QScrollArea()
         self.order_scroll.setWidgetResizable(True)
+        self.order_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.order_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.order_scroll.setObjectName("settingsScrollArea")
         self.order_rows_host = QWidget()
         self.order_rows_host.setObjectName("settingsOrderRows")
+        self.order_rows_host.setMinimumWidth(930)
         self.order_rows_layout = QGridLayout(self.order_rows_host)
         self.order_rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.order_rows_layout.setHorizontalSpacing(8)
+        self.order_rows_layout.setHorizontalSpacing(3)
         self.order_rows_layout.setVerticalSpacing(6)
         self.order_scroll.setWidget(self.order_rows_host)
         layout.addWidget(self.order_scroll, 1)
@@ -533,18 +538,20 @@ class SettingsOverlay(QWidget):
             if widget:
                 widget.deleteLater()
         self._order_rows.clear()
-        headers = ("启用", "快捷键", "方向", "TYPE", "TIF", "ROUTE", "偏移", "HIDE", "操作")
+        headers = ("启用", "快捷键", "方向", "TYPE", "TIF", "ROUTE", "偏移", "价格", "快速下单", "HIDE", "操作")
         for col, header in enumerate(headers):
             self.order_rows_layout.addWidget(self._header_label(header), 0, col)
         for row_index, rule in enumerate(rules, start=1):
             self._add_order_row_widgets(row_index, rule)
-        self.order_rows_layout.setColumnStretch(9, 1)
+        # Keep spare width after the action column so the action control stays compact.
+        self.order_rows_layout.setColumnStretch(11, 1)
         self._update_order_count()
 
     def _add_order_row_widgets(self, row: int, rule: OrderHotkeyRule) -> None:
         enabled = QCheckBox()
         enabled.setChecked(bool(rule.enabled))
         key = KeyCaptureEdit(rule.key or "")
+        key.setFixedWidth(116)
         side = self._new_combo()
         for value in SIDES:
             side.addItem(SIDE_LABELS[value], value)
@@ -554,6 +561,7 @@ class SettingsOverlay(QWidget):
         for value in ORDER_TYPES:
             order_type.addItem(TYPE_LABELS[value], value)
         order_type.setCurrentText(TYPE_LABELS.get(rule.order_type, "LMT"))
+        order_type.setFixedWidth(66)
         self._center_combo(order_type)
         tif = self._new_combo()
         for value in ORDER_TIFS:
@@ -568,6 +576,7 @@ class SettingsOverlay(QWidget):
         elif not declared_tifs and requested_tif.upper() == "IOC":
             requested_tif = "Day"
         tif.setCurrentText(requested_tif)
+        tif.setFixedWidth(98)
         self._center_combo(tif)
         for value in ORDER_TIFS:
             enabled_for_channel = (
@@ -582,6 +591,7 @@ class SettingsOverlay(QWidget):
                 f"当前交易通道不支持 {value} 订单",
             )
         route = self._route_combo(include_default=True)
+        route.setFixedWidth(92)
         self._set_combo_data(
             route,
             (rule.route or "DEFAULT") if self._route_effective else "SMART",
@@ -594,7 +604,17 @@ class SettingsOverlay(QWidget):
         offset.setButtonSymbols(QAbstractSpinBox.NoButtons)
         offset.setValue(float(rule.price_offset or 0.0))
         offset.setMinimumWidth(82)
+        offset.setFixedWidth(78)
         offset.setAlignment(Qt.AlignCenter)
+        price_source = self._new_combo()
+        for value in PRICE_SOURCES:
+            price_source.addItem(PRICE_SOURCE_LABELS[value], value)
+        normalized_price_source = str(rule.price_source or "").strip().lower()
+        price_source.setCurrentText(PRICE_SOURCE_LABELS.get(normalized_price_source, "BID"))
+        price_source.setFixedWidth(68)
+        self._center_combo(price_source)
+        quick_submit = QCheckBox()
+        quick_submit.setChecked(bool(rule.quick_submit))
         hidden = QCheckBox()
         hidden.setChecked(bool(rule.hidden and self._hidden_effective))
         hidden.setEnabled(self._hidden_effective)
@@ -613,15 +633,52 @@ class SettingsOverlay(QWidget):
             "tif": tif,
             "route": route,
             "offset": offset,
+            "price_source": price_source,
+            "quick_submit": quick_submit,
             "hidden": hidden,
             "delete": delete_btn,
         }
+        order_type.currentIndexChanged.connect(
+            lambda _index, data=row_data: self._refresh_order_row_availability(data)
+        )
+        tif.currentIndexChanged.connect(
+            lambda _index, data=row_data: self._refresh_order_row_availability(data)
+        )
         delete_btn.clicked.connect(lambda _checked=False, data=row_data: self._delete_order_row(data))
         self._order_rows.append(row_data)
-        widgets = (enabled, key, side, order_type, tif, route, offset, hidden, delete_btn)
+        widgets = (enabled, key, side, order_type, tif, route, offset, price_source, quick_submit, hidden, delete_btn)
         for col, widget in enumerate(widgets):
             alignment = Qt.AlignCenter if isinstance(widget, QCheckBox) else Qt.Alignment()
             self.order_rows_layout.addWidget(widget, row, col, alignment)
+        self._refresh_order_row_availability(row_data)
+
+    def _refresh_order_row_availability(self, row: dict[str, object]) -> None:
+        order_type = row["order_type"]
+        tif = row["tif"]
+        offset = row["offset"]
+        price_source = row["price_source"]
+        quick_submit = row["quick_submit"]
+        assert isinstance(order_type, QComboBox)
+        assert isinstance(tif, QComboBox)
+        assert isinstance(offset, QDoubleSpinBox)
+        assert isinstance(price_source, QComboBox)
+        assert isinstance(quick_submit, QCheckBox)
+
+        is_market = str(order_type.currentData() or "limit") == "market"
+        price_source.setEnabled(not is_market)
+        offset.setEnabled(not is_market)
+        price_source.setToolTip("市价单不使用价格来源" if is_market else "限价单使用 BID 或 ASK 填充价格")
+        offset.setToolTip("市价单不使用价格偏移" if is_market else "在报价基础上增加或减少偏移")
+
+        is_ioc = tif.currentText().strip().upper() == "IOC"
+        if is_ioc:
+            quick_submit.setChecked(False)
+        quick_submit.setEnabled(not is_ioc)
+        quick_submit.setToolTip(
+            "IOC 订单始终直接提交"
+            if is_ioc
+            else "勾选后无需按 Enter 或点击买卖按钮即可提交"
+        )
 
     def _set_combo_data(self, combo: QComboBox, value: str) -> None:
         target = str(value or "").strip().upper()
@@ -649,6 +706,7 @@ class SettingsOverlay(QWidget):
         for index, row in enumerate(self._order_rows, start=1):
             rule_id = str(row.get("id") or f"order_rule_{index}")
             route_combo = row["route"]
+            tif_value = str(row["tif"].currentText())  # type: ignore[union-attr]
             assert isinstance(route_combo, QComboBox)
             rules.append(
                 OrderHotkeyRule(
@@ -657,13 +715,18 @@ class SettingsOverlay(QWidget):
                     enabled=bool(row["enabled"].isChecked()),  # type: ignore[union-attr]
                     side=str(row["side"].currentData() or "buy"),  # type: ignore[union-attr]
                     order_type=str(row["order_type"].currentData() or "limit"),  # type: ignore[union-attr]
-                    tif=str(row["tif"].currentText()),  # type: ignore[union-attr]
+                    tif=tif_value,
                     route=(
                         self._route_combo_value(route_combo, "DEFAULT")
                         if self._route_effective
                         else "SMART"
                     ),
                     price_offset=float(row["offset"].value()),  # type: ignore[union-attr]
+                    price_source=str(row["price_source"].currentData() or "bid"),  # type: ignore[union-attr]
+                    quick_submit=bool(
+                        tif_value.strip().upper() != "IOC"
+                        and row["quick_submit"].isChecked()  # type: ignore[union-attr]
+                    ),
                     hidden=bool(
                         self._hidden_effective and row["hidden"].isChecked()  # type: ignore[union-attr]
                     ),
@@ -748,7 +811,15 @@ class SettingsOverlay(QWidget):
         while f"order_rule_custom_{next_index}" in existing_ids:
             next_index += 1
         rules = list(self._collect_order_rules())
-        rules.append(OrderHotkeyRule(id=f"order_rule_custom_{next_index}", key=None))
+        rules.append(
+            OrderHotkeyRule(
+                id=f"order_rule_custom_{next_index}",
+                key=None,
+                side="buy",
+                price_source="bid",
+                quick_submit=False,
+            )
+        )
         self._render_order_rules(rules)
 
     def _delete_order_row(self, row_data: dict[str, object]) -> None:

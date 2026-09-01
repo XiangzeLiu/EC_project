@@ -43,11 +43,31 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+const productAssetRoot = path.resolve(__dirname, "assets");
+const imageMimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
+
+function inlineLocalImages(html) {
+  return html.replace(/<img\b([^>]*?)\bsrc="([^"]+)"([^>]*)>/gi, (_match, before, source, after) => {
+    const decodedSource = source.replaceAll("&amp;", "&");
+    if (!decodedSource.startsWith("assets/")) return _match;
+    const imagePath = path.resolve(__dirname, decodedSource);
+    if (!imagePath.startsWith(`${productAssetRoot}${path.sep}`)) {
+      throw new Error(`Product document image is outside the asset directory: ${decodedSource}`);
+    }
+    if (!fs.existsSync(imagePath)) throw new Error(`Product document image is missing: ${decodedSource}`);
+    const mime = imageMimeTypes[path.extname(imagePath).toLowerCase()];
+    if (!mime) throw new Error(`Unsupported product document image type: ${decodedSource}`);
+    const data = fs.readFileSync(imagePath).toString("base64");
+    return `<img${before}src="data:${mime};base64,${data}"${after}>`;
+  });
+}
+
 function renderDocument(document, documentIndex) {
   const markdown = fs.readFileSync(path.join(__dirname, document.file), "utf8");
   let headingIndex = 0;
   const headings = [];
   let html = marked.parse(markdown, { gfm: true, breaks: false });
+  html = inlineLocalImages(html);
   html = html.replaceAll('class="flat-diagram"', 'class="product-docs-flat-diagram"');
   html = html.replace(/(<a\b[^>]*>)([^<]+)\.md(<\/a>)/g, "$1$2$3");
   html = html.replace(/<h([1-3])>([\s\S]*?)<\/h\1>/g, (_match, level, content) => {
@@ -149,6 +169,9 @@ const css = String.raw`
   #product-docs-root .product-docs-article tr:last-child td { border-bottom:0; }
   #product-docs-root .product-docs-flat-diagram { width:70.7107%; min-width:438px; margin:19px auto 24px; padding:10px; overflow:auto; background:#fff; border:1px solid #d8dfdb; border-radius:7px; }
   #product-docs-root .product-docs-flat-diagram svg { display:block; width:100%; min-width:0; height:auto; }
+  #product-docs-root .product-docs-screenshot-figure { margin:20px auto 28px; break-inside:avoid; }
+  #product-docs-root .product-docs-screenshot { display:block; width:100%; max-width:1180px; height:auto; border:1px solid #d8dfdb; border-radius:7px; box-shadow:0 4px 14px rgba(29,44,35,.08); }
+  #product-docs-root .product-docs-screenshot-figure figcaption { margin-top:7px; color:var(--doc-muted); font-size:12px; line-height:1.55; text-align:center; }
   #product-docs-root.product-docs-dark { --doc-ink:#e5e7eb; --doc-muted:#a9b4ae; --doc-line:rgba(148,163,184,.22); --doc-page:#17211d; background:#17211d; }
   #product-docs-root.product-docs-dark .product-docs-toolbar, #product-docs-root.product-docs-dark .product-docs-search-results, #product-docs-root.product-docs-dark .product-docs-article table, #product-docs-root.product-docs-dark .product-docs-flat-diagram { background:#1f2937; }
   #product-docs-root.product-docs-dark .product-docs-search { color:#e5e7eb; background:#0f172a; border-color:rgba(148,163,184,.24); }
@@ -159,7 +182,7 @@ const css = String.raw`
   #product-docs-root.product-docs-dark .product-docs-article th { color:#d1d5db; background:#0f172a; }
   @media (max-width:1180px) { #product-docs-root .product-docs-layout { grid-template-columns:210px minmax(0,1fr); gap:18px; } }
   @media (max-width:760px) { #product-docs-root .product-docs-toolbar { min-height:54px; padding:8px 10px; } #product-docs-root .product-docs-title { display:none; } #product-docs-root .product-docs-action span { display:none; } #product-docs-root .product-docs-action { width:36px; justify-content:center; padding:0; } #product-docs-root .product-docs-layout { display:block; padding:14px 11px 35px; } #product-docs-root .product-docs-nav { position:sticky; top:58px; z-index:8; max-height:240px; margin-bottom:18px; padding:8px 5px 10px 0; background:var(--doc-page); border-bottom:1px solid var(--doc-line); } #product-docs-root .product-docs-article h1 { font-size:24px; } #product-docs-root .product-docs-article h2 { font-size:19px; } #product-docs-root .product-docs-flat-diagram { width:100%; min-width:0; } }
-  @media print { #product-docs-root .product-docs-toolbar, #product-docs-root .product-docs-nav { display:none; } #product-docs-root .product-docs-layout { display:block; padding:0; } #product-docs-root .product-docs-article { display:block !important; break-before:page; border:0; } #product-docs-root .product-docs-article:first-child { break-before:auto; } #product-docs-root .product-docs-article h2, #product-docs-root .product-docs-article h3 { break-after:avoid; } #product-docs-root .product-docs-flat-diagram, #product-docs-root .product-docs-table-wrap, #product-docs-root .product-docs-article pre, #product-docs-root .product-docs-article ul { break-inside:avoid; } }
+  @media print { #product-docs-root .product-docs-toolbar, #product-docs-root .product-docs-nav { display:none; } #product-docs-root .product-docs-layout { display:block; padding:0; } #product-docs-root .product-docs-article { display:block !important; break-before:page; border:0; } #product-docs-root .product-docs-article:first-child { break-before:auto; } #product-docs-root .product-docs-article h2, #product-docs-root .product-docs-article h3, #product-docs-root .product-docs-article h4 { break-after:avoid; } #product-docs-root .product-docs-flat-diagram, #product-docs-root .product-docs-table-wrap, #product-docs-root .product-docs-article pre, #product-docs-root .product-docs-article ul, #product-docs-root .product-docs-screenshot-figure { break-inside:avoid; page-break-inside:avoid; } }
 `;
 
 const fragment = `<div id="product-docs-root" class="product-docs-root" data-product-docs-version="2">
@@ -208,6 +231,10 @@ function buildPdf() {
       const result = spawnSync(edge, [
         "--headless=new",
         "--disable-gpu",
+        "--disable-gpu-compositing",
+        "--disable-gpu-sandbox",
+        "--in-process-gpu",
+        "--no-sandbox",
         "--disable-extensions",
         "--disable-background-networking",
         "--disable-component-update",

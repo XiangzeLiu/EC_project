@@ -15,7 +15,12 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt import main_window as client_main_window
-from Client.ui_qt.hotkey_config_store import hotkey_config_path, load_hotkey_config, save_hotkey_config
+from Client.ui_qt.hotkey_config_store import (
+    CONFIG_VERSION,
+    hotkey_config_path,
+    load_hotkey_config,
+    save_hotkey_config,
+)
 from Client.ui_qt.hotkey_config import (
     DEFAULT_QUANTITY_HOTKEY_IDS,
     DEFAULT_HOTKEY_CONFIG,
@@ -35,6 +40,7 @@ from Client.ui_qt.hotkey_config import (
     validate_hotkey_config,
 )
 from Client.ui_qt.main_window import TradePriceInput, TradingTerminalQt
+from Client.ui_qt.settings_overlay import SettingsOverlay
 from Client.ui_qt.shortcut_controller import ShortcutController, validate_shortcut_sequences
 from Trader_Server.services import trading_svc
 
@@ -129,22 +135,33 @@ class HotkeyConfigTests(unittest.TestCase):
         self.assertEqual(len(rules), 12)
         self.assertEqual(
             [
-                (rule.key, rule.side, rule.order_type, rule.tif, rule.route, rule.price_offset, rule.hidden, rule.enabled)
+                (
+                    rule.key,
+                    rule.side,
+                    rule.order_type,
+                    rule.tif,
+                    rule.route,
+                    rule.price_offset,
+                    rule.price_source,
+                    rule.quick_submit,
+                    rule.hidden,
+                    rule.enabled,
+                )
                 for rule in rules
             ],
             [
-                ("Shift+F1", "buy", "limit", "Day", "DEFAULT", 0.0, False, False),
-                ("Shift+F2", "sell", "limit", "Day", "DEFAULT", 0.0, False, False),
-                ("Shift+F3", "buy", "limit", "GTC", "DEFAULT", 0.0, False, False),
-                ("Shift+F4", "sell", "limit", "GTC", "DEFAULT", 0.0, False, False),
-                ("Shift+F5", "buy", "limit", "EXT", "DEFAULT", 0.0, False, False),
-                ("Shift+F6", "sell", "limit", "EXT", "DEFAULT", 0.0, False, False),
-                ("Shift+F7", "buy", "limit", "GTC_EXT", "DEFAULT", 0.0, False, False),
-                ("Shift+F8", "sell", "limit", "GTC_EXT", "DEFAULT", 0.0, False, False),
-                ("Shift+F9", "buy", "limit", "IOC", "DEFAULT", 0.0, False, False),
-                ("Shift+F10", "sell", "limit", "IOC", "DEFAULT", 0.0, False, False),
-                ("Shift+F11", "buy", "market", "Day", "DEFAULT", 0.0, False, False),
-                ("Shift+F12", "sell", "market", "Day", "DEFAULT", 0.0, False, False),
+                ("Shift+F1", "buy", "limit", "Day", "DEFAULT", 0.0, "bid", False, False, False),
+                ("Shift+F2", "sell", "limit", "Day", "DEFAULT", 0.0, "ask", False, False, False),
+                ("Shift+F3", "buy", "limit", "GTC", "DEFAULT", 0.0, "bid", False, False, False),
+                ("Shift+F4", "sell", "limit", "GTC", "DEFAULT", 0.0, "ask", False, False, False),
+                ("Shift+F5", "buy", "limit", "EXT", "DEFAULT", 0.0, "bid", False, False, False),
+                ("Shift+F6", "sell", "limit", "EXT", "DEFAULT", 0.0, "ask", False, False, False),
+                ("Shift+F7", "buy", "limit", "GTC_EXT", "DEFAULT", 0.0, "bid", False, False, False),
+                ("Shift+F8", "sell", "limit", "GTC_EXT", "DEFAULT", 0.0, "ask", False, False, False),
+                ("Shift+F9", "buy", "limit", "IOC", "DEFAULT", 0.0, "ask", False, False, False),
+                ("Shift+F10", "sell", "limit", "IOC", "DEFAULT", 0.0, "bid", False, False, False),
+                ("Shift+F11", "buy", "market", "Day", "DEFAULT", 0.0, "bid", False, False, False),
+                ("Shift+F12", "sell", "market", "Day", "DEFAULT", 0.0, "ask", False, False, False),
             ],
         )
 
@@ -178,8 +195,10 @@ class HotkeyConfigTests(unittest.TestCase):
 
         self.assertTrue(loaded.used_local_config)
         self.assertEqual(loaded.config, config)
-        self.assertEqual(payload["version"], 4)
+        self.assertEqual(payload["version"], CONFIG_VERSION)
         self.assertEqual(payload["quantity_hotkeys"][-1]["id"], "quantity_custom_1")
+        self.assertEqual(payload["order_hotkeys"][0]["price_source"], "bid")
+        self.assertFalse(payload["order_hotkeys"][0]["quick_submit"])
 
     def test_quantity_rules_require_defaults_and_enforce_total_limit(self):
         missing_default = replace(
@@ -237,6 +256,53 @@ class HotkeyConfigTests(unittest.TestCase):
         self.assertFalse(loaded.used_local_config)
         self.assertTrue(loaded.errors)
         self.assertEqual(loaded.config, DEFAULT_HOTKEY_CONFIG)
+
+    def test_v4_order_config_migrates_price_sources_without_rewriting_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "hotkey.json")
+            save_hotkey_config(DEFAULT_HOTKEY_CONFIG, path=path)
+            with open(path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+            payload["version"] = 4
+            for rule in payload["order_hotkeys"]:
+                rule.pop("price_source", None)
+                rule.pop("quick_submit", None)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+
+            loaded = load_hotkey_config(path=path)
+            with open(path, encoding="utf-8") as fh:
+                unmodified = json.load(fh)
+            save_hotkey_config(loaded.config, path=path)
+            with open(path, encoding="utf-8") as fh:
+                upgraded = json.load(fh)
+
+        self.assertTrue(loaded.used_local_config)
+        self.assertEqual(
+            [rule.price_source for rule in loaded.config.order_hotkeys],
+            ["bid", "ask", "bid", "ask", "bid", "ask", "bid", "ask", "ask", "bid", "bid", "ask"],
+        )
+        self.assertTrue(all(not rule.quick_submit for rule in loaded.config.order_hotkeys))
+        self.assertEqual(unmodified["version"], 4)
+        self.assertEqual(upgraded["version"], CONFIG_VERSION)
+        self.assertEqual(upgraded["order_hotkeys"][8]["price_source"], "ask")
+        self.assertFalse(upgraded["order_hotkeys"][8]["quick_submit"])
+
+    def test_order_rule_rejects_invalid_price_source_and_ioc_quick_submit(self):
+        invalid_price = replace(DEFAULT_HOTKEY_CONFIG.order_hotkeys[0], price_source="last")
+        invalid_ioc_quick = replace(
+            DEFAULT_HOTKEY_CONFIG.order_hotkeys[8],
+            quick_submit=True,
+        )
+        config = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            order_hotkeys=(invalid_price, invalid_ioc_quick),
+        )
+
+        errors = validate_hotkey_config(config)
+
+        self.assertTrue(any("价格来源无效" in error for error in errors))
+        self.assertTrue(any("IOC 不支持快速下单" in error for error in errors))
 
     def test_production_bindings_keep_order_rules_disabled(self):
         self.assertTrue(HOTKEY_BINDINGS)
@@ -1244,6 +1310,105 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         hidden.setChecked(False)
         self.assertFalse(overlay._collect_order_rules()[0].hidden)
 
+    def test_order_rule_price_and_quick_controls_follow_type_and_tif(self):
+        self.window._hotkey_config = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            order_hotkeys=(
+                OrderHotkeyRule(
+                    id="quick-rule",
+                    key="Shift+F1",
+                    side="buy",
+                    order_type="limit",
+                    tif="Day",
+                    price_offset=0.05,
+                    price_source="ask",
+                    quick_submit=True,
+                ),
+            ),
+        )
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        row = overlay._order_rows[0]
+        order_type = row["order_type"]
+        tif = row["tif"]
+        offset = row["offset"]
+        price_source = row["price_source"]
+        quick_submit = row["quick_submit"]
+
+        self.assertTrue(price_source.isEnabled())
+        self.assertTrue(offset.isEnabled())
+        self.assertTrue(quick_submit.isEnabled())
+        self.assertTrue(quick_submit.isChecked())
+        self.assertEqual(price_source.currentData(), "ask")
+
+        order_type.setCurrentText("MKT")
+        self.app.processEvents()
+        self.assertFalse(price_source.isEnabled())
+        self.assertFalse(offset.isEnabled())
+        self.assertTrue(quick_submit.isEnabled())
+
+        order_type.setCurrentText("LMT")
+        self.app.processEvents()
+        self.assertTrue(price_source.isEnabled())
+        self.assertTrue(offset.isEnabled())
+        self.assertEqual(price_source.currentData(), "ask")
+        self.assertEqual(offset.value(), 0.05)
+
+        tif.setCurrentText("IOC")
+        self.app.processEvents()
+        self.assertFalse(quick_submit.isEnabled())
+        self.assertFalse(quick_submit.isChecked())
+
+        tif.setCurrentText("Day")
+        quick_submit.setChecked(True)
+        configured = overlay._collect_order_rules()[0]
+        self.assertTrue(quick_submit.isEnabled())
+        self.assertEqual(configured.price_source, "ask")
+        self.assertTrue(configured.quick_submit)
+
+        overlay._add_order_rule()
+        added_rule = overlay._collect_order_rules()[-1]
+        self.assertEqual(added_rule.side, "buy")
+        self.assertEqual(added_rule.price_source, "bid")
+        self.assertFalse(added_rule.quick_submit)
+
+    def test_order_settings_layout_expands_and_scrolls_when_space_is_limited(self):
+        self.window.resize(1360, 860)
+        self.window.show()
+        self.app.processEvents()
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+        overlay.hotkey_tabs.setCurrentIndex(1)
+        self.app.processEvents()
+
+        self.assertEqual(overlay.panel.width(), 1160)
+        self.assertGreaterEqual(overlay.order_rows_host.minimumWidth(), 930)
+        self.assertFalse(overlay.order_scroll.horizontalScrollBar().isVisible())
+
+        row = overlay._order_rows[0]
+        self.assertEqual(row["key"].width(), 116)
+        self.assertEqual(row["tif"].width(), 98)
+        self.assertEqual(row["offset"].width(), 78)
+        self.assertEqual(row["price_source"].width(), 68)
+
+        narrow = SettingsOverlay(
+            config=DEFAULT_HOTKEY_CONFIG,
+            route_options=["SMART", "ARCA", "NYSE"],
+            route_effective=True,
+            hidden_effective=True,
+        )
+        try:
+            narrow.resize(900, 700)
+            narrow.show()
+            narrow.hotkey_tabs.setCurrentIndex(1)
+            self.app.processEvents()
+            self.assertGreaterEqual(narrow.panel.width(), 900)
+            self.assertTrue(narrow.order_scroll.horizontalScrollBar().isVisible())
+        finally:
+            narrow.close()
+            narrow.deleteLater()
+            self.app.processEvents()
+
     def test_route_and_hide_are_disabled_and_normalized_for_tt(self):
         self.window._hotkey_config = replace(
             DEFAULT_HOTKEY_CONFIG,
@@ -1803,6 +1968,139 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 0.0, "Sell to Close", "market", "IOC"))
         self.assertEqual(slot.pending_action, "")
         self.assertFalse(slot.price.isEnabled())
+
+    def test_configured_quick_limit_uses_selected_price_and_enter_cannot_repeat(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+        slot = self.window.slots[1]
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "GTC",
+            "route": "DEFAULT",
+            "price_offset": 0.05,
+            "price_source": "ask",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 185.35, "Buy to Open", "limit", "GTC"),
+        )
+        self.assertEqual(slot.pending_action, "")
+        self.assertEqual(slot.enter_target, "NONE")
+        self.assertTrue(slot.buy.property("enterSelected"))
+
+        self.window._handle_enter_target(1)
+        self.assertEqual(len(self.session.orders), 1)
+
+    def test_configured_quick_limit_refreshes_selected_quote_source(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic() - 5.1,
+            "connection_generation": self.window._se_generation,
+        }
+        self.session.refresh_quote_result = (
+            True,
+            {
+                "symbol": "AAPL",
+                "bid": 186.10,
+                "ask": 186.30,
+            },
+            "行情刷新成功",
+        )
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "price_offset": 0.05,
+            "price_source": "bid",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(self.session.refresh_quote_calls[0][1], "bid")
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 186.15, "Buy to Open", "limit", "Day"),
+        )
+
+    def test_configured_quick_limit_does_not_submit_when_quote_refresh_fails(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic() - 5.1,
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "price_source": "bid",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(self.session.orders, [])
+        self.assertEqual(self.window.slots[1].pending_action, "")
+
+    def test_configured_quick_market_submits_without_quote(self):
+        self.window.current_quote.clear()
+        slot = self.window.slots[1]
+
+        self.window._prepare_configured_order({
+            "side": "sell",
+            "order_type": "market",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "price_offset": 9.99,
+            "price_source": "ask",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 0.0, "Sell to Close", "market", "Day"),
+        )
+        self.assertEqual(self.session.refresh_quote_calls, [])
+        self.assertEqual(slot.pending_action, "")
+        self.assertEqual(slot.enter_target, "NONE")
+        self.assertFalse(slot.price.isEnabled())
+        self.assertEqual(slot.price.text(), "Market")
+
+    def test_ioc_ignores_quick_submit_flag_and_keeps_existing_direct_behavior(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "IOC",
+            "route": "DEFAULT",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 185.30, "Buy to Open", "limit", "IOC"),
+        )
+        self.assertEqual(self.window.slots[1].enter_target, "NONE")
 
     def test_configured_limit_ioc_submits_buy_ask_and_sell_bid_immediately(self):
         self.window.current_quote["AAPL"] = {
