@@ -2000,7 +2000,7 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._handle_enter_target(1)
         self.assertEqual(len(self.session.orders), 1)
 
-    def test_configured_quick_limit_refreshes_selected_quote_source(self):
+    def test_configured_quick_limit_uses_stale_quote_from_current_connection(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
             "bid": 185.10,
@@ -2028,17 +2028,17 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "quick_submit": True,
         }, 1)
 
-        self.assertEqual(self.session.refresh_quote_calls[0][1], "bid")
+        self.assertEqual(self.session.refresh_quote_calls, [])
         self.assertEqual(
             self.session.orders[-1],
-            ("AAPL", 100, 186.15, "Buy to Open", "limit", "Day"),
+            ("AAPL", 100, 185.15, "Buy to Open", "limit", "Day"),
         )
 
-    def test_configured_quick_limit_does_not_submit_when_quote_refresh_fails(self):
+    def test_configured_quick_limit_does_not_submit_without_quote_and_does_not_refresh(self):
         self.window.current_quote["AAPL"] = {
             "symbol": "AAPL",
-            "bid": 185.10,
-            "ask": 185.30,
+            "bid": 0.0,
+            "ask": 0.0,
             "received_monotonic": time.monotonic() - 5.1,
             "connection_generation": self.window._se_generation,
         }
@@ -2052,8 +2052,61 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
             "quick_submit": True,
         }, 1)
 
+        self.assertEqual(self.session.refresh_quote_calls, [])
         self.assertEqual(self.session.orders, [])
         self.assertEqual(self.window.slots[1].pending_action, "")
+
+    def test_configured_quick_limit_does_not_submit_quote_from_previous_connection(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation - 1,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "price_source": "ask",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(self.session.refresh_quote_calls, [])
+        self.assertEqual(self.session.orders, [])
+        self.assertEqual(self.window.slots[1].pending_action, "")
+
+    def test_configured_quick_limit_defaults_to_buy_ask_and_sell_bid(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 185.10,
+            "ask": 185.30,
+            "received_monotonic": time.monotonic() - 5.1,
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "quick_submit": True,
+        }, 1)
+        self.assertEqual(self.session.orders[-1][2], 185.30)
+        self.assertEqual(self.session.refresh_quote_calls, [])
+
+        self.window._action_limiter.reset()
+        self.window._prepare_configured_order({
+            "side": "sell",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "quick_submit": True,
+        }, 1)
+        self.assertEqual(self.session.orders[-1][2], 185.10)
+        self.assertEqual(self.session.refresh_quote_calls, [])
 
     def test_configured_quick_market_submits_without_quote(self):
         self.window.current_quote.clear()

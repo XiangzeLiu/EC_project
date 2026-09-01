@@ -2991,6 +2991,7 @@ class TradingTerminalQt(QMainWindow):
         if not symbol:
             return
         is_ioc = tif.strip().upper() == "IOC"
+        is_quick_submit = submit_source == "hotkey_quick"
         if is_ioc and not self._broker_supports_tif(tif, symbol):
             self._log_user_error_once("当前交易通道不支持 IOC 订单，订单未提交", "warn")
             return
@@ -3031,7 +3032,9 @@ class TradingTerminalQt(QMainWindow):
                 and quote_age_ms is not None
                 and quote_age_ms <= LIMIT_IOC_QUOTE_FRESHNESS_MS
             )
-            if submit_immediately and (not fresh or quote_price <= 0):
+            # IOC requires a fresh quote; quick submit uses the current
+            # connection's cached quote without forcing a network refresh.
+            if is_ioc and (not fresh or quote_price <= 0):
                 quote_needs_refresh = True
             if quote_price > 0:
                 adjusted = Decimal(str(quote_price)) + Decimal(str(price_offset or 0.0))
@@ -3057,7 +3060,9 @@ class TradingTerminalQt(QMainWindow):
                     submit_source=submit_source,
                 )
                 return
-            if normalized_type == "limit" and quote_price <= 0:
+            if normalized_type == "limit" and (
+                quote_price <= 0 or (is_quick_submit and not generation_matches)
+            ):
                 failure_label = "IOC订单" if is_ioc else "快速下单"
                 self._log_user_error_once(f"行情不可用，{failure_label}未提交", "warn")
                 return
