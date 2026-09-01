@@ -58,6 +58,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='
 if errorlevel 1 goto :fail
 
 set "ISCC_EXE="
+if exist "%ROOT_DIR%\.tools\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ROOT_DIR%\.tools\Inno Setup 6\ISCC.exe"
 for %%P in ("%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do (
   if exist "%%~P" set "ISCC_EXE=%%~P"
 )
