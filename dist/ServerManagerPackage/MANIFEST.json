@@ -1,11 +1,11 @@
 {
     "build":  {
                   "product":  "sm",
-                  "version":  "v_sm_20260831031318",
+                  "version":  "v_sm_20260902000220",
                   "platform":  "windows-x64",
-                  "build_timestamp":  "20260831031318",
+                  "build_timestamp":  "20260902000220",
                   "artifact_suffix":  "_VALIDATION",
-                  "git_commit":  "1d5aede9f63f8cad4579bfb82578531196478465",
+                  "git_commit":  "28f9e8cff5041016857243a17344dfd182d9895d",
                   "git_dirty":  true,
                   "release_build":  false,
                   "inno_commercial_license_confirmed":  false,
@@ -24,12 +24,12 @@
                   {
                       "path":  "BUILD_INFO.json",
                       "size":  826,
-                      "sha256":  "636BFD07841D8CFE35B2CBA6A17206800FD5A9BBE8C799C5835157528FC92F1E"
+                      "sha256":  "D346EC69AB6F25FF49E6E95445CD6CA9C810D7A92962094C946B87675C1937C3"
                   },
                   {
                       "path":  "ServerManager.exe",
                       "size":  17054705,
-                      "sha256":  "2EBF0D19EF973914071C36F3106C05CAEBA25935D9B46C1008284C7C7C96317F"
+                      "sha256":  "8D153B67DE81A74E6EEB8C4C7B9AE7C8C919985DC1F59B5E0BA5B7E238D7067A"
                   },
                   {
                       "path":  "sm.env.example",
@@ -64,7 +64,7 @@
                   {
                       "path":  "_internal/base_library.zip",
                       "size":  1443565,
-                      "sha256":  "177654784396A57119F7B174E3A6C81CE87B8DA7FC147AF76ACE20616E5252BF"
+                      "sha256":  "70582CBFFE7122753C0C01874C93132E06B9F501D896E04146DA8358E3884AAC"
                   },
                   {
                       "path":  "_internal/libcrypto-3.dll",
@@ -99,7 +99,7 @@
                   {
                       "path":  "_internal/server_manager_build_info.json",
                       "size":  826,
-                      "sha256":  "636BFD07841D8CFE35B2CBA6A17206800FD5A9BBE8C799C5835157528FC92F1E"
+                      "sha256":  "D346EC69AB6F25FF49E6E95445CD6CA9C810D7A92962094C946B87675C1937C3"
                   },
                   {
                       "path":  "_internal/sqlite3.dll",
@@ -913,8 +913,8 @@
                   },
                   {
                       "path":  "_internal/resources/product_docs/SC_Product_Maintenance_Document.pdf",
-                      "size":  910386,
-                      "sha256":  "2BD44D727D92FCC70A1EC2AD82ED96A91342C717180E574552B3A1614E814D27"
+                      "size":  2635358,
+                      "sha256":  "302984A8C30158E8D96540170B5D4694674A38D41F846941CB09AE05F9D620E2"
                   },
                   {
                       "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/INSTALLER",
@@ -1128,8 +1128,8 @@
                   },
                   {
                       "path":  "_internal/templates/product_docs_fragment.html",
-                      "size":  148057,
-                      "sha256":  "DB8EAAD9287542D345FB758AB79B6285B7D163A388B3F6407CFE66CEAC461648"
+                      "size":  2063632,
+                      "sha256":  "881DB4D0D62707CA53E1B493D55F3B6EA59595C578658FDB68A2022E5E793158"
                   },
                   {
                       "path":  "_internal/templates/software_center_fragment.html",
@@ -4655,16 +4655,16 @@
     "artifacts":  [
                       {
                           "type":  "archive",
-                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260831031318_VALIDATION.zip",
-                          "size":  59327649,
-                          "sha256":  "3D594AC604248E5F7A250E11FDFA5308C66EE4B80671FC6A9914DE14E8941536",
+                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260902000220_VALIDATION.zip",
+                          "size":  61657323,
+                          "sha256":  "FC6912170D2AFF64FA9AA4DB462F3AB8580908B64F7977ECEF74DC27378E730C",
                           "authenticode_signed":  false
                       },
                       {
                           "type":  "installer",
-                          "path":  "installer/SC_SM_Setup_v_sm_20260831031318_VALIDATION.exe",
-                          "size":  46832583,
-                          "sha256":  "956218BA6723733364AAA39D656492E76E79F6016742F607A341B55B3B17D2EF",
+                          "path":  "installer/SC_SM_Setup_v_sm_20260902000220_VALIDATION.exe",
+                          "size":  49036422,
+                          "sha256":  "BA1DDEE893AFE0B1C243B9482A20AB83128891CBE3247813D0A1CFB9B1A55423",
                           "authenticode_signed":  false
                       }
                   ]
