@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import locale
 import os
 import shutil
 import socket
@@ -184,6 +185,8 @@ def _run(command: list[str], *, timeout: int = 30) -> subprocess.CompletedProces
         command,
         capture_output=True,
         text=True,
+        encoding=locale.getpreferredencoding(False),
+        errors="replace",
         timeout=timeout,
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -195,7 +198,7 @@ def _listening_pids(port: int) -> list[int]:
         return []
     result = _run(["netstat", "-ano", "-p", "TCP"])
     pids: list[int] = []
-    for line in result.stdout.splitlines():
+    for line in (result.stdout or "").splitlines():
         parts = line.split()
         if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING":
             local = parts[1].rsplit(":", 1)
@@ -248,7 +251,7 @@ def _firewall_rule_exists(name: str) -> bool:
     if os.name != "nt":
         return False
     result = _run(["netsh", "advfirewall", "firewall", "show", "rule", f"name={name}"])
-    return result.returncode == 0 and name.lower() in result.stdout.lower()
+    return result.returncode == 0 and name.lower() in (result.stdout or "").lower()
 
 
 def _configure_firewall() -> list[str]:
@@ -920,6 +923,18 @@ def main(argv: list[str] | None = None) -> int:
             raise InstallerError("one installer operation is required")
         return 0
     except Exception as exc:
+        if args.preflight and args.report_file:
+            try:
+                _write_json(
+                    args.report_file,
+                    {
+                        "product": "server_manager",
+                        "status": "failed",
+                        "error": str(exc),
+                    },
+                )
+            except Exception:
+                pass
         print(f"SM installer helper failed: {exc}", file=sys.stderr)
         return 1
 

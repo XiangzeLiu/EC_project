@@ -16,6 +16,40 @@ import sm_deploy_helper as helper
 
 
 class SMInstallerHelperTests(unittest.TestCase):
+    def test_command_output_decoding_tolerates_mixed_windows_bytes(self):
+        result = helper._run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.buffer.write(bytes([0x70, 0xA8, 0x20, 0x71]))",
+            ]
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("p", result.stdout)
+        self.assertIn("q", result.stdout)
+
+    def test_failed_preflight_writes_a_diagnostic_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = root / "request.ini"
+            report = root / "report.json"
+            request.write_text("[install]\nmode=invalid\n", encoding="utf-8")
+
+            result = helper.main(
+                [
+                    "--preflight",
+                    "--request-file",
+                    str(request),
+                    "--report-file",
+                    str(report),
+                ]
+            )
+
+            self.assertEqual(result, 1)
+            payload = report.read_text(encoding="utf-8")
+            self.assertIn('"status": "failed"', payload)
+            self.assertIn("install mode must be fresh or upgrade", payload)
+
     def test_fixed_configuration_cannot_be_overridden(self):
         request = {"public_https_port": "443"}
         with self.assertRaises(helper.InstallerError):
