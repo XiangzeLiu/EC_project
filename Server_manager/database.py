@@ -8,8 +8,11 @@ import os
 import sqlite3
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import quote
 
 from config import DATA_DIR
+from data_layout import DataLayoutError, validate_data_manifest
 
 log = logging.getLogger("server_manager")
 
@@ -26,16 +29,118 @@ DB_SCHEMA_VERSION_V7 = 7
 DB_SCHEMA_VERSION_V8 = 8
 DB_SCHEMA_VERSION_V9 = 9
 DB_SCHEMA_VERSION_V10 = 10
+DB_SCHEMA_VERSION = DB_SCHEMA_VERSION_V10
+
+
+class DatabaseValidationError(RuntimeError):
+    """Raised when a database is unsafe to open or migrate."""
 
 
 def _get_conn() -> sqlite3.Connection:
     """获取数据库连接，自动创建目录和表"""
-    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(_DB_PATH) or ".", exist_ok=True)
     conn = sqlite3.connect(_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def _read_only_uri(path: str | Path) -> str:
+    resolved = Path(path).expanduser().resolve()
+    return f"file:{quote(resolved.as_posix(), safe='/:')}?mode=ro"
+
+
+def inspect_database(path: str | Path | None = None) -> dict:
+    """Inspect a SQLite database without changing it."""
+    database_path = Path(path or _DB_PATH).expanduser().resolve()
+    result = {
+        "path": str(database_path),
+        "exists": database_path.is_file(),
+        "schema_version": None,
+        "integrity": "missing",
+        "foreign_key_errors": [],
+    }
+    if not database_path.is_file():
+        return result
+    try:
+        conn = sqlite3.connect(_read_only_uri(database_path), uri=True)
+        try:
+            result["schema_version"] = _get_user_version(conn)
+            result["integrity"] = str(
+                conn.execute("PRAGMA integrity_check").fetchone()[0]
+            )
+            result["foreign_key_errors"] = [
+                tuple(row) for row in conn.execute("PRAGMA foreign_key_check").fetchall()
+            ]
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        raise DatabaseValidationError(
+            f"unable to inspect database {database_path}: {exc}"
+        ) from exc
+    return result
+
+
+def validate_database(path: str | Path | None = None, *, allow_missing: bool = True) -> dict:
+    """Fail closed for corrupt or newer-than-supported databases."""
+    result = inspect_database(path)
+    if not result["exists"]:
+        if allow_missing:
+            return result
+        raise DatabaseValidationError("database file does not exist")
+    if result["schema_version"] is None:
+        raise DatabaseValidationError("database schema version could not be read")
+    if int(result["schema_version"]) > DB_SCHEMA_VERSION:
+        raise DatabaseValidationError(
+            f"database schema version {result['schema_version']} is newer than supported version {DB_SCHEMA_VERSION}"
+        )
+    if result["integrity"] != "ok":
+        raise DatabaseValidationError(
+            f"database integrity check failed: {result['integrity']}"
+        )
+    if result["foreign_key_errors"]:
+        raise DatabaseValidationError("database foreign key check failed")
+    return result
+
+
+def backup_database(source_path: str | Path, target_path: str | Path) -> dict:
+    """Create a consistent SQLite backup without modifying the source directory."""
+    source = Path(source_path).expanduser().resolve()
+    target = Path(target_path).expanduser().resolve()
+    if source == target:
+        raise DatabaseValidationError("database backup source and target must differ")
+    validate_database(source, allow_missing=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source_conn = sqlite3.connect(_read_only_uri(source), uri=True)
+    target_conn = sqlite3.connect(str(target))
+    try:
+        source_conn.backup(target_conn)
+        target_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        target_conn.commit()
+    finally:
+        target_conn.close()
+        source_conn.close()
+    return validate_database(target, allow_missing=False)
+
+
+def checkpoint_wal(path: str | Path | None = None) -> dict:
+    """Checkpoint the active database after an orderly shutdown."""
+    database_path = Path(path or _DB_PATH).expanduser().resolve()
+    if not database_path.is_file():
+        return {"ok": True, "skipped": True, "reason": "database missing"}
+    conn = sqlite3.connect(str(database_path))
+    try:
+        result = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        conn.commit()
+        return {
+            "ok": True,
+            "busy": int(result[0] or 0) if result else 0,
+            "log_pages": int(result[1] or 0) if result else 0,
+            "checkpointed_pages": int(result[2] or 0) if result else 0,
+        }
+    finally:
+        conn.close()
 
 
 def _sha256(text: str) -> str:
@@ -1197,6 +1302,11 @@ def migrate_v9_to_v10(conn: sqlite3.Connection) -> dict:
 
 def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     reports: list[dict] = []
+    version = _get_user_version(conn)
+    if version > DB_SCHEMA_VERSION:
+        raise DatabaseValidationError(
+            f"database schema version {version} is newer than supported version {DB_SCHEMA_VERSION}"
+        )
     _ensure_legacy_schema(conn)
     _create_v2_schema(conn)
     _ensure_v3_schema(conn)
@@ -1207,7 +1317,6 @@ def run_migrations(conn: sqlite3.Connection) -> list[dict]:
     _ensure_v8_schema(conn)
     _ensure_v9_schema(conn)
     _ensure_v10_schema(conn)
-    version = _get_user_version(conn)
     if version < DB_SCHEMA_VERSION_V2 and _has_v2_schema(conn) and not _needs_v1_to_v2_backfill(conn):
         _set_user_version(conn, DB_SCHEMA_VERSION_V2)
         version = DB_SCHEMA_VERSION_V2
@@ -1324,17 +1433,30 @@ def ensure_super_admin_account() -> None:
 
 def init_db() -> list[dict]:
     """Initialize the database schema and run required migrations."""
+    database_path = Path(_DB_PATH).expanduser().resolve()
+    validate_database(database_path)
+    try:
+        validate_data_manifest(
+            database_path.parent,
+            database_schema_version=DB_SCHEMA_VERSION,
+        )
+    except DataLayoutError as exc:
+        raise DatabaseValidationError(str(exc)) from exc
     conn = _get_conn()
     reports: list[dict] = []
     try:
         reports = run_migrations(conn)
         conn.commit()
         log.info(f"Database initialized: {_DB_PATH} (schema_version={_get_user_version(conn)})")
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
     ensure_super_admin_account()
     cleanup_audit_logs()
+    checkpoint_wal(database_path)
     return reports
 
 

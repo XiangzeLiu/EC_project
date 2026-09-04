@@ -1,11 +1,11 @@
 {
     "build":  {
                   "product":  "ts",
-                  "version":  "v_ts_20260831031318",
+                  "version":  "v_ts_20260902000220",
                   "platform":  "windows-x64",
-                  "build_timestamp":  "20260831031318",
+                  "build_timestamp":  "20260902000220",
                   "artifact_suffix":  "_VALIDATION",
-                  "git_commit":  "1d5aede9f63f8cad4579bfb82578531196478465",
+                  "git_commit":  "28f9e8cff5041016857243a17344dfd182d9895d",
                   "git_dirty":  true,
                   "release_build":  false,
                   "inno_commercial_license_confirmed":  false,
@@ -24,7 +24,7 @@
                   {
                       "path":  "BUILD_INFO.json",
                       "size":  826,
-                      "sha256":  "C55D019D1587AC305B24214ACA634813B443849ED58BF24E05B9A57EDB5619DE"
+                      "sha256":  "9F8366A485014D5B3F0949362FEE12916107EC9FB58B7A96FFB9792B575A1E2C"
                   },
                   {
                       "path":  "start_ts.bat",
@@ -34,7 +34,7 @@
                   {
                       "path":  "TraderServer.exe",
                       "size":  18012398,
-                      "sha256":  "E82EB9B79FFDBEB10527A857EB03217D4D9728DD90415E93BB1895C7B9B985B7"
+                      "sha256":  "F3637615541E28C686C82A0B3EA93C6B965C73E48F3CF7516FA1C86696CB31D6"
                   },
                   {
                       "path":  "ts.env.example",
@@ -64,7 +64,7 @@
                   {
                       "path":  "_internal/base_library.zip",
                       "size":  1443565,
-                      "sha256":  "4FFA3741039FF41FA592844437794B442DE78C5EC891004C7E7CC558ECB8AF40"
+                      "sha256":  "9E671627B2B11D67B7FE53192663D2FC285D4F30FA2950F829E6386580FD86B7"
                   },
                   {
                       "path":  "_internal/libcrypto-3.dll",
@@ -109,7 +109,7 @@
                   {
                       "path":  "_internal/trader_server_build_info.json",
                       "size":  826,
-                      "sha256":  "C55D019D1587AC305B24214ACA634813B443849ED58BF24E05B9A57EDB5619DE"
+                      "sha256":  "9F8366A485014D5B3F0949362FEE12916107EC9FB58B7A96FFB9792B575A1E2C"
                   },
                   {
                       "path":  "_internal/unicodedata.pyd",
@@ -5640,16 +5640,16 @@
     "artifacts":  [
                       {
                           "type":  "archive",
-                          "path":  "archive/SC_TS_Windows_x64_v_ts_20260831031318_VALIDATION.zip",
-                          "size":  98462600,
-                          "sha256":  "9DF180985300878FE438F881A25F84086B8FB89F2503C509F5047AA5EBC256C0",
+                          "path":  "archive/SC_TS_Windows_x64_v_ts_20260902000220_VALIDATION.zip",
+                          "size":  98463718,
+                          "sha256":  "049E543262E4A79C82F58818B3A01C3DF9D0B8809F002400AC92FA7A1E00AE8E",
                           "authenticode_signed":  false
                       },
                       {
                           "type":  "installer",
-                          "path":  "installer/SC_TS_Setup_v_ts_20260831031318_VALIDATION.exe",
-                          "size":  72327894,
-                          "sha256":  "EE0D9A7DF51E87C606BE9D6B3B3C01619189AFCBF58E24471DADD0B9EA08DD03",
+                          "path":  "installer/SC_TS_Setup_v_ts_20260902000220_VALIDATION.exe",
+                          "size":  72322311,
+                          "sha256":  "3784F7D32B104D94B50660791B19170548C0DFEEC390DE853B8B9A00706EFEB0",
                           "authenticode_signed":  false
                       }
                   ]

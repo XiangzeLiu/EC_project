@@ -27,7 +27,7 @@ class HttpClient:
             configured_url = host_value
 
         if getattr(sys, "frozen", False):
-            configured_url = "https://scjrdomain.com"
+            configured_url = "https://scjrdomain.com:4430"
         self.base_url = (configured_url or f"http://{host_value}:{port}").rstrip("/")
         self._token: str = ""
 

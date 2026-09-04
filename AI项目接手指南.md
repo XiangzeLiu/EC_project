@@ -92,7 +92,7 @@ Trader Server <-----------------------------------+
 TT API 或 IB Gateway/TWS
 ```
 
-生产公网只应暴露 Caddy 的 `80/443`。SM 的 `8800`、TS 的 `8900`、Caddy admin 的 `2019/2020` 和 IB 的 `4001` 都是内部端口。
+生产公网应暴露 SM Caddy 的 `8800/4430` 和 TS Caddy 自身的公网入口（当前为 `80/443`）。SM 的 `18800`、TS 的 `8900`、Caddy admin 的 `2019/2020` 和 IB 的 `4001` 都是内部端口。
 
 ## 4. 仓库结构
 
@@ -137,7 +137,7 @@ EC_project/
 |---|---|---|
 | Client | `python -m Client.main` | 正式 PySide6 入口 |
 | Client 配置 | `%APPDATA%/SC Client/hotkey.json` | 本地优先，损坏或校验失败时回退代码默认值 |
-| SM | `python -m Server_manager.main` | 默认监听 `127.0.0.1:8800` |
+| SM | `python -m Server_manager.main` | 默认监听 `127.0.0.1:18800`；Caddy 公网入口为 `:8800`/`:4430` |
 | SM 数据库 | `Server_manager/data/server_manager.db` | SQLite，账号、节点、券商配置、域名池和审计 |
 | SM 日志 | `Server_manager/data/logs/` | `sm.log`、`sm_error.log` 等 |
 | TS | `python -m Trader_Server.main` | 默认监听 `127.0.0.1:8900`，同时打开本地 GUI |
@@ -530,7 +530,7 @@ IB 运行期状态码 `1100/1101/1102/1300` 的代码恢复逻辑已完成；真
 4. 券商凭据只存在于 SM/TS 管理边界，不进入 Client。
 5. 一个交易员账号固定绑定一台 TS；不能让 Client 自由选择任意节点。
 6. 节点占用发生在 WSS 之前，WSS CONNECT 仍必须再次向 SM 验证。
-7. 生产公网只开放 `80/443`；内部服务绑定 loopback。
+7. 生产公网按端点开放：SM 为 `8800/4430`，TS 当前为 `80/443`；内部服务绑定 loopback。
 8. 日志可以为管理员保留技术细节，但交易员可见 Console 和弱提示必须脱敏。
 9. 自动化测试不得真实下单、撤销真实订单或修改生产 DNS。
 10. 真实下单测试必须由用户明确确认并使用最小风险参数。

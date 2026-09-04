@@ -5,11 +5,13 @@ Server Manager - Main Entry Point
 启动方式:
     python Server_manager/main.py          (直接运行)
     python -m Server_manager.main           (模块方式)
-    uvicorn Server_manager.main:app --host 0.0.0.0 --port 8800
+    uvicorn Server_manager.main:app --host 127.0.0.1 --port 18800
 
 环境变量:
     SERVER_HOST       服务监听地址   (默认: 127.0.0.1；临时直连可设 0.0.0.0)
-    SERVER_PORT       服务端口       (默认: 8800)
+    SERVER_PORT       服务端口       (默认: 18800)
+    SM_PUBLIC_HTTP_PORT  SM Caddy HTTP 公网端口 (默认: 8800)
+    SM_PUBLIC_HTTPS_PORT SM Caddy HTTPS 公网端口 (默认: 4430)
     TASTY_SECRET      Tastytrade Secret Token
     TASTY_TOKEN       Tastytrade Session Token
     IB Gateway 连接由 Trader_Server 在本机 127.0.0.1:4001 执行。
@@ -33,6 +35,7 @@ import logging
 import re
 import secrets
 import uuid
+from pathlib import Path
 
 
 # SSL 证书处理（解决 Windows 证书链不完整问题）
@@ -57,6 +60,7 @@ from config import (
     SM_CADDY_REQUIRED,
     SM_FINANCE_CLEANUP_INTERVAL_SECONDS, SM_FINANCE_ENABLED,
     SM_FINANCE_RETENTION_MONTHS,
+    DEPLOYMENT_CONFIG_ERROR, persist_data_metadata,
     production_config_errors,
 )
 
@@ -64,7 +68,7 @@ import database
 import domain_pool
 import node_state
 from address_utils import address_candidates, endpoint_matches_node, ts_api_url
-from database import init_db
+from database import checkpoint_wal, init_db
 from routers.auth_router import router as auth_router
 from routers.position_router import router as position_router
 from routers.software_router import router as software_router
@@ -3256,9 +3260,39 @@ async def startup():
     """应用启动时执行初始化"""
     from services.caddy_manager import configure_and_start_caddy
 
+    if DEPLOYMENT_CONFIG_ERROR:
+        raise RuntimeError(f"SM deployment metadata invalid: {DEPLOYMENT_CONFIG_ERROR}")
+
+    database_ready = False
+    try:
+        init_db()
+        database_ready = True
+    except Exception as exc:
+        log.exception("Database initialization failed; refusing to start SM")
+        raise RuntimeError(f"SM database initialization failed: {exc}") from exc
+
     config_errors = production_config_errors(database.get_db_path())
     if config_errors:
         raise RuntimeError("SM production configuration invalid: " + "; ".join(config_errors))
+
+    if os.environ.get("SM_DNSPOD_SECRET_ID", "").strip() and os.environ.get(
+        "SM_DNSPOD_SECRET_KEY", ""
+    ).strip():
+        try:
+            # Persist legacy local credentials in the database before a data-only migration.
+            dns_config_service.get_runtime_config()
+        except Exception as exc:
+            log.exception("DNSPod bootstrap persistence failed")
+            raise RuntimeError(f"SM DNSPod configuration initialization failed: {exc}") from exc
+
+    try:
+        persist_data_metadata(
+            database.DB_SCHEMA_VERSION,
+            data_dir=Path(database.get_db_path()).resolve().parent,
+        )
+    except Exception as exc:
+        log.exception("Portable data metadata could not be written")
+        raise RuntimeError(f"SM portable data metadata initialization failed: {exc}") from exc
 
     caddy_result = await asyncio.to_thread(configure_and_start_caddy)
     if caddy_result.get("ok"):
@@ -3274,14 +3308,6 @@ async def startup():
     asyncio.create_task(_node_expire_cleanup_loop())
     # 启动心跳超时检测任务（内存操作）
     asyncio.create_task(_heartbeat_monitor_loop())
-    # 初始化数据库
-    database_ready = False
-    try:
-        init_db()
-        database_ready = True
-    except Exception as e:
-        log.warning(f"Database init skipped (non-critical): {e}")
-
     # ── 加载已批准节点到内存状态管理器 ──
     try:
         db_rows = database.get_approved_nodes_for_memory_load()
@@ -3321,6 +3347,10 @@ async def shutdown():
             log.info(f"[Shutdown] synced {len(states)} node states to DB")
     except Exception as e:
         log.warning(f"[Shutdown] DB sync failed (non-critical): {e}")
+    try:
+        checkpoint_wal()
+    except Exception as e:
+        log.warning(f"[Shutdown] database WAL checkpoint failed (non-critical): {e}")
 
     session_store["session"] = None
     session_store["account"] = None

@@ -51,7 +51,20 @@ log = logging.getLogger("trader_server")
 
 # ── 默认值 ────────────────────────────────────────────────────────────────
 
-DEFAULT_MANAGER_URL = os.getenv("TS_MANAGER_URL", "https://scjrdomain.com")
+LEGACY_DEFAULT_MANAGER_URL = "https://scjrdomain.com"
+DEFAULT_MANAGER_URL = os.getenv("TS_MANAGER_URL", "https://scjrdomain.com:4430")
+
+
+def resolve_manager_url(value: str | None) -> str:
+    """Resolve a persisted manager URL without changing explicit custom endpoints."""
+    configured = str(value or "").strip().rstrip("/")
+    if not configured:
+        return DEFAULT_MANAGER_URL
+    if configured == LEGACY_DEFAULT_MANAGER_URL:
+        return DEFAULT_MANAGER_URL
+    return configured
+
+
 DEFAULT_NODE_NAME = os.getenv("TS_NODE_NAME", "trader-node-01")
 DEFAULT_REGION = os.getenv("TS_BROKER_TYPE", "TT")  # 已从地理区域改为券商类型，值与 SM BROKER_TYPES 一致
 DEFAULT_PUBLIC_ENDPOINT = (

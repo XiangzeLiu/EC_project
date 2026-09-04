@@ -98,24 +98,18 @@ Get-Content .\SHA256SUMS.txt | ForEach-Object {
 
 ## 5. ZIP 与安装版
 
-解压后使用 `start_sm.bat` 或 `start_ts.bat` 启动。SM 首次启动前必须将 `sm.local.bat.example` 复制为不入库的 `sm.local.bat`，填写 DNSPod 凭据和非默认管理员密码。TS 只有需要覆盖节点名或券商类型时才创建 `ts.local.bat`。
+SM 的正式 Windows 安装入口是 `SC_SM_Setup_<version>.exe`。运行安装器后选择全新部署或升级部署；升级时选择需要迁移的 `data` 目录。安装器会在替换程序前创建事务备份，迁移失败或 SM 本机 `/ping` 探活失败时尝试回滚。
 
-ZIP 是便携模式：运行数据位于解压目录的 `data`，Caddy 证书状态位于 `caddy\data`。升级必须先停止进程并备份以下内容，再解压到新的版本目录并恢复：
+SM 安装版将程序放在用户选择的安装目录，运行数据固定在：
 
-- `data`
-- `caddy\data`
-- `sm.local.bat` 或 `ts.local.bat`
+- `%ProgramData%\SC\ServerManager\data`
+- `%ProgramData%\SC\ServerManager\caddy`
 
-不要直接删除旧目录后覆盖 ZIP。
+安装器只修改 SM 自身，不修改 Client 或 TS。固定生产入口为 `https://scjrdomain.com:4430`，SM 本地应用端口为 `18800`，公网 HTTP/HTTPS 端口为 `8800/4430`。外部路由和第三方防火墙仍需人工确认。
 
-安装版将程序放在 `%ProgramFiles%\SC`，运行数据固定在：
+升级迁移使用 SQLite Backup API 和 staging 目录，旧 data 源目录只读处理，不执行其中的脚本。数据库、账号、TS 节点、审批状态、软件包、DNS 配置和证书按迁移规则处理；运行日志、PID、会话和 Caddy 缓存不作为业务数据迁移。
 
-- `%ProgramData%\SC\ServerManager`
-- `%ProgramData%\SC\TraderServer`
-
-安装版启动器通过 UAC 以管理员权限运行，外置本地配置分别为 `sm.local.bat` 和 `ts.local.bat`。首次安装创建空白模板；升级使用固定 AppId，先停止对应 Caddy，再替换程序文件，不覆盖本地配置；卸载默认保留整个运行目录。安装器还会把运行目录 ACL 收紧为 `SYSTEM` 和本机管理员组。
-
-首次从 ZIP 切换到安装版不会自动搜索旧目录。应先停止旧进程，再将旧 `data`、`caddy\data` 和本地配置复制到对应 `%ProgramData%` 目录，确认备份后再启动安装版。这样可以避免自动迁移误选其他节点或旧测试目录。
+安装器会保留 `%ProgramData%\SC\ServerManager\sm.local.bat`，并将运行目录 ACL 收紧为 `SYSTEM` 和本机管理员组。卸载默认保留 data、证书和事务备份。
 
 ## 6. 安全边界
 

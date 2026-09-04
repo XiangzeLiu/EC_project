@@ -7,7 +7,7 @@ Trader_Server — 交易服务子服务端 主入口
     uvicorn Trader_Server.main:app      # 仅启动 API 服务（无 GUI）
 
 命令行参数:
-    --manager-url   Server_manager 地址 (默认 https://scjrdomain.com)
+    --manager-url   Server_manager 地址 (默认 https://scjrdomain.com:4430)
     --node-name     节点名称 (默认 trader-node-01)
     --broker-type   券商类型 (默认 TT)
     --bind-host     本机监听地址 (默认 127.0.0.1)

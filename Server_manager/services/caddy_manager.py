@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import http.client
+import json
 import subprocess
 import sys
 import threading
@@ -17,8 +18,12 @@ from config import (
     SM_CADDY_AUTO_MANAGE,
     SM_CADDY_DIR,
     SM_CADDY_EXE,
+    SM_CADDY_CERT_FILE,
+    SM_CADDY_KEY_FILE,
     SM_CADDY_START_TIMEOUT,
     SM_PUBLIC_BASE_URL,
+    SM_PUBLIC_HTTP_PORT,
+    SM_PUBLIC_HTTPS_PORT,
 )
 
 
@@ -91,14 +96,47 @@ def render_sm_caddyfile(
     public_base_url: str = SM_PUBLIC_BASE_URL,
     server_port: int = SERVER_PORT,
     admin_address: str = SM_CADDY_ADMIN,
+    public_http_port: int = SM_PUBLIC_HTTP_PORT,
+    public_https_port: int = SM_PUBLIC_HTTPS_PORT,
+    cert_file: str = SM_CADDY_CERT_FILE,
+    key_file: str = SM_CADDY_KEY_FILE,
 ) -> str:
     domain = _public_domain(public_base_url)
-    _parse_admin_address(admin_address)
+    _, admin_port = _parse_admin_address(admin_address)
+    for name, port in (
+        ("public_http_port", public_http_port),
+        ("public_https_port", public_https_port),
+        ("server_port", server_port),
+    ):
+        if not 1 <= int(port) <= 65535:
+            raise ValueError(f"{name} is out of range")
+    if int(server_port) in {int(public_http_port), int(public_https_port)}:
+        raise ValueError("server_port must not overlap a public Caddy port")
+    if int(public_http_port) == int(public_https_port):
+        raise ValueError("public_http_port and public_https_port must be different")
+    if admin_port in {int(server_port), int(public_http_port), int(public_https_port)}:
+        raise ValueError("SM_CADDY_ADMIN port must not overlap an application or public port")
+    cert_file = str(cert_file or "").strip()
+    key_file = str(key_file or "").strip()
+    if bool(cert_file) != bool(key_file):
+        raise ValueError("cert_file and key_file must be configured together")
+    http_listener = "" if int(public_http_port) == 80 else f":{int(public_http_port)}"
+    https_listener = "" if int(public_https_port) == 443 else f":{int(public_https_port)}"
+    tls_directive = (
+        f"\n\ttls {json.dumps(cert_file)} {json.dumps(key_file)}"
+        if cert_file
+        else ""
+    )
     return f"""{{
 \tadmin {admin_address}
 }}
 
-{domain} {{
+http://{domain}{http_listener} {{
+	redir https://{domain}{https_listener}{{uri}} permanent
+}}
+
+https://{domain}{https_listener} {{
+{tls_directive}
 \tencode zstd gzip
 
 \theader {{

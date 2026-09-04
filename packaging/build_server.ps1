@@ -238,6 +238,8 @@ if ($Target -eq "sm") {
     $innoTemplate = Join-Path $PSScriptRoot "inno\server_manager.iss"
     $installerName = "SC_SM_Setup"
     $setupIconFile = ""
+    $installerHelperSource = Join-Path $root "packaging\installer\sm_deploy_helper.py"
+    $installerHelperExeName = "SC_SM_InstallerHelper"
     $buildInfoName = "server_manager_build_info.json"
     $pythonOverride = $env:SM_BUILD_PY
 } else {
@@ -257,6 +259,8 @@ if ($Target -eq "sm") {
     $innoTemplate = Join-Path $PSScriptRoot "inno\trader_server.iss"
     $installerName = "SC_TS_Setup"
     $setupIconFile = Join-Path $sourceDir "assets\icons\trader-server.ico"
+    $installerHelperSource = ""
+    $installerHelperExeName = ""
     $buildInfoName = "trader_server_build_info.json"
     $pythonOverride = $env:TS_BUILD_PY
 }
@@ -274,6 +278,9 @@ $requiredFiles = @(
     @{ Path = $installedLocalConfig; Description = "$displayName installed local configuration" },
     @{ Path = $innoTemplate; Description = "$displayName Inno Setup template" }
 )
+if ($installerHelperSource) {
+    $requiredFiles += @{ Path = $installerHelperSource; Description = "$displayName installer helper source" }
+}
 if ($setupIconFile) {
     $requiredFiles += @{ Path = $setupIconFile; Description = "$displayName setup icon" }
 }
@@ -368,6 +375,7 @@ foreach ($directory in @($workDir, $specDir, $generatedDir, $appDist, $archiveDi
 }
 
 $buildInfoPath = Join-Path $generatedDir $buildInfoName
+$installerHelperHash = ""
 $buildInfo = [ordered]@{
     product = $Target
     version = $version
@@ -386,6 +394,7 @@ $buildInfo = [ordered]@{
     signing_tool_sha256 = $signing.ToolSha256
     timestamp_url = $signing.TimestampUrl
     inno_compiler_sha256 = $innoCompilerHash
+    installer_helper_sha256 = $installerHelperHash
     caddy_version = "v2.11.4"
     caddy_sha256 = $actualCaddyHash
 }
@@ -424,6 +433,44 @@ if ($Target -eq "sm") {
     $dependencyProbe = "import PyInstaller,fastapi,uvicorn,starlette,websockets,pydantic,httpx,certifi,tastytrade,ibapi,PySide6,tzdata; print(PyInstaller.__version__, fastapi.__version__, uvicorn.__version__, PySide6.__version__)"
 }
 Invoke-Native -FilePath $python -Arguments @("-c", $dependencyProbe) -FailureMessage "Runtime dependency import validation failed"
+
+$installerHelperPath = ""
+if ($installerHelperSource) {
+    $helperDist = Join-Path $buildRoot "installer-helper"
+    $helperWork = Join-Path $buildRoot "installer-helper-work"
+    $helperSpec = Join-Path $buildRoot "installer-helper-spec"
+    foreach ($directory in @($helperDist, $helperWork, $helperSpec)) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    }
+    $helperArguments = @(
+        "-m", "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--console",
+        "--name", $installerHelperExeName,
+        "--distpath", $helperDist,
+        "--workpath", $helperWork,
+        "--specpath", $helperSpec,
+        "--paths", $root,
+        "--paths", $sourceDir,
+        "--hidden-import", "config",
+        "--hidden-import", "data_layout",
+        "--hidden-import", "database",
+        $installerHelperSource
+    )
+    Write-Host "[$displayName Package] Building installer deployment helper..."
+    Invoke-Native -FilePath $python -Arguments $helperArguments -FailureMessage "Installer helper build failed"
+    $installerHelperPath = Join-Path $helperDist "$installerHelperExeName.exe"
+    Require-File -Path $installerHelperPath -Description "$displayName installer helper executable"
+    if ($signing.Enabled) {
+        Write-Host "[$displayName Package] Signing installer deployment helper..."
+        Invoke-AuthenticodeSigning -Path $installerHelperPath -Configuration $signing
+    }
+    $installerHelperHash = (Get-FileHash -LiteralPath $installerHelperPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $buildInfo["installer_helper_sha256"] = $installerHelperHash
+    Write-Utf8NoBom -Path $buildInfoPath -Content ($buildInfo | ConvertTo-Json -Depth 4)
+}
 
 Push-Location $root
 try {
@@ -607,6 +654,9 @@ if ($innoCompiler) {
         "#define InstalledLauncher `"$(ConvertTo-InnoString $installedLauncher)`"",
         "#define InstalledLocalConfig `"$(ConvertTo-InnoString $installedLocalConfig)`""
     )
+    if ($installerHelperPath) {
+        $innoLines += "#define InstallerHelper `"$(ConvertTo-InnoString $installerHelperPath)`""
+    }
     $innoLines += "#define ArtifactSuffix `"$(ConvertTo-InnoString $artifactSuffix)`""
     if ($setupIconFile) {
         $innoLines += "#define SetupIconFile `"$(ConvertTo-InnoString $setupIconFile)`""

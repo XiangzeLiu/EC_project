@@ -1,11 +1,11 @@
 {
     "build":  {
                   "product":  "sm",
-                  "version":  "v_sm_20260902000220",
+                  "version":  "v_sm_20260905002148",
                   "platform":  "windows-x64",
-                  "build_timestamp":  "20260902000220",
+                  "build_timestamp":  "20260905002148",
                   "artifact_suffix":  "_VALIDATION",
-                  "git_commit":  "28f9e8cff5041016857243a17344dfd182d9895d",
+                  "git_commit":  "cfd2f414d614944885779718fde805f1f59769cd",
                   "git_dirty":  true,
                   "release_build":  false,
                   "inno_commercial_license_confirmed":  false,
@@ -17,24 +17,25 @@
                   "signing_tool_sha256":  "",
                   "timestamp_url":  "",
                   "inno_compiler_sha256":  "0A8757031B33777E4C9CBFFEE40F11A5062B36D25CBE144C1DB73B6102B80AD7",
+                  "installer_helper_sha256":  "D37D3EAD322D9BE7C187336F828FBEC91082DD68B6A36D094CAD620C2D419304",
                   "caddy_version":  "v2.11.4",
                   "caddy_sha256":  "0A37A942F6672AA056458A46C2E4A7D9F4621CFC8D230378BF285C0B38C38AEC"
               },
     "files":  [
                   {
                       "path":  "BUILD_INFO.json",
-                      "size":  826,
-                      "sha256":  "D346EC69AB6F25FF49E6E95445CD6CA9C810D7A92962094C946B87675C1937C3"
+                      "size":  927,
+                      "sha256":  "7A514ED06598FBE8C23F666C499FE47A63D358F67AF93EF74AAF51FC58FC0F2F"
                   },
                   {
                       "path":  "ServerManager.exe",
-                      "size":  17054705,
-                      "sha256":  "8D153B67DE81A74E6EEB8C4C7B9AE7C8C919985DC1F59B5E0BA5B7E238D7067A"
+                      "size":  17070538,
+                      "sha256":  "0ACF4E828AAAF04AEBF6E85F5D8C8A28F31769B117DED4FD1C2A9CFAD15111DF"
                   },
                   {
                       "path":  "sm.env.example",
-                      "size":  783,
-                      "sha256":  "132071FCB168F6BB32E9477F5728D7A2C0F70F508D5FB638100143E2B4B4743A"
+                      "size":  1189,
+                      "sha256":  "C2253E59A801818BDE284355EF431599F82842D38666BB2B88BC4B1E0B1A2F3D"
                   },
                   {
                       "path":  "sm.local.bat.example",
@@ -43,8 +44,8 @@
                   },
                   {
                       "path":  "start_sm.bat",
-                      "size":  1976,
-                      "sha256":  "40DAD04F4968E21273077F041E48B1A6D0A5CDFD9DC3CBDDA4D332E44255C4FC"
+                      "size":  2300,
+                      "sha256":  "7D77E73497BA539E5485592B51CF6134CB7E7D192FC5F872970CEA668A09B892"
                   },
                   {
                       "path":  "caddy/caddy.exe",
@@ -64,7 +65,7 @@
                   {
                       "path":  "_internal/base_library.zip",
                       "size":  1443565,
-                      "sha256":  "70582CBFFE7122753C0C01874C93132E06B9F501D896E04146DA8358E3884AAC"
+                      "sha256":  "14DC96129321F2174253E995E971746327CC150B3AB324119174D2758A144AF9"
                   },
                   {
                       "path":  "_internal/libcrypto-3.dll",
@@ -98,8 +99,8 @@
                   },
                   {
                       "path":  "_internal/server_manager_build_info.json",
-                      "size":  826,
-                      "sha256":  "D346EC69AB6F25FF49E6E95445CD6CA9C810D7A92962094C946B87675C1937C3"
+                      "size":  927,
+                      "sha256":  "7A514ED06598FBE8C23F666C499FE47A63D358F67AF93EF74AAF51FC58FC0F2F"
                   },
                   {
                       "path":  "_internal/sqlite3.dll",
@@ -913,8 +914,8 @@
                   },
                   {
                       "path":  "_internal/resources/product_docs/SC_Product_Maintenance_Document.pdf",
-                      "size":  2635358,
-                      "sha256":  "302984A8C30158E8D96540170B5D4694674A38D41F846941CB09AE05F9D620E2"
+                      "size":  2639325,
+                      "sha256":  "BD8E995186C94F6F389DCDFBB9DBD2BB7FA95B2389274B3A2FB8635C03BBCA1E"
                   },
                   {
                       "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/INSTALLER",
@@ -1128,8 +1129,8 @@
                   },
                   {
                       "path":  "_internal/templates/product_docs_fragment.html",
-                      "size":  2063632,
-                      "sha256":  "881DB4D0D62707CA53E1B493D55F3B6EA59595C578658FDB68A2022E5E793158"
+                      "size":  2064275,
+                      "sha256":  "4D9F86E365B36A31187DEF22BE2106DBC9BAB307018FC9BFFEF0B38AA1321859"
                   },
                   {
                       "path":  "_internal/templates/software_center_fragment.html",
@@ -4655,16 +4656,16 @@
     "artifacts":  [
                       {
                           "type":  "archive",
-                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260902000220_VALIDATION.zip",
-                          "size":  61657323,
-                          "sha256":  "FC6912170D2AFF64FA9AA4DB462F3AB8580908B64F7977ECEF74DC27378E730C",
+                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260905002148_VALIDATION.zip",
+                          "size":  61678080,
+                          "sha256":  "DA4C2D5D4D880E0ACC3B8C81E7E32D6B9B1DBAA5BF52A8724FF28086A20A0519",
                           "authenticode_signed":  false
                       },
                       {
                           "type":  "installer",
-                          "path":  "installer/SC_SM_Setup_v_sm_20260902000220_VALIDATION.exe",
-                          "size":  49036422,
-                          "sha256":  "BA1DDEE893AFE0B1C243B9482A20AB83128891CBE3247813D0A1CFB9B1A55423",
+                          "path":  "installer/SC_SM_Setup_v_sm_20260905002148_VALIDATION.exe",
+                          "size":  57625863,
+                          "sha256":  "898B9CE4C8DF20FCE2B9B7800C3E1862BC9CEDE11B94BA57638EB06C56A5274E",
                           "authenticode_signed":  false
                       }
                   ]

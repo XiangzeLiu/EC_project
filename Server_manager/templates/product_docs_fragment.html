@@ -324,7 +324,7 @@
   <rect x="36" y="220" width="190" height="96" rx="7" fill="#eaf8f0" stroke="#45a66f" class="n"/>
   <text x="131" y="258" text-anchor="middle" class="t">Client</text><text x="131" y="285" text-anchor="middle" class="s">Windows / PySide6</text>
   <rect x="320" y="68" width="190" height="88" rx="7" fill="#fff8dc" stroke="#d5a928" class="n"/>
-  <text x="415" y="103" text-anchor="middle" class="t">SM Caddy</text><text x="415" y="130" text-anchor="middle" class="s">HTTPS :443</text>
+  <text x="415" y="103" text-anchor="middle" class="t">SM Caddy</text><text x="415" y="130" text-anchor="middle" class="s">HTTPS :4430</text>
   <rect x="610" y="68" width="210" height="88" rx="7" fill="#fff8dc" stroke="#d5a928" class="n"/>
   <text x="715" y="103" text-anchor="middle" class="t">SM</text><text x="715" y="130" text-anchor="middle" class="s">FastAPI / 管理后台</text>
   <rect x="890" y="68" width="190" height="88" rx="7" fill="#f4f5f7" stroke="#98a2b3" class="n"/>
@@ -338,7 +338,7 @@
   <rect x="890" y="438" width="190" height="72" rx="7" fill="#f4f5f7" stroke="#98a2b3" class="n"/>
   <text x="985" y="468" text-anchor="middle" class="t">IB Gateway</text><text x="985" y="493" text-anchor="middle" class="s">同机 127.0.0.1:4001</text>
   <path d="M226 246 C265 220 280 145 320 118" class="a"/><text x="250" y="174" class="l">HTTPS 登录</text>
-  <path d="M510 112 H610" class="a"/><text x="560" y="98" text-anchor="middle" class="l">:8800</text>
+  <path d="M510 112 H610" class="a"/><text x="560" y="98" text-anchor="middle" class="l">:18800</text>
   <path d="M226 292 C265 320 280 405 320 430" class="a"/><text x="250" y="365" class="l">WSS /ws</text>
   <path d="M510 432 H610" class="a"/><text x="560" y="418" text-anchor="middle" class="l">:8900</text>
   <path d="M720 388 V156" class="a"/><text x="735" y="274" class="l">心跳 / 配置 / Token 复验</text>
@@ -348,7 +348,7 @@
 </svg>
 </div>
 
-<p>生产目标是公网只暴露 80/443。SM 的 8800、TS 的 8900、Caddy 管理端口 2019/2020 均应只监听回环地址或由防火墙阻断公网访问。</p>
+<p>当前 SM 生产入口为公网 HTTP :8800 和 HTTPS :4430；SM 应用 127.0.0.1:18800、TS 应用 127.0.0.1:8900 以及 Caddy 管理端口 2019/2020 均应只监听回环地址或由防火墙阻断公网访问。</p>
 <h2 id="overview-section-5" data-toc-label="4. Client 登录数据流">4. Client 登录数据流<a class="product-docs-heading-link" href="#docs/overview/overview-section-5" data-doc-section-target="overview-section-5" data-doc-section-document="overview" aria-label="链接到本节">#</a></h2>
 <p>Client 的登录是系统登录，不是券商登录。当前 Client 登录请求由 <code>Client/services/trading_session.py</code> 发往 SM 的 <code>/auth/login</code>。</p>
 <div class="product-docs-flat-diagram" role="img" aria-label="Client 登录数据流">
@@ -624,8 +624,8 @@
 </thead>
 <tbody><tr>
 <td>SM FastAPI</td>
-<td align="right"><code>127.0.0.1:8800</code></td>
-<td align="right"><code>https://scjrdomain.com</code> / 443</td>
+<td align="right"><code>127.0.0.1:18800</code></td>
+<td align="right"><code>https://scjrdomain.com:4430</code> / 4430</td>
 <td>由 SM Caddy 反向代理</td>
 </tr>
 <tr>
@@ -672,12 +672,17 @@
 <tbody><tr>
 <td>SM</td>
 <td><code>SERVER_HOST</code> / <code>SERVER_PORT</code></td>
-<td><code>127.0.0.1</code> / <code>8800</code></td>
+<td><code>127.0.0.1</code> / <code>18800</code></td>
+</tr>
+<tr>
+<td>SM</td>
+<td><code>SM_PUBLIC_HTTP_PORT</code> / <code>SM_PUBLIC_HTTPS_PORT</code></td>
+<td><code>8800</code> / <code>4430</code></td>
 </tr>
 <tr>
 <td>SM</td>
 <td><code>SM_PUBLIC_BASE_URL</code></td>
-<td><code>https://scjrdomain.com</code></td>
+<td><code>https://scjrdomain.com:4430</code></td>
 </tr>
 <tr>
 <td>SM</td>
@@ -712,7 +717,7 @@
 <tr>
 <td>TS</td>
 <td><code>TS_MANAGER_URL</code></td>
-<td><code>https://scjrdomain.com</code></td>
+<td><code>https://scjrdomain.com:4430</code></td>
 </tr>
 <tr>
 <td>TS</td>
@@ -823,8 +828,8 @@
 <li>CPU 优先使用桌面版非低功耗型号，例如 <code>i3-12100</code>、<code>i5-12400</code>、<code>i7-12700</code>。笔记本 <code>U</code> 系列不能与同代桌面 CPU 等量看待，建议按低一档估算；<code>H/P</code> 系列只有在持续散热和压力测试合格后才能按接近桌面配置估算。</li>
 <li>内存建议双通道，普通推荐档使用 16 GB；高配及以上使用 32 GB。显卡不参与 SM 容量，独立显卡不是必需项。</li>
 <li>磁盘使用 SSD，普通推荐档及以上使用 NVMe；至少预留 30% 可用空间，用于 SQLite 数据库、日志、备份和临时文件。</li>
-<li>网络使用稳定的有线千兆网卡和全双工链路。千兆网卡不是当前主要瓶颈，但生产网络必须保证公网 80/443、DNSPod 出站 HTTPS 和节点心跳链路稳定。</li>
-<li>公网只暴露 SM Caddy 的 80/443；SM 应用端口 <code>127.0.0.1:8800</code> 和 Caddy 管理端口 <code>127.0.0.1:2019</code> 不开放公网。</li>
+<li>网络使用稳定的有线千兆网卡和全双工链路。千兆网卡不是当前主要瓶颈，但生产网络必须保证 SM 公网 8800/4430、TS 公网 80/443、DNSPod 出站 HTTPS 和节点心跳链路稳定。</li>
+<li>SM 公网只暴露 Caddy 的 8800/4430；SM 应用端口 <code>127.0.0.1:18800</code> 和 Caddy 管理端口 <code>127.0.0.1:2019</code> 不开放公网。</li>
 <li>不建议使用赛扬、奔腾、Intel N100/N305 或长期处于高温降频状态的低功耗设备承载 100 个以上 TS。</li>
 <li>SM 与 TS、IB Gateway 或其他高负载服务共用一台 Windows 设备时，不适用上表的单独承载数据，容量至少下调 50%；IB Gateway 还要额外预留桌面进程和券商连接资源。</li>
 </ul>
@@ -1681,7 +1686,7 @@
 <li>准备 TS 服务器：TS 运行时、Caddy 运行目录、券商 SDK；IB 节点另行安装 <code>ibapi</code> 和 IB Gateway。</li>
 <li>在 DNSPod 创建或导入 TS 域名池，域名必须是 <code>scjrdomain.com</code> 下的完整 FQDN。</li>
 <li>配置 SM 的生产环境变量，先做 DNSPod 权限测试和域名池保存前的连通性验证。</li>
-<li>启动 SM Caddy/SM，确认 <code>https://scjrdomain.com/ping</code> 返回成功。</li>
+<li>启动 SM Caddy/SM，确认 <code>https://scjrdomain.com:4430/ping</code> 返回成功。</li>
 <li>启动 TS，先检查到 SM 的网络，再提交 TS 注册申请。</li>
 <li>在 SM 完成券商验证和审批；审批通过后核对分配域名和 A 记录。</li>
 <li>TS 拉取配置、初始化适配器和 Caddy，维护者再让交易员通过 Client 登录。</li>
@@ -1696,15 +1701,15 @@
 </tr>
 </thead>
 <tbody><tr>
-<td><code>https://scjrdomain.com</code></td>
-<td>SM <code>127.0.0.1:8800</code></td>
+<td><code>https://scjrdomain.com:4430</code></td>
+<td>SM <code>127.0.0.1:18800</code></td>
 </tr>
 <tr>
 <td><code>wss://&lt;TS domain&gt;/ws</code></td>
 <td>TS <code>127.0.0.1:8900</code></td>
 </tr>
 </tbody></table></div>
-<p>公网通常只开放 TCP 80/443。8800、8900、Caddy admin 2019/2020、IB Gateway 4001 不应开放公网。若临时直连测试改变了监听地址，测试结束后必须恢复回环监听和防火墙策略。</p>
+<p>SM 公网开放 TCP 8800 和 4430，TS 保持其公网 80/443。SM 18800、TS 8900、Caddy admin 2019/2020、IB Gateway 4001 不应开放公网。若临时直连测试改变了监听地址，测试结束后必须恢复回环监听和防火墙策略。</p>
 <h2 id="operations-section-5" data-toc-label="2. 运行目录和持久化数据">2. 运行目录和持久化数据<a class="product-docs-heading-link" href="#docs/operations/operations-section-5" data-doc-section-target="operations-section-5" data-doc-section-document="operations" aria-label="链接到本节">#</a></h2>
 <p>不要在不确认的情况下删除或重置以下目录；它们可能是当前实例正在使用的数据：</p>
 <div class="product-docs-table-wrap"><table>
@@ -1761,16 +1766,16 @@
 <h3 id="operations-section-7" data-toc-label="3.1 启停检查">3.1 启停检查<a class="product-docs-heading-link" href="#docs/operations/operations-section-7" data-doc-section-target="operations-section-7" data-doc-section-document="operations" aria-label="链接到本节">#</a></h3>
 <p>SM 和 TS 的 Windows 启动模板分别为 <code>deploy/windows/start_sm.bat</code>、<code>deploy/windows/start_ts.bat</code>。正式部署应从各端固定运行目录启动对应程序。启动前检查环境变量，而不是把密钥直接写入命令行历史。</p>
 <p>启动后依次检查：</p>
-<pre><code class="language-powershell">Test-NetConnection 127.0.0.1 -Port 8800   # SM 本机应用
+<pre><code class="language-powershell">Test-NetConnection 127.0.0.1 -Port 18800  # SM 本机应用
 Test-NetConnection 127.0.0.1 -Port 8900   # TS 本机应用
 Test-NetConnection 127.0.0.1 -Port 2019   # SM Caddy 管理端，仅本机
 Test-NetConnection 127.0.0.1 -Port 2020   # TS Caddy 管理端，仅本机
 </code></pre>
 <p>对外验证优先使用：</p>
-<pre><code class="language-powershell">curl.exe -I https://scjrdomain.com/ping
+<pre><code class="language-powershell">curl.exe -I https://scjrdomain.com:4430/ping
 </code></pre>
 <p><code>HEAD</code> 可能返回 405，因为 <code>/ping</code> 只允许 GET；这仍说明 TLS、域名和 Caddy 已经到达 SM。需要确认业务响应时使用 GET：</p>
-<pre><code class="language-powershell">curl.exe https://scjrdomain.com/ping
+<pre><code class="language-powershell">curl.exe https://scjrdomain.com:4430/ping
 </code></pre>
 <h3 id="operations-section-8" data-toc-label="3.2 重新安装">3.2 重新安装<a class="product-docs-heading-link" href="#docs/operations/operations-section-8" data-doc-section-target="operations-section-8" data-doc-section-document="operations" aria-label="链接到本节">#</a></h3>
 <p>当前没有需要支持的“原目录升级兼容”流程；正式产品只按重新安装处理。重装前应：</p>
@@ -1786,8 +1791,8 @@ Test-NetConnection 127.0.0.1 -Port 2020   # TS Caddy 管理端，仅本机
 <p>不应把开发机的 SM 数据库直接带进生产，除非维护者明确决定迁移，并已确认其中没有测试账号、旧节点、凭据或敏感日志。</p>
 <h2 id="operations-section-9" data-toc-label="4. Caddy 和域名池维护">4. Caddy 和域名池维护<a class="product-docs-heading-link" href="#docs/operations/operations-section-9" data-doc-section-target="operations-section-9" data-doc-section-document="operations" aria-label="链接到本节">#</a></h2>
 <h3 id="operations-section-10" data-toc-label="4.1 Caddy">4.1 Caddy<a class="product-docs-heading-link" href="#docs/operations/operations-section-10" data-doc-section-target="operations-section-10" data-doc-section-document="operations" aria-label="链接到本节">#</a></h3>
-<p>SM Caddy 管理地址为 <code>127.0.0.1:2019</code>，TS Caddy 管理地址为 <code>127.0.0.1:2020</code>。Caddyfile 示例位于 <code>deploy/caddy/</code>。SM Caddy 反代 8800；TS Caddy 反代 <code>/ws</code> 到 8900，并只暴露受控的 TS 管理接口路径。</p>
-<p>Caddy 的证书和配置状态分别位于 <code>Server_manager/caddy/</code> 与 <code>Trader_Server/caddy/</code> 下的 <code>data/</code>、<code>config/</code>。重新安装时如果删除这些目录，可能需要重新签发证书；正式维护应先备份并确认 DNS 已指向正确服务器。不要把 Caddy 证书、私钥和自动生成数据提交到 Git。</p>
+<p>SM Caddy 管理地址为 <code>127.0.0.1:2019</code>，TS Caddy 管理地址为 <code>127.0.0.1:2020</code>。Caddyfile 示例位于 <code>deploy/caddy/</code>。SM Caddy 对外使用 8800/4430，反代到 <code>127.0.0.1:18800</code>；TS Caddy 反代 <code>/ws</code> 到 8900，并只暴露受控的 TS 管理接口路径。</p>
+<p>Caddy 的证书和配置状态分别位于 <code>Server_manager/caddy/</code> 与 <code>Trader_Server/caddy/</code> 下的 <code>data/</code>、<code>config/</code>。SM 使用非标准公网端口时，证书签发仍依赖 CA 的 80/443 挑战端口；如果这些端口无法开放，应保留已有证书数据，或在 SM 启动环境中同时配置 <code>SM_CADDY_CERT_FILE</code> 和 <code>SM_CADDY_KEY_FILE</code>。重新安装时如果删除这些目录，可能需要重新签发证书；正式维护应先备份并确认 DNS 已指向正确服务器。不要把 Caddy 证书、私钥和自动生成数据提交到 Git。</p>
 <h3 id="operations-section-11" data-toc-label="4.2 TS 域名池">4.2 TS 域名池<a class="product-docs-heading-link" href="#docs/operations/operations-section-11" data-doc-section-target="operations-section-11" data-doc-section-document="operations" aria-label="链接到本节">#</a></h3>
 <p>域名池处理顺序：</p>
 <ol>
@@ -1826,8 +1831,8 @@ Test-NetConnection 127.0.0.1 -Port 2020   # TS Caddy 管理端，仅本机
 <p>检查顺序：</p>
 <ol>
 <li>DNS 是否解析到 SM 服务器。</li>
-<li><code>curl.exe https://scjrdomain.com/ping</code> 是否返回 <code>{&quot;status&quot;:&quot;pong&quot;}</code>。</li>
-<li>SM 应用是否监听 8800，Caddy 是否反代到正确地址。</li>
+<li><code>curl.exe https://scjrdomain.com:4430/ping</code> 是否返回 <code>{&quot;status&quot;:&quot;pong&quot;}</code>。</li>
+<li>SM 应用是否监听 18800，Caddy 是否监听 8800/4430 并反代到正确地址。</li>
 <li>交易员账号是否 active、密码是否正确、是否绑定 TS。</li>
 <li>是否是 24 小时 Client token 过期；重新登录获取新 token。</li>
 </ol>

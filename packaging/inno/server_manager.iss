@@ -13,6 +13,9 @@
 #ifndef InstalledLocalConfig
   #error InstalledLocalConfig is required
 #endif
+#ifndef InstallerHelper
+  #error InstallerHelper is required
+#endif
 #ifndef ArtifactSuffix
   #define ArtifactSuffix ""
 #endif
@@ -56,7 +59,7 @@ SignToolRetryDelay=500
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标："
 
 [Dirs]
 Name: "{commonappdata}\SC\ServerManager"; Flags: uninsneveruninstall; AfterInstall: HardenRuntimeAcl
@@ -74,6 +77,7 @@ Type: files; Name: "{app}\BUILD_INFO.json"
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "start_sm.bat,sm.local.bat.example,sm.env.example"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#InstalledLauncher}"; DestDir: "{app}"; DestName: "start_sm.bat"; Flags: ignoreversion
 Source: "{#InstalledLocalConfig}"; DestDir: "{commonappdata}\SC\ServerManager"; DestName: "sm.local.bat"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#InstallerHelper}"; DestDir: "{tmp}"; Flags: dontcopy deleteafterinstall
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\start_sm.bat"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"
@@ -83,6 +87,207 @@ Name: "{commondesktop}\{#AppName}"; Filename: "{app}\start_sm.bat"; WorkingDir: 
 Filename: "{app}\caddy\caddy.exe"; Parameters: "stop --address 127.0.0.1:2019"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "StopServerManagerCaddy"
 
 [Code]
+var
+  DeploymentModePage: TInputOptionWizardPage;
+  DataSourcePage: TInputDirWizardPage;
+  ConfigurationPage: TInputQueryWizardPage;
+  FixedConfigurationPage: TInputQueryWizardPage;
+  RequestFilePath: String;
+  StateFilePath: String;
+  Prepared: Boolean;
+
+function QuoteArgument(Value: String): String;
+begin
+  Result := '"' + Value + '"';
+end;
+
+function HelperFilePath: String;
+begin
+  Result := ExpandConstant('{tmp}\SC_SM_InstallerHelper.exe');
+end;
+
+function RunHelper(Arguments: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(HelperFilePath, Arguments, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    and (ResultCode = 0);
+end;
+
+function InitializeSetup: Boolean;
+var
+  ExistingStatePath: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+  ExistingStatePath := ExpandConstant('{commonappdata}\SC\ServerManager\.installer\transaction.json');
+  if FileExists(ExistingStatePath) then begin
+    ExtractTemporaryFile('SC_SM_InstallerHelper.exe');
+    if (not Exec(HelperFilePath,
+        '--recover --state-file ' + QuoteArgument(ExistingStatePath), '', SW_HIDE,
+        ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then begin
+      MsgBox('检测到未完成的 SM 安装事务，且自动恢复失败。已取消本次安装。',
+        mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+procedure ProtectRequestFile;
+var
+  ResultCode: Integer;
+  Arguments: String;
+begin
+  Arguments := '"' + RequestFilePath + '" /inheritance:r /grant:r ' +
+    '"*S-1-5-18:F" "*S-1-5-32-544:F"';
+  if (not Exec(ExpandConstant('{sys}\icacls.exe'), Arguments, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
+    RaiseException('无法保护临时 SM 安装配置文件。');
+end;
+
+procedure WriteInstallerRequest;
+var
+  Mode: String;
+begin
+  if DeploymentModePage.SelectedValueIndex = 0 then
+    Mode := 'fresh'
+  else
+    Mode := 'upgrade';
+
+  DeleteFile(RequestFilePath);
+  SetIniString('install', 'mode', Mode, RequestFilePath);
+  SetIniString('install', 'app_dir', ExpandConstant('{app}'), RequestFilePath);
+  SetIniString('install', 'data_dir', ExpandConstant('{commonappdata}\SC\ServerManager\data'), RequestFilePath);
+  SetIniString('install', 'source_data', DataSourcePage.Values[0], RequestFilePath);
+  SetIniString('install', 'server_host', '127.0.0.1', RequestFilePath);
+  SetIniString('install', 'server_port', '18800', RequestFilePath);
+  SetIniString('install', 'public_http_port', '8800', RequestFilePath);
+  SetIniString('install', 'public_https_port', '4430', RequestFilePath);
+  SetIniString('install', 'public_base_url', 'https://scjrdomain.com:4430', RequestFilePath);
+  SetIniString('install', 'caddy_admin', '127.0.0.1:2019', RequestFilePath);
+  SetIniString('install', 'bootstrap_admin_username', ConfigurationPage.Values[0], RequestFilePath);
+  SetIniString('install', 'bootstrap_admin_password', ConfigurationPage.Values[1], RequestFilePath);
+  SetIniString('install', 'dnspod_secret_id', ConfigurationPage.Values[2], RequestFilePath);
+  SetIniString('install', 'dnspod_secret_key', ConfigurationPage.Values[3], RequestFilePath);
+  SetIniString('install', 'certificate_source', ConfigurationPage.Values[4], RequestFilePath);
+  SetIniString('install', 'key_source', ConfigurationPage.Values[5], RequestFilePath);
+  SetIniString('install', 'application_version', '{#AppVersion}', RequestFilePath);
+  ProtectRequestFile;
+end;
+
+function RunPreflight: Boolean;
+var
+  ReportFilePath: String;
+begin
+  ExtractTemporaryFile('SC_SM_InstallerHelper.exe');
+  ReportFilePath := ExpandConstant('{tmp}\SC_SM_Preflight.json');
+  Result := RunHelper(
+    '--preflight --request-file ' + QuoteArgument(RequestFilePath) +
+    ' --report-file ' + QuoteArgument(ReportFilePath));
+  if not Result then
+    MsgBox('SM 安装前检查失败。请查看生成的检查报告：' + ReportFilePath,
+      mbError, MB_OK);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if Prepared then
+    exit;
+  WriteInstallerRequest;
+  ExtractTemporaryFile('SC_SM_InstallerHelper.exe');
+  StateFilePath := ExpandConstant('{commonappdata}\SC\ServerManager\.installer\transaction.json');
+  if not RunHelper(
+    '--prepare --request-file ' + QuoteArgument(RequestFilePath) +
+    ' --state-file ' + QuoteArgument(StateFilePath)) then
+    Result := 'SM 安装准备失败，未替换现有程序文件。';
+  if Result = '' then
+    Prepared := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and Prepared then begin
+    if not RunHelper(
+      '--commit --request-file ' + QuoteArgument(RequestFilePath) +
+      ' --state-file ' + QuoteArgument(StateFilePath)) then
+      RaiseException('SM 安装提交失败，安装器已尝试恢复原程序和 data 数据。');
+    DeleteFile(RequestFilePath);
+  end;
+end;
+
+procedure InitializeWizard;
+begin
+  RequestFilePath := ExpandConstant('{tmp}\SC_SM_InstallerRequest.ini');
+  DeploymentModePage := CreateInputOptionPage(
+    wpSelectDir,
+    '部署方式',
+    '请选择 SM 的部署方式',
+    '全新部署会创建新的运行数据；升级迁移会从选择的旧 data 目录导入业务数据。',
+    True,
+    True);
+  DeploymentModePage.Add('全新部署');
+  DeploymentModePage.Add('升级迁移');
+  DeploymentModePage.SelectedValueIndex := 0;
+
+  DataSourcePage := CreateInputDirPage(
+    DeploymentModePage.ID,
+    '旧 data 目录',
+    '选择需要迁移的旧 SM data 目录',
+    '仅升级迁移时必填。目录必须包含 server_manager.db；安装器只读导入，不会执行其中的脚本。',
+    False,
+    '');
+  DataSourcePage.Add('旧 data 目录（升级迁移必填）：');
+
+  ConfigurationPage := CreateInputQueryPage(
+    DataSourcePage.ID,
+    'SM 初始配置',
+    '填写 SM 的初始运行配置',
+    '固定域名和端口不可修改。管理员密码至少 12 位，不能使用 admin123。DNSPod 密钥填写腾讯云 CAM API 密钥，不是 DNSPod Token 或腾讯云登录密码。证书和私钥必须同时提供，并覆盖 scjrdomain.com；升级迁移中旧 data 已保存有效 DNS 配置或证书对时，对应字段可留空。为保护敏感信息，请勿截图、复制或提交密码、密钥和私钥。');
+  ConfigurationPage.Add('SM 管理员账号（必填）：', False);
+  ConfigurationPage.Add('SM 管理员密码（条件必填）：', True);
+  ConfigurationPage.Add('DNSPod SecretId（条件必填）：', False);
+  ConfigurationPage.Add('DNSPod SecretKey（条件必填）：', True);
+  ConfigurationPage.Add('SSL 证书文件（条件必填）：', False);
+  ConfigurationPage.Add('SSL 私钥文件（条件必填）：', False);
+  ConfigurationPage.Values[0] := 'admin';
+
+  FixedConfigurationPage := CreateInputQueryPage(
+    ConfigurationPage.ID,
+    '固定生产访问配置',
+    '确认 SM 固定生产访问参数',
+    '以下内容由系统固定，仅展示，不可修改。');
+  FixedConfigurationPage.Add('SM 域名（系统固定不可修改）：', False);
+  FixedConfigurationPage.Add('公网 HTTP 端口（系统固定不可修改）：', False);
+  FixedConfigurationPage.Add('公网 HTTPS 端口（系统固定不可修改）：', False);
+  FixedConfigurationPage.Add('Client 访问地址（系统固定不可修改）：', False);
+  FixedConfigurationPage.Add('SM 本地应用端口（系统固定不可修改）：', False);
+  FixedConfigurationPage.Values[0] := 'scjrdomain.com';
+  FixedConfigurationPage.Values[1] := '8800';
+  FixedConfigurationPage.Values[2] := '4430';
+  FixedConfigurationPage.Values[3] := 'https://scjrdomain.com:4430';
+  FixedConfigurationPage.Values[4] := '18800';
+  FixedConfigurationPage.Edits[0].ReadOnly := True;
+  FixedConfigurationPage.Edits[1].ReadOnly := True;
+  FixedConfigurationPage.Edits[2].ReadOnly := True;
+  FixedConfigurationPage.Edits[3].ReadOnly := True;
+  FixedConfigurationPage.Edits[4].ReadOnly := True;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = DataSourcePage.ID) and (DeploymentModePage.SelectedValueIndex = 0);
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if CurPageID = FixedConfigurationPage.ID then begin
+    WriteInstallerRequest;
+    Result := RunPreflight;
+  end;
+end;
+
 procedure HardenRuntimeAcl;
 var
   ResultCode: Integer;
@@ -94,17 +299,5 @@ begin
     '"*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T /C';
   if (not Exec(ExpandConstant('{sys}\icacls.exe'), Arguments, '', SW_HIDE,
       ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
-    RaiseException('Unable to secure the Server Manager runtime directory.');
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  CaddyExe: String;
-  ResultCode: Integer;
-begin
-  Result := '';
-  CaddyExe := ExpandConstant('{app}\caddy\caddy.exe');
-  if FileExists(CaddyExe) then
-    Exec(CaddyExe, 'stop --address 127.0.0.1:2019', '', SW_HIDE,
-      ewWaitUntilTerminated, ResultCode);
+    RaiseException('无法保护 Server Manager 运行目录。');
 end;

@@ -23,8 +23,57 @@ class CaddyRenderTests(unittest.TestCase):
         rendered = sm_caddy.render_sm_caddyfile()
         self.assertIn("admin 127.0.0.1:2019", rendered)
         self.assertIn("scjrdomain.com", rendered)
-        self.assertIn("reverse_proxy 127.0.0.1:8800", rendered)
+        self.assertIn("http://scjrdomain.com:8800", rendered)
+        self.assertIn("redir https://scjrdomain.com:4430{uri} permanent", rendered)
+        self.assertIn("https://scjrdomain.com:4430", rendered)
+        self.assertIn("reverse_proxy 127.0.0.1:18800", rendered)
         self.assertLess(rendered.index("handle @internal_only"), rendered.index("handle {"))
+
+    def test_sm_render_keeps_standard_ports_configurable(self):
+        rendered = sm_caddy.render_sm_caddyfile(
+            server_port=8800,
+            public_http_port=80,
+            public_https_port=443,
+        )
+        self.assertIn("http://scjrdomain.com {", rendered)
+        self.assertIn("redir https://scjrdomain.com{uri} permanent", rendered)
+        self.assertIn("https://scjrdomain.com {", rendered)
+        self.assertIn("reverse_proxy 127.0.0.1:8800", rendered)
+
+    def test_sm_render_rejects_public_upstream_port_collision(self):
+        with self.assertRaises(ValueError):
+            sm_caddy.render_sm_caddyfile(
+                server_port=8800,
+                public_http_port=8800,
+                public_https_port=4430,
+            )
+
+    def test_sm_render_rejects_duplicate_public_ports(self):
+        with self.assertRaises(ValueError):
+            sm_caddy.render_sm_caddyfile(
+                public_http_port=4430,
+                public_https_port=4430,
+            )
+
+    def test_sm_render_rejects_admin_port_collision(self):
+        with self.assertRaises(ValueError):
+            sm_caddy.render_sm_caddyfile(
+                admin_address="127.0.0.1:4430",
+            )
+
+    def test_sm_render_supports_optional_manual_certificate(self):
+        rendered = sm_caddy.render_sm_caddyfile(
+            cert_file=r"C:\SC\certs\sm.crt",
+            key_file=r"C:\SC\certs\sm.key",
+        )
+        self.assertIn(
+            "tls " + json.dumps(r"C:\SC\certs\sm.crt") + " " + json.dumps(r"C:\SC\certs\sm.key"),
+            rendered,
+        )
+
+    def test_sm_render_rejects_partial_manual_certificate(self):
+        with self.assertRaises(ValueError):
+            sm_caddy.render_sm_caddyfile(cert_file="sm.crt")
 
     def test_ts_render_routes_before_fallback_404(self):
         rendered = ts_caddy.render_ts_caddyfile("ts-01.ts.scjrdomain.com")

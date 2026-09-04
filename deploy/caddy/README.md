@@ -19,8 +19,9 @@ files only provide production environment variables and launch the application.
 
 ## SM
 
-- Public entry: `https://scjrdomain.com`
-- Local upstream: `http://127.0.0.1:8800`
+- Public HTTP entry: `http://scjrdomain.com:8800` (redirects to HTTPS)
+- Public HTTPS entry: `https://scjrdomain.com:4430`
+- Local upstream: `http://127.0.0.1:18800`
 - Local Caddy admin endpoint: `127.0.0.1:2019`
 - Source runtime executable: `Server_manager/caddy/caddy.exe`
 - Packaged runtime executable: `caddy/caddy.exe` beside `ServerManager.exe`
@@ -81,10 +82,16 @@ The local TS then remains available at `ws://127.0.0.1:8900/ws`.
 
 ## Firewall and certificates
 
-- Open public TCP ports 80 and 443.
-- Do not expose 8800, 8900, 2019, or 2020 publicly.
+- Open public TCP ports 8800 and 4430 for SM. TS keeps its own public 80 and 443.
+- Do not expose SM 18800, TS 8900, or Caddy admin ports 2019/2020 publicly.
 - DNS must point each domain to the correct server before certificate issuance.
-- Caddy obtains and renews the individual SM and TS certificates automatically.
+- Caddy can obtain and renew certificates automatically only when the CA challenge ports
+  (normally 80/443) are reachable. With SM restricted to 8800/4430, preserve an
+  already-issued certificate in `caddy/data`, or configure both `SM_CADDY_CERT_FILE`
+  and `SM_CADDY_KEY_FILE` to absolute paths for a manually issued certificate.
+- The certificate and private key must cover `scjrdomain.com`; do not place either
+  file in Client packages or commit them to Git. TS certificate behavior remains
+  unchanged.
 
 ## Temporary direct-IP testing
 

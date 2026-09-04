@@ -23,8 +23,9 @@ from .https_client import describe_connection_error, urlopen
 from ..config import (
     state, save_config, save_register_state,
     load_register_state, clear_register_state,
-    DEFAULT_MANAGER_URL, DEFAULT_NODE_NAME, DEFAULT_REGION,
+    DEFAULT_NODE_NAME, DEFAULT_REGION,
     DEFAULT_HOST, DEFAULT_CAPABILITIES, DEFAULT_CONTACT, DEFAULT_DESCRIPTION,
+    resolve_manager_url,
     TS_CADDY_REQUIRED,
 )
 
@@ -90,7 +91,7 @@ def submit_registration(
 
     pending = load_register_state()
     if pending and pending.get("request_id"):
-        state.manager_url = pending.get("manager_url") or state.manager_url
+        state.manager_url = resolve_manager_url(pending.get("manager_url"))
         state.node_name = pending.get("node_name") or state.node_name
         state.status = "registering"
         try:
@@ -416,7 +417,7 @@ def check_and_restore_session() -> bool:
     if is_registered():
         state.server_id = cfg["server_id"]
         state.token = cfg["token"]
-        state.manager_url = cfg.get("manager_url", DEFAULT_MANAGER_URL)
+        state.manager_url = resolve_manager_url(cfg.get("manager_url"))
         state.node_name = cfg.get("node_name", DEFAULT_NODE_NAME)
         state.region = cfg.get("region", DEFAULT_REGION)
         state.public_ip = cfg.get("public_ip", "")
@@ -429,7 +430,7 @@ def check_and_restore_session() -> bool:
     # Case 2: 有未完成的注册 → 需要调用 await_approval 恢复
     reg_state = load_register_state()
     if reg_state:
-        state.manager_url = reg_state.get("manager_url", DEFAULT_MANAGER_URL)
+        state.manager_url = resolve_manager_url(reg_state.get("manager_url"))
         state.node_name = reg_state.get("node_name", DEFAULT_NODE_NAME)
         state.status = "registering"
         log.info(f"Found pending registration: {reg_state['request_id']}, "

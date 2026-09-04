@@ -19,7 +19,7 @@ import database
 import domain_pool
 from dnspod_client import DNSPodClient, DNSPodError
 from Client.constants import DEFAULT_SM_BASE_URL
-from Trader_Server.config import DEFAULT_MANAGER_URL
+from Trader_Server.config import DEFAULT_MANAGER_URL, resolve_manager_url
 from Trader_Server.services.caddy_manager import render_ts_caddyfile
 from Trader_Server.services.public_ip import validate_public_ipv4
 
@@ -95,8 +95,13 @@ class ProductionDomainTests(unittest.TestCase):
         self.assertTrue(released["cooldown_until"])
 
     def test_public_domain_defaults_and_caddy_render(self):
-        self.assertEqual(DEFAULT_SM_BASE_URL, "https://scjrdomain.com")
-        self.assertEqual(DEFAULT_MANAGER_URL, "https://scjrdomain.com")
+        self.assertEqual(DEFAULT_SM_BASE_URL, "https://scjrdomain.com:4430")
+        self.assertEqual(DEFAULT_MANAGER_URL, "https://scjrdomain.com:4430")
+        self.assertEqual(resolve_manager_url("https://scjrdomain.com"), DEFAULT_MANAGER_URL)
+        self.assertEqual(
+            resolve_manager_url("https://custom.example.com:9443"),
+            "https://custom.example.com:9443",
+        )
         self.assertEqual(validate_public_ipv4("8.8.8.8"), "8.8.8.8")
         with self.assertRaises(ValueError):
             validate_public_ipv4("192.0.2.10")

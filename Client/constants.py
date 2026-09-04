@@ -70,12 +70,12 @@ AUTH_EXPIRY_WARNING_SECONDS = max(
 IS_PACKAGED_CLIENT = bool(getattr(sys, "frozen", False))
 
 DEFAULT_SM_BASE_URL = (
-    "https://scjrdomain.com"
+    "https://scjrdomain.com:4430"
     if IS_PACKAGED_CLIENT
-    else os.getenv("CLIENT_SM_BASE_URL", "https://scjrdomain.com").strip()
+    else os.getenv("CLIENT_SM_BASE_URL", "https://scjrdomain.com:4430").strip()
 )
 DEFAULT_SERVER_HOST = "127.0.0.1" if IS_PACKAGED_CLIENT else os.getenv("CLIENT_SM_HOST", "127.0.0.1")
-DEFAULT_SERVER_PORT = 8800 if IS_PACKAGED_CLIENT else int(os.getenv("CLIENT_SM_PORT", "8800"))
+DEFAULT_SERVER_PORT = 18800 if IS_PACKAGED_CLIENT else int(os.getenv("CLIENT_SM_PORT", "18800"))
 
 # ── Trader_Server (TS) 直连配置 ────────────────────────────────────────────
 DEFAULT_TS_WS_URL = "" if IS_PACKAGED_CLIENT else os.getenv("CLIENT_TS_WS_URL", "").strip()

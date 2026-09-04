@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 if not defined TS_ENVIRONMENT set "TS_ENVIRONMENT=production"
 if not defined TS_DATA_DIR set "TS_DATA_DIR=%~dp0data"
-if not defined TS_MANAGER_URL set "TS_MANAGER_URL=https://scjrdomain.com"
+if not defined TS_MANAGER_URL set "TS_MANAGER_URL=https://scjrdomain.com:4430"
 if not defined TS_BIND_HOST set "TS_BIND_HOST=127.0.0.1"
 if not defined TS_WS_PORT set "TS_WS_PORT=8900"
 if not defined TS_CADDY_AUTO_MANAGE set "TS_CADDY_AUTO_MANAGE=1"

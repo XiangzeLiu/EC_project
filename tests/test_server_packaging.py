@@ -55,7 +55,7 @@ class ServerPackagingTests(unittest.TestCase):
         self.assertIn("ALLOW_DIRTY_BUILD", runbook)
         self.assertIn("git_dirty=true", runbook)
         self.assertIn("SHA256SUMS.txt", runbook)
-        self.assertIn("caddy\\data", runbook)
+        self.assertIn("%ProgramData%\\SC\\ServerManager\\data", runbook)
         self.assertIn("bootstrap_packaging_tools.bat", runbook)
 
     def test_packaging_tools_are_version_and_hash_locked(self):
@@ -111,13 +111,24 @@ class ServerPackagingTests(unittest.TestCase):
                 self.assertIn("Flags: uninsneveruninstall", content)
                 self.assertIn("Flags: onlyifdoesntexist uninsneveruninstall", content)
                 self.assertIn("AfterInstall: HardenRuntimeAcl", content)
-                self.assertIn("RaiseException('Unable to secure", content)
+                self.assertTrue(
+                    "RaiseException('Unable to secure" in content
+                    or "RaiseException('无法保护" in content
+                )
                 self.assertIn("SignedUninstaller=yes", content)
                 self.assertIn("SignTool=scsign", content)
                 self.assertNotIn("[UninstallDelete]", content)
                 for line in content.splitlines():
                     if line.startswith("Type:"):
                         self.assertIn('Name: "{app}\\', line)
+                if name == "sm":
+                    self.assertIn("InstallerHelper", content)
+                    self.assertIn("--prepare", content)
+                    self.assertIn("--commit", content)
+                    self.assertIn("ExtractTemporaryFile('SC_SM_InstallerHelper.exe')", content)
+                    self.assertIn("固定生产访问配置", content)
+                    self.assertIn("条件必填", content)
+                    self.assertIn("系统固定不可修改", content)
 
     def test_signing_helper_is_fail_closed_for_release_builds(self):
         helper = (ROOT_DIR / "packaging" / "windows_signing.ps1").read_text(encoding="utf-8")
@@ -169,6 +180,8 @@ class ServerPackagingTests(unittest.TestCase):
         self.assertIn('set "SM_ENVIRONMENT=production"', sm_script)
         self.assertIn('set "SM_DATA_DIR=%~dp0data"', sm_script)
         self.assertIn('set "SERVER_MANAGER_DB_PATH=%SM_DATA_DIR%\\server_manager.db"', sm_script)
+        self.assertIn('deployment.json', sm_script)
+        self.assertIn('deployment.json', (ROOT_DIR / "deploy" / "windows" / "start_sm_installed.bat").read_text(encoding="utf-8"))
         self.assertIn('set "SM_DOMAIN_COOLDOWN_SECONDS=1800"', sm_script)
         self.assertNotIn("admin123", sm_script)
         self.assertNotIn("admin123", sm_example)

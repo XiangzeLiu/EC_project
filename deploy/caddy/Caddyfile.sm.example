@@ -2,7 +2,11 @@
 	admin 127.0.0.1:2019
 }
 
-scjrdomain.com {
+http://scjrdomain.com:8800 {
+	redir https://scjrdomain.com:4430{uri} permanent
+}
+
+https://scjrdomain.com:4430 {
 	encode zstd gzip
 
 	header {
@@ -17,6 +21,6 @@ scjrdomain.com {
 	}
 
 	handle {
-		reverse_proxy 127.0.0.1:8800
+		reverse_proxy 127.0.0.1:18800
 	}
 }
