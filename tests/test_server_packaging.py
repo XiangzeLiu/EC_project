@@ -127,6 +127,10 @@ class ServerPackagingTests(unittest.TestCase):
                     self.assertIn("--commit", content)
                     self.assertIn("ExtractTemporaryFile('SC_SM_InstallerHelper.exe')", content)
                     self.assertIn("固定生产访问配置", content)
+                    self.assertIn("CertificatePage: TInputFileWizardPage", content)
+                    self.assertIn("CreateInputFilePage", content)
+                    self.assertIn("certificate_source', CertificatePage.Values[0]", content)
+                    self.assertIn("key_source', CertificatePage.Values[1]", content)
                     self.assertIn("条件必填", content)
                     self.assertIn("系统固定不可修改", content)
 

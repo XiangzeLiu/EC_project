@@ -91,6 +91,7 @@ var
   DeploymentModePage: TInputOptionWizardPage;
   DataSourcePage: TInputDirWizardPage;
   ConfigurationPage: TInputQueryWizardPage;
+  CertificatePage: TInputFileWizardPage;
   FixedConfigurationPage: TInputQueryWizardPage;
   RequestFilePath: String;
   StateFilePath: String;
@@ -169,8 +170,8 @@ begin
   SetIniString('install', 'bootstrap_admin_password', ConfigurationPage.Values[1], RequestFilePath);
   SetIniString('install', 'dnspod_secret_id', ConfigurationPage.Values[2], RequestFilePath);
   SetIniString('install', 'dnspod_secret_key', ConfigurationPage.Values[3], RequestFilePath);
-  SetIniString('install', 'certificate_source', ConfigurationPage.Values[4], RequestFilePath);
-  SetIniString('install', 'key_source', ConfigurationPage.Values[5], RequestFilePath);
+  SetIniString('install', 'certificate_source', CertificatePage.Values[0], RequestFilePath);
+  SetIniString('install', 'key_source', CertificatePage.Values[1], RequestFilePath);
   SetIniString('install', 'application_version', '{#AppVersion}', RequestFilePath);
   ProtectRequestFile;
 end;
@@ -243,17 +244,25 @@ begin
     DataSourcePage.ID,
     'SM 初始配置',
     '填写 SM 的初始运行配置',
-    '固定域名和端口不可修改。管理员密码至少 12 位，不能使用 admin123。DNSPod 密钥填写腾讯云 CAM API 密钥，不是 DNSPod Token 或腾讯云登录密码。证书和私钥必须同时提供，并覆盖 scjrdomain.com；升级迁移中旧 data 已保存有效 DNS 配置或证书对时，对应字段可留空。为保护敏感信息，请勿截图、复制或提交密码、密钥和私钥。');
+    '管理员账号必填。全新部署时管理员密码和 DNSPod 密钥必填；升级迁移可沿用旧 data 中的有效配置。DNSPod 密钥填写腾讯云 CAM API 密钥，不是 DNSPod Token 或腾讯云登录密码。');
   ConfigurationPage.Add('SM 管理员账号（必填）：', False);
   ConfigurationPage.Add('SM 管理员密码（条件必填）：', True);
   ConfigurationPage.Add('DNSPod SecretId（条件必填）：', False);
   ConfigurationPage.Add('DNSPod SecretKey（条件必填）：', True);
-  ConfigurationPage.Add('SSL 证书文件（条件必填）：', False);
-  ConfigurationPage.Add('SSL 私钥文件（条件必填）：', False);
   ConfigurationPage.Values[0] := 'admin';
 
-  FixedConfigurationPage := CreateInputQueryPage(
+  CertificatePage := CreateInputFilePage(
     ConfigurationPage.ID,
+    'SSL 证书配置',
+    '选择 SSL 证书和私钥文件',
+    '证书和私钥必须同时提供，并覆盖 scjrdomain.com。全新部署时必填；升级迁移时可沿用旧 data 中的有效证书对。');
+  CertificatePage.Add('SSL 证书文件（条件必填）：',
+    '证书文件 (*.crt;*.pem)|*.crt;*.pem|所有文件 (*.*)|*.*', '');
+  CertificatePage.Add('SSL 私钥文件（条件必填）：',
+    '私钥文件 (*.key;*.pem)|*.key;*.pem|所有文件 (*.*)|*.*', '');
+
+  FixedConfigurationPage := CreateInputQueryPage(
+    CertificatePage.ID,
     '固定生产访问配置',
     '确认 SM 固定生产访问参数',
     '以下内容由系统固定，仅展示，不可修改。');
