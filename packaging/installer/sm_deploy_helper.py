@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import logging
 import locale
 import os
 import shutil
@@ -102,6 +103,34 @@ def _remove_file(path: Path) -> None:
         return
     _set_runtime_acl(path)
     path.unlink()
+
+
+def _remove_tree_retry(path: Path, attempts: int = 3) -> None:
+    last_error: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            _remove_tree(path)
+            return
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < max(1, attempts):
+                time.sleep(0.25)
+    assert last_error is not None
+    raise last_error
+
+
+def _remove_file_retry(path: Path, attempts: int = 3) -> None:
+    last_error: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            _remove_file(path)
+            return
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < max(1, attempts):
+                time.sleep(0.25)
+    assert last_error is not None
+    raise last_error
 
 
 def _required_path(value: str | Path | None, label: str) -> Path:
@@ -512,32 +541,113 @@ def _write_local_config(runtime_root: Path, request: dict[str, str]) -> None:
 
 
 def _load_shared_sm_modules(data_dir: Path, database_path: Path, request: dict[str, str]):
-    os.environ.update(
+    previous_environment = os.environ.copy()
+    try:
+        os.environ.update(
+            {
+                "SM_ENVIRONMENT": "production",
+                "SM_DATA_DIR": str(data_dir),
+                "SERVER_MANAGER_DB_PATH": str(database_path),
+                "SM_SOFTWARE_STORAGE_DIR": str(data_dir / "software"),
+                "SM_DNSPOD_MODE": "real",
+                "SM_DNSPOD_SECRET_ID": request.get("dnspod_secret_id", ""),
+                "SM_DNSPOD_SECRET_KEY": request.get("dnspod_secret_key", ""),
+                "SM_BOOTSTRAP_ADMIN_USERNAME": request.get("bootstrap_admin_username", "admin"),
+                "SM_BOOTSTRAP_ADMIN_PASSWORD": request.get("bootstrap_admin_password", ""),
+                "SM_CADDY_AUTO_MANAGE": "1",
+                "SM_CADDY_REQUIRED": "1",
+            }
+        )
+        source_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+        if str(source_root / "Server_manager") not in sys.path:
+            sys.path.insert(0, str(source_root / "Server_manager"))
+        if str(source_root) not in sys.path:
+            sys.path.insert(0, str(source_root))
+        import config  # type: ignore
+        import data_layout  # type: ignore
+        import database  # type: ignore
+
+        database._DB_PATH = str(database_path)
+        return config, data_layout, database
+    finally:
+        # The imported modules retain their resolved configuration, but the
+        # helper process must not leak staging paths into the later launch.
+        os.environ.clear()
+        os.environ.update(previous_environment)
+
+
+def _close_staging_log_handlers(stage_data: Path) -> None:
+    """Release SM file log handles before Windows moves or removes staging."""
+    stage_data = _full(stage_data)
+    loggers: list[logging.Logger] = [logging.getLogger()]
+    for candidate in logging.Logger.manager.loggerDict.values():
+        if isinstance(candidate, logging.Logger):
+            loggers.append(candidate)
+
+    seen_handlers: set[int] = set()
+    for logger in loggers:
+        for handler in list(logger.handlers):
+            handler_id = id(handler)
+            if handler_id in seen_handlers:
+                continue
+            seen_handlers.add(handler_id)
+            filename = getattr(handler, "baseFilename", "")
+            if not filename:
+                continue
+            try:
+                belongs_to_stage = _is_within(stage_data, filename)
+            except (OSError, ValueError):
+                belongs_to_stage = False
+            if not belongs_to_stage:
+                continue
+            logger.removeHandler(handler)
+            try:
+                handler.flush()
+            finally:
+                handler.close()
+
+
+def _runtime_process_environment(
+    app_dir: Path,
+    data_dir: Path,
+    request: dict[str, str],
+) -> dict[str, str]:
+    """Build an explicit production environment for the installed launcher."""
+    runtime_root = data_dir.parent
+    environment = os.environ.copy()
+    environment.update(
         {
             "SM_ENVIRONMENT": "production",
+            "SM_RUNTIME_ROOT": str(runtime_root),
             "SM_DATA_DIR": str(data_dir),
-            "SERVER_MANAGER_DB_PATH": str(database_path),
+            "SERVER_MANAGER_DB_PATH": str(data_dir / "server_manager.db"),
             "SM_SOFTWARE_STORAGE_DIR": str(data_dir / "software"),
+            "SM_CADDY_EXE": str(app_dir / "caddy" / "caddy.exe"),
+            "SM_CADDY_DIR": str(runtime_root / "caddy"),
+            "SERVER_HOST": FIXED_SERVER_HOST,
+            "SERVER_PORT": str(FIXED_SERVER_PORT),
+            "SM_PUBLIC_HTTP_PORT": str(FIXED_PUBLIC_HTTP_PORT),
+            "SM_PUBLIC_HTTPS_PORT": str(FIXED_PUBLIC_HTTPS_PORT),
+            "SM_PUBLIC_BASE_URL": FIXED_PUBLIC_BASE_URL,
+            "SM_ALLOWED_HOSTS": "scjrdomain.com,127.0.0.1,localhost",
+            "SM_CORS_ORIGINS": f"{FIXED_PUBLIC_BASE_URL},http://127.0.0.1:{FIXED_SERVER_PORT},http://localhost:{FIXED_SERVER_PORT}",
+            "SM_COOKIE_SECURE": "1",
+            "SM_DOMAIN_POOL_REQUIRED": "1",
+            "SM_DOMAIN_COOLDOWN_SECONDS": "1800",
             "SM_DNSPOD_MODE": "real",
-            "SM_DNSPOD_SECRET_ID": request.get("dnspod_secret_id", ""),
-            "SM_DNSPOD_SECRET_KEY": request.get("dnspod_secret_key", ""),
-            "SM_BOOTSTRAP_ADMIN_USERNAME": request.get("bootstrap_admin_username", "admin"),
-            "SM_BOOTSTRAP_ADMIN_PASSWORD": request.get("bootstrap_admin_password", ""),
             "SM_CADDY_AUTO_MANAGE": "1",
             "SM_CADDY_REQUIRED": "1",
+            "SM_CADDY_ADMIN": FIXED_CADDY_ADMIN,
+            "SM_CADDY_START_TIMEOUT": "10",
+            "SM_DNSPOD_SECRET_ID": request.get("dnspod_secret_id", ""),
+            "SM_DNSPOD_SECRET_KEY": request.get("dnspod_secret_key", ""),
         }
     )
-    source_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-    if str(source_root / "Server_manager") not in sys.path:
-        sys.path.insert(0, str(source_root / "Server_manager"))
-    if str(source_root) not in sys.path:
-        sys.path.insert(0, str(source_root))
-    import config  # type: ignore
-    import data_layout  # type: ignore
-    import database  # type: ignore
-
-    database._DB_PATH = str(database_path)
-    return config, data_layout, database
+    # These variables override deployment.json when present.  Remove them so
+    # the installed SM reads the certificate pair persisted in data metadata.
+    environment.pop("SM_CADDY_CERT_FILE", None)
+    environment.pop("SM_CADDY_KEY_FILE", None)
+    return environment
 
 
 def _default_deployment() -> dict[str, Any]:
@@ -774,6 +884,15 @@ def _prepare(request_path: Path, state_path: Path) -> dict[str, Any]:
     runtime_root = data_dir.parent
     runtime_root.mkdir(parents=True, exist_ok=True)
     _ensure_installer_directory(runtime_root)
+    for diagnostic in (
+        runtime_root / ".installer" / "last_failure.json",
+        runtime_root / ".installer" / "sm-startup.log",
+    ):
+        try:
+            _remove_file_retry(diagnostic)
+        except Exception:
+            # A previous diagnostic must never prevent a new transaction.
+            pass
     transaction_id = uuid.uuid4().hex
     transaction_root = runtime_root / ".installer" / "transactions" / transaction_id
     transaction_root.mkdir(parents=True, exist_ok=False)
@@ -819,34 +938,91 @@ def _prepare(request_path: Path, state_path: Path) -> dict[str, Any]:
             pass
         if stop_attempted and (app_dir / "start_sm.bat").is_file():
             try:
-                _start_and_check(app_dir)
+                _start_and_check(app_dir, data_dir, request)
             except Exception:
                 pass
         raise
 
 
-def _start_and_check(app_dir: Path) -> None:
+def _tail_file(path: Path, limit: int = 80) -> str:
+    try:
+        return "".join(path.read_text(encoding="utf-8", errors="replace").splitlines(True)[-limit:])
+    except OSError:
+        return ""
+
+
+def _write_failure_report(
+    state_path: Path,
+    state: dict[str, Any],
+    error: Exception,
+    cleanup_error: str = "",
+) -> Path | None:
+    report_path = _full(state_path).parent / "last_failure.json"
+    transaction_root = str(state.get("transaction_root") or "")
+    startup_log = _full(state_path).parent / "sm-startup.log"
+    payload: dict[str, Any] = {
+        "product": "server_manager",
+        "status": "failed",
+        "phase": state.get("phase", ""),
+        "mode": state.get("mode", ""),
+        "error_type": type(error).__name__,
+        "error": str(error),
+        "cleanup_error": cleanup_error,
+        "app_dir": state.get("app_dir", ""),
+        "data_dir": state.get("data_dir", ""),
+        "transaction_root": transaction_root,
+        "failed_at": time.time(),
+        "startup_log_tail": _tail_file(startup_log),
+    }
+    if transaction_root:
+        stage_log = _full(transaction_root) / "data-stage" / "logs" / "sm_error.log"
+        payload["staging_error_log_tail"] = _tail_file(stage_log)
+    try:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        _set_runtime_acl(report_path)
+        return report_path
+    except Exception:
+        return None
+
+
+def _start_and_check(
+    app_dir: Path,
+    data_dir: Path,
+    request: dict[str, str],
+) -> None:
     launcher = app_dir / "start_sm.bat"
     executable = app_dir / "ServerManager.exe"
     caddy = app_dir / "caddy" / "caddy.exe"
     if not launcher.is_file() or not executable.is_file() or not caddy.is_file():
         raise InstallerError("installed SM files are incomplete")
+    startup_log = data_dir.parent / ".installer" / "sm-startup.log"
+    startup_log.parent.mkdir(parents=True, exist_ok=True)
+    startup_log.write_text("", encoding="utf-8")
+    environment = _runtime_process_environment(app_dir, data_dir, request)
     creation_flags = (
         getattr(subprocess, "DETACHED_PROCESS", 0)
         | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     )
-    subprocess.Popen(
-        ["cmd.exe", "/d", "/c", str(launcher)],
-        cwd=str(app_dir),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=creation_flags,
-        close_fds=True,
-    )
+    with startup_log.open("a", encoding="utf-8") as log_file:
+        process = subprocess.Popen(
+            ["cmd.exe", "/d", "/c", str(launcher)],
+            cwd=str(app_dir),
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=creation_flags,
+            close_fds=True,
+        )
     deadline = time.monotonic() + 45
     while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise InstallerError(
+                f"SM launcher exited during startup with code {process.returncode}; "
+                f"see {startup_log}"
+            )
         try:
             with urllib.request.urlopen(
                 f"http://127.0.0.1:{FIXED_SERVER_PORT}/ping", timeout=2
@@ -856,7 +1032,7 @@ def _start_and_check(app_dir: Path) -> None:
                     return
         except (OSError, urllib.error.URLError, json.JSONDecodeError):
             time.sleep(0.5)
-    raise InstallerError("SM local health check did not succeed")
+    raise InstallerError(f"SM local health check did not succeed; see {startup_log}")
 
 
 def _discard_transaction(
@@ -881,21 +1057,50 @@ def _discard_transaction(
     ):
         raise InstallerError("refusing to discard an unsafe installation path")
 
-    _stop_owned_processes(app_dir)
-    _remove_tree(app_dir)
-    _remove_tree(data_dir)
+    errors: list[str] = []
+    processes_stopped = True
+    try:
+        _stop_owned_processes(app_dir)
+    except Exception as exc:
+        processes_stopped = False
+        errors.append(f"stop processes: {exc}")
+    if processes_stopped:
+        for label, target in (("application", app_dir), ("data", data_dir)):
+            try:
+                _remove_tree_retry(target)
+            except Exception as exc:
+                errors.append(f"remove {label}: {exc}")
     try:
         _restore_firewall(state)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"restore firewall: {exc}")
 
     # The state file is diagnostic metadata.  Cleanup is anchored to the
     # installer directory so a corrupt or tampered transaction path cannot
     # redirect deletion outside the SM runtime.
-    _remove_tree(runtime_root / ".installer" / "transactions")
-    _remove_file(runtime_root / "sm.local.bat")
-    _remove_file(runtime_root / ".installer" / "install.lock")
-    _remove_file(state_path)
+    transaction_dir = runtime_root / ".installer" / "transactions"
+    transaction_removed = False
+    try:
+        _remove_tree_retry(transaction_dir)
+        transaction_removed = True
+    except Exception as exc:
+        errors.append(f"remove transaction data: {exc}")
+    if processes_stopped:
+        try:
+            _remove_file_retry(runtime_root / "sm.local.bat")
+        except Exception as exc:
+            errors.append(f"remove local configuration: {exc}")
+    if transaction_removed:
+        for label, target in (
+            ("installer lock", runtime_root / ".installer" / "install.lock"),
+            ("transaction state", state_path),
+        ):
+            try:
+                _remove_file_retry(target)
+            except Exception as exc:
+                errors.append(f"remove {label}: {exc}")
+    if errors:
+        raise InstallerError("; ".join(errors))
 
 
 def _discard_stale(
@@ -931,9 +1136,9 @@ def _discard_stale(
     if state.get("phase") == "committed":
         # A committed deployment is already live.  Only remove installer
         # metadata; never treat a stale cleanup as permission to delete app/data.
-        _remove_tree(installer_dir / "transactions")
-        _remove_file(lock_path)
-        _remove_file(state_path)
+        _remove_tree_retry(installer_dir / "transactions")
+        _remove_file_retry(lock_path)
+        _remove_file_retry(state_path)
         return
     _discard_transaction(
         state,
@@ -972,12 +1177,24 @@ def _commit(request_path: Path, state_path: Path) -> dict[str, Any]:
     try:
         state["phase"] = "committing"
         _write_json(state_path, state)
-        _prepare_stage_data(source_dir, stage_data, request)
+        try:
+            _prepare_stage_data(source_dir, stage_data, request)
+        finally:
+            # config.init_logging() opens files below data-stage.  Windows
+            # cannot move or remove that directory while those handles live.
+            _close_staging_log_handlers(stage_data)
+        for required in (
+            stage_data / "server_manager.db",
+            stage_data / "deployment.json",
+            stage_data / "data_manifest.json",
+        ):
+            if not required.is_file():
+                raise InstallerError(f"staged data is incomplete: {required.name} is missing")
         _remove_tree(data_dir)
         shutil.move(str(stage_data), str(data_dir))
         _write_local_config(data_dir.parent, request)
         firewall_actions = _configure_firewall()
-        _start_and_check(app_dir)
+        _start_and_check(app_dir, data_dir, request)
         state.update(
             {
                 "phase": "committed",
@@ -1001,13 +1218,19 @@ def _commit(request_path: Path, state_path: Path) -> dict[str, Any]:
             pass
         return state
     except Exception as exc:
+        failure_report = _write_failure_report(state_path, state, exc)
         try:
             _discard_transaction(state, state_path)
-        except Exception as rollback_error:
-            raise InstallerError(f"installation failed and cleanup failed: {rollback_error}") from exc
+        except Exception as cleanup_error:
+            _write_failure_report(state_path, state, exc, str(cleanup_error))
+            report_hint = f"; diagnostics: {failure_report}" if failure_report else ""
+            raise InstallerError(
+                f"installation failed and cleanup failed: {cleanup_error}{report_hint}"
+            ) from exc
         if isinstance(exc, InstallerError):
             raise
-        raise InstallerError(f"installation failed: {exc}") from exc
+        report_hint = f"; diagnostics: {failure_report}" if failure_report else ""
+        raise InstallerError(f"installation failed: {exc}{report_hint}") from exc
 
 
 def _recover(state_path: Path) -> None:

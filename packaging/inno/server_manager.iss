@@ -233,7 +233,7 @@ begin
     if not RunHelper(
       '--commit --request-file ' + QuoteArgument(RequestFilePath) +
       ' --state-file ' + QuoteArgument(StateFilePath)) then
-      RaiseException('SM 安装提交失败，失败产物已清理；升级时选择的旧 data 目录不会被修改。');
+      RaiseException('SM 安装提交失败。请查看 C:\ProgramData\SC\ServerManager\.installer\last_failure.json；升级时选择的旧 data 目录不会被修改。');
     DeleteFile(RequestFilePath);
   end;
 end;

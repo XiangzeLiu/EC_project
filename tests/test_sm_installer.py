@@ -57,6 +57,36 @@ class SMInstallerHelperTests(unittest.TestCase):
         with self.assertRaises(helper.InstallerError):
             helper._validate_fixed_configuration(request)
 
+    def test_runtime_process_environment_uses_final_data_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = root / "app"
+            data = root / "runtime" / "data"
+            staging = root / "runtime" / ".installer" / "transactions" / "tx" / "data-stage"
+            request = {
+                "dnspod_secret_id": "test-id",
+                "dnspod_secret_key": "test-key",
+            }
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "SM_DATA_DIR": str(staging),
+                    "SERVER_MANAGER_DB_PATH": str(staging / "server_manager.db"),
+                    "SM_CADDY_CERT_FILE": str(staging / "cert.pem"),
+                    "SM_CADDY_KEY_FILE": str(staging / "key.pem"),
+                },
+                clear=False,
+            ):
+                environment = helper._runtime_process_environment(app, data, request)
+
+            self.assertEqual(environment["SM_DATA_DIR"], str(data))
+            self.assertEqual(environment["SERVER_MANAGER_DB_PATH"], str(data / "server_manager.db"))
+            self.assertEqual(environment["SM_SOFTWARE_STORAGE_DIR"], str(data / "software"))
+            self.assertNotIn("data-stage", environment["SM_DATA_DIR"])
+            self.assertNotIn("SM_CADDY_CERT_FILE", environment)
+            self.assertNotIn("SM_CADDY_KEY_FILE", environment)
+            self.assertEqual(environment["SM_DNSPOD_SECRET_ID"], "test-id")
+
     def test_request_paths_require_upgrade_source(self):
         with self.assertRaises(helper.InstallerError):
             helper._request_paths(
@@ -291,6 +321,101 @@ class SMInstallerHelperTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(result.stdout.strip().splitlines()[-1], "1")
             self.assertEqual(hashlib.sha256(source_db.read_bytes()).hexdigest(), before)
+            self.assertTrue((stage / "deployment.json").is_file())
+            self.assertTrue((stage / "data_manifest.json").is_file())
+
+    def test_commit_moves_fresh_stage_and_starts_with_final_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = root / "app"
+            runtime = root / "runtime"
+            data = runtime / "data"
+            installer_dir = runtime / ".installer"
+            transaction = installer_dir / "transactions" / "tx"
+            cert_dir = root / "certificates"
+            cert_dir.mkdir(parents=True)
+            (cert_dir / "server.pem").write_text("certificate", encoding="utf-8")
+            (cert_dir / "server.key").write_text("private-key", encoding="utf-8")
+            (app / "caddy").mkdir(parents=True)
+            (app / "start_sm.bat").write_text("@echo off\r\n", encoding="utf-8")
+            (app / "ServerManager.exe").write_bytes(b"placeholder")
+            (app / "caddy" / "caddy.exe").write_bytes(b"placeholder")
+            transaction.mkdir(parents=True)
+            installer_dir.mkdir(parents=True, exist_ok=True)
+            state_path = installer_dir / "transaction.json"
+            lock_path = installer_dir / "install.lock"
+            lock_path.write_text("tx", encoding="ascii")
+            request_path = root / "request.ini"
+            request_path.write_text(
+                "\n".join(
+                    [
+                        "[install]",
+                        "mode=fresh",
+                        f"app_dir={app}",
+                        f"data_dir={data}",
+                        "server_host=127.0.0.1",
+                        "server_port=18800",
+                        "public_http_port=8800",
+                        "public_https_port=4430",
+                        "public_base_url=https://scjrdomain.com:4430",
+                        "caddy_admin=127.0.0.1:2019",
+                        "bootstrap_admin_username=admin",
+                        "bootstrap_admin_password=Commit-Test-Password-123",
+                        "dnspod_secret_id=test-id",
+                        "dnspod_secret_key=test-key",
+                        f"certificate_source={cert_dir / 'server.pem'}",
+                        f"key_source={cert_dir / 'server.key'}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "product": "server_manager",
+                        "transaction_id": "tx",
+                        "phase": "prepared",
+                        "app_dir": str(app.resolve()),
+                        "data_dir": str(data.resolve()),
+                        "source_dir": "",
+                        "transaction_root": str(transaction.resolve()),
+                        "lock_path": str(lock_path.resolve()),
+                        "had_app": False,
+                        "had_data": False,
+                        "firewall_rules_before": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            started_with = {}
+
+            def fake_start(start_app, start_data, request):
+                started_with["app"] = start_app
+                started_with["data"] = start_data
+                started_with["environment"] = helper._runtime_process_environment(
+                    start_app, start_data, request
+                )
+
+            with mock.patch.object(helper, "_set_runtime_acl"), mock.patch.object(
+                helper, "_configure_firewall", return_value=[]
+            ), mock.patch.object(helper, "_write_local_config"), mock.patch.object(
+                helper, "_start_and_check", side_effect=fake_start
+            ):
+                result = helper._commit(request_path, state_path)
+
+            self.assertEqual(result["phase"], "committed")
+            self.assertEqual(started_with["data"], data.resolve())
+            self.assertEqual(
+                started_with["environment"]["SM_DATA_DIR"],
+                str(data.resolve()),
+            )
+            self.assertNotIn("data-stage", started_with["environment"]["SM_DATA_DIR"])
+            self.assertTrue((data / "server_manager.db").is_file())
+            self.assertTrue((data / "deployment.json").is_file())
+            self.assertTrue((data / "data_manifest.json").is_file())
+            self.assertFalse(state_path.exists())
+            self.assertFalse(transaction.exists())
 
     def test_inno_and_build_pipeline_reference_the_new_helper(self):
         inno = (ROOT / "packaging" / "inno" / "server_manager.iss").read_text(
@@ -303,6 +428,7 @@ class SMInstallerHelperTests(unittest.TestCase):
         self.assertIn("ExtractTemporaryFile('SC_SM_InstallerHelper.exe')", inno)
         self.assertIn("--prepare", inno)
         self.assertIn("--commit", inno)
+        self.assertIn("last_failure.json", inno)
         self.assertIn("sm_deploy_helper.py", packager)
         self.assertIn("SC_SM_InstallerHelper", packager)
 
