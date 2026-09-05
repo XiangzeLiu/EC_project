@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import sqlite3
 import subprocess
@@ -6,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +66,147 @@ class SMInstallerHelperTests(unittest.TestCase):
                     "data_dir": str(ROOT / "data"),
                 }
             )
+
+    def test_upgrade_source_cannot_be_the_target_data_directory(self):
+        data = ROOT / "data"
+        with self.assertRaises(helper.InstallerError):
+            helper._request_paths(
+                {
+                    "mode": "upgrade",
+                    "app_dir": str(ROOT / "app"),
+                    "data_dir": str(data),
+                    "source_data": str(data),
+                }
+            )
+
+    def test_stale_transaction_cleanup_does_not_touch_external_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            app = root / "app"
+            data = runtime / "data"
+            source = root / "old-data"
+            transaction = runtime / ".installer" / "transactions" / "tx"
+            app.mkdir(parents=True)
+            data.mkdir(parents=True)
+            source.mkdir(parents=True)
+            transaction.mkdir(parents=True)
+            (app / "partial.exe").write_text("partial", encoding="utf-8")
+            (data / "partial.db").write_text("partial", encoding="utf-8")
+            (source / "server_manager.db").write_text("source", encoding="utf-8")
+            state_path = runtime / ".installer" / "transaction.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "product": "server_manager",
+                        "phase": "prepared",
+                        "app_dir": str(app),
+                        "data_dir": str(data),
+                        "source_dir": str(source),
+                        "transaction_root": str(transaction),
+                        "lock_path": str(state_path.parent / "install.lock"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state_path.parent / "install.lock").write_text("tx", encoding="ascii")
+
+            with mock.patch.object(helper, "_set_runtime_acl"):
+                helper._discard_stale(
+                    state_path,
+                    runtime,
+                    app,
+                    data,
+                )
+
+            self.assertFalse(app.exists())
+            self.assertFalse(data.exists())
+            self.assertTrue(source.exists())
+            self.assertTrue((source / "server_manager.db").exists())
+            self.assertFalse(state_path.exists())
+            self.assertFalse((state_path.parent / "install.lock").exists())
+
+    def test_committed_stale_cleanup_keeps_deployed_app_and_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            app = root / "app"
+            data = runtime / "data"
+            transactions = runtime / ".installer" / "transactions" / "committed-tx"
+            app.mkdir(parents=True)
+            data.mkdir(parents=True)
+            transactions.mkdir(parents=True)
+            (app / "ServerManager.exe").write_text("live", encoding="utf-8")
+            (data / "server_manager.db").write_text("live", encoding="utf-8")
+            state_path = runtime / ".installer" / "transaction.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "product": "server_manager",
+                        "phase": "committed",
+                        "app_dir": str(app),
+                        "data_dir": str(data),
+                        "transaction_root": str(transactions),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state_path.parent / "install.lock").write_text("tx", encoding="ascii")
+
+            with mock.patch.object(helper, "_set_runtime_acl"):
+                helper._discard_stale(state_path, runtime, app, data)
+
+            self.assertTrue((app / "ServerManager.exe").exists())
+            self.assertTrue((data / "server_manager.db").exists())
+            self.assertFalse((state_path.parent / "transactions").exists())
+            self.assertFalse(state_path.exists())
+            self.assertFalse((state_path.parent / "install.lock").exists())
+
+    def test_stale_cleanup_does_not_follow_state_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            app = root / "app"
+            data = runtime / "data"
+            unrelated = root / "unrelated"
+            app.mkdir(parents=True)
+            data.mkdir(parents=True)
+            unrelated.mkdir()
+            (unrelated / "keep.txt").write_text("keep", encoding="utf-8")
+            state_path = runtime / ".installer" / "transaction.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "product": "server_manager",
+                        "phase": "prepared",
+                        "app_dir": str(unrelated),
+                        "data_dir": str(unrelated),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(helper, "_set_runtime_acl"):
+                helper._discard_stale(state_path, runtime, app, data)
+
+            self.assertTrue((unrelated / "keep.txt").exists())
+            self.assertFalse(app.exists())
+            self.assertFalse(data.exists())
+
+    def test_stale_cleanup_rejects_state_file_outside_runtime_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            state_path = root / "elsewhere" / "transaction.json"
+            app = root / "app"
+            data = runtime / "data"
+            state_path.parent.mkdir(parents=True)
+
+            with self.assertRaises(helper.InstallerError):
+                helper._discard_stale(state_path, runtime, app, data)
 
     def test_disk_usage_check_accepts_a_new_data_parent(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,11 +1,11 @@
 {
     "build":  {
                   "product":  "sm",
-                  "version":  "v_sm_20260905031139",
+                  "version":  "v_sm_20260906024439",
                   "platform":  "windows-x64",
-                  "build_timestamp":  "20260905031139",
+                  "build_timestamp":  "20260906024439",
                   "artifact_suffix":  "_VALIDATION",
-                  "git_commit":  "34dc6cbac60a42fbc2ffab963decedbaed1a8799",
+                  "git_commit":  "aec5e662d0ebbb26ce66a7c3ee59444a15b2878b",
                   "git_dirty":  true,
                   "release_build":  false,
                   "inno_commercial_license_confirmed":  false,
@@ -17,7 +17,7 @@
                   "signing_tool_sha256":  "",
                   "timestamp_url":  "",
                   "inno_compiler_sha256":  "0A8757031B33777E4C9CBFFEE40F11A5062B36D25CBE144C1DB73B6102B80AD7",
-                  "installer_helper_sha256":  "83E0E95F2F0B8009EB6087D00CAC974F35C599B9DE3154AC8CEF60ACA9502DEC",
+                  "installer_helper_sha256":  "15C1474955D36FC253F049A8566C281CC4FE933C7418412D00EB32F484B19DC8",
                   "caddy_version":  "v2.11.4",
                   "caddy_sha256":  "0A37A942F6672AA056458A46C2E4A7D9F4621CFC8D230378BF285C0B38C38AEC"
               },
@@ -25,12 +25,12 @@
                   {
                       "path":  "BUILD_INFO.json",
                       "size":  927,
-                      "sha256":  "64F1431E85B35DA3EEFE8188C4980CA940D9DE8C24DDA848B64D2903D2C0F23C"
+                      "sha256":  "2D9BA6AE5F15ADCEDBEE7AA8CBF233C8D53451E6079FC51051BA51A006875B64"
                   },
                   {
                       "path":  "ServerManager.exe",
-                      "size":  17070538,
-                      "sha256":  "9E2B2FD406A0BD0EFED835A699724AFD189BDDDB74F155AFC13477794E66BCFD"
+                      "size":  13212146,
+                      "sha256":  "41E83D9A9CCFA94664C21A5FFCD14295302D525B11B5CF30715301FC23888125"
                   },
                   {
                       "path":  "sm.env.example",
@@ -58,14 +58,9 @@
                       "sha256":  "8C2EFE7FB23E5E1F236FD695A67DCDE97B65D194698E10AB0CDD3F1A49042825"
                   },
                   {
-                      "path":  "_internal/ada92cb5d92a588d1b93__mypyc.cp311-win_amd64.pyd",
-                      "size":  221696,
-                      "sha256":  "FC17EB621ECF2325E3C2D7501D3EE2C3848E3C7FEC7027FDA7C7FA1782874743"
-                  },
-                  {
                       "path":  "_internal/base_library.zip",
                       "size":  1443565,
-                      "sha256":  "5FFBB014CA6956E408C2DB834D8983A68162E1490593FE4F80DF0AEE191DAF80"
+                      "sha256":  "B0B2EB62F0755188B3E0946E82E76C808AAE95FF0A2AF3CB3EE9203A63BFF4EE"
                   },
                   {
                       "path":  "_internal/libcrypto-3.dll",
@@ -100,7 +95,7 @@
                   {
                       "path":  "_internal/server_manager_build_info.json",
                       "size":  927,
-                      "sha256":  "64F1431E85B35DA3EEFE8188C4980CA940D9DE8C24DDA848B64D2903D2C0F23C"
+                      "sha256":  "2D9BA6AE5F15ADCEDBEE7AA8CBF233C8D53451E6079FC51051BA51A006875B64"
                   },
                   {
                       "path":  "_internal/sqlite3.dll",
@@ -209,36 +204,36 @@
                   },
                   {
                       "path":  "_internal/charset_normalizer/cd.cp311-win_amd64.pyd",
-                      "size":  10752,
-                      "sha256":  "0FB7F617FC9961BD11EA78666D0252A726F6F5C4BA0E2D432F965D1EFC320169"
+                      "size":  115712,
+                      "sha256":  "AC9465BBF4A1698015CF306BED26A101677010D89ACDD10F7F63DEDBAF271798"
                   },
                   {
                       "path":  "_internal/charset_normalizer/md.cp311-win_amd64.pyd",
-                      "size":  10752,
-                      "sha256":  "C5C39F8D3C18105B244A19518C4749E41F418E7DD5B1885B0C019E25E6C8B61E"
+                      "size":  200192,
+                      "sha256":  "F398758FBCE16B001E0799C1698D2A623751B8DD4E9FF0D6F4845EA6270F672F"
                   },
                   {
-                      "path":  "_internal/click-8.4.2.dist-info/INSTALLER",
+                      "path":  "_internal/click-8.5.0.dist-info/INSTALLER",
                       "size":  4,
                       "sha256":  "CEEBAE7B8927A3227E5303CF5E0F1F7B34BB542AD7250AC03FBCDE36EC2F1508"
                   },
                   {
-                      "path":  "_internal/click-8.4.2.dist-info/METADATA",
-                      "size":  2621,
-                      "sha256":  "194C9DD81D567F9081F026C7E401060FBAFA7BC147C8E0A58B3668B40A64C031"
+                      "path":  "_internal/click-8.5.0.dist-info/METADATA",
+                      "size":  2567,
+                      "sha256":  "E87BCE0BD194DE70DFB8E708E0A6B0483009F25611804EAF87BFEB63E6C20501"
                   },
                   {
-                      "path":  "_internal/click-8.4.2.dist-info/RECORD",
+                      "path":  "_internal/click-8.5.0.dist-info/RECORD",
                       "size":  2533,
-                      "sha256":  "E30B77EFB8BFB0EE64B55FABDD6933E5133CAE6ABC0117A864C4F1E0D766E3F3"
+                      "sha256":  "4A422099194046F68C30CC3D7EF8EEA6F91185842623182989406A652FE69272"
                   },
                   {
-                      "path":  "_internal/click-8.4.2.dist-info/WHEEL",
+                      "path":  "_internal/click-8.5.0.dist-info/WHEEL",
                       "size":  82,
                       "sha256":  "1B68144734C4B66791F27ADD5D425F3620775585718A03D0F9B110BA3A4D88DB"
                   },
                   {
-                      "path":  "_internal/click-8.4.2.dist-info/licenses/LICENSE.txt",
+                      "path":  "_internal/click-8.5.0.dist-info/licenses/LICENSE.txt",
                       "size":  1475,
                       "sha256":  "9A8AD106A394E853BFE21F42F4E72D592819A22805D991B5F3275029292B658D"
                   },
@@ -265,7 +260,7 @@
                   {
                       "path":  "_internal/exchange_calendars-4.13.2.dist-info/RECORD",
                       "size":  16735,
-                      "sha256":  "3E20033CEF56543816BF49F1A8858DA5B54B0D3819DE03A82FEEF42F2F79BA8B"
+                      "sha256":  "BACA4B004603AF41318E21BF42E47EB13B22F78724ABC47AFA68A545EE1D1242"
                   },
                   {
                       "path":  "_internal/exchange_calendars-4.13.2.dist-info/top_level.txt",
@@ -283,27 +278,27 @@
                       "sha256":  "E35C4578F7DB4498E62E278978F6C42E0FCE6F21F9993A060B08A33549CD3044"
                   },
                   {
-                      "path":  "_internal/httpcore2-2.7.0.dist-info/INSTALLER",
+                      "path":  "_internal/httpcore2-2.12.0.dist-info/INSTALLER",
                       "size":  4,
                       "sha256":  "CEEBAE7B8927A3227E5303CF5E0F1F7B34BB542AD7250AC03FBCDE36EC2F1508"
                   },
                   {
-                      "path":  "_internal/httpcore2-2.7.0.dist-info/METADATA",
-                      "size":  24060,
-                      "sha256":  "7CB7AF500749FFB547F25C33CCBC77D6DC1C20DE5B9CAB1463BDAB0ACA4ECD80"
+                      "path":  "_internal/httpcore2-2.12.0.dist-info/METADATA",
+                      "size":  25815,
+                      "sha256":  "3E53E54AB7D82F13B6325AAC5C7919F1FA29867AEB4AD8338252D448881AD24A"
                   },
                   {
-                      "path":  "_internal/httpcore2-2.7.0.dist-info/RECORD",
-                      "size":  4830,
-                      "sha256":  "4B923A1545CA4696D850DFDBF2697599F8DAF49174FD9C2998C81A18C5DDAB85"
+                      "path":  "_internal/httpcore2-2.12.0.dist-info/RECORD",
+                      "size":  4835,
+                      "sha256":  "151AD784D61E82CBE8ED2467FA10EC82843F85A99D6AEF24C1D0EED4200C2908"
                   },
                   {
-                      "path":  "_internal/httpcore2-2.7.0.dist-info/WHEEL",
+                      "path":  "_internal/httpcore2-2.12.0.dist-info/WHEEL",
                       "size":  87,
-                      "sha256":  "99F7CFCBCC019D9427D959C9514E6313DF4AB316927E2C8C1D5F58B7468B571B"
+                      "sha256":  "CCEC20E2307ACD7DA453DD7437E70C6B08E2BC3EAD3BC3445AF135DA37B56D59"
                   },
                   {
-                      "path":  "_internal/httpcore2-2.7.0.dist-info/licenses/LICENSE.md",
+                      "path":  "_internal/httpcore2-2.12.0.dist-info/licenses/LICENSE.md",
                       "size":  1599,
                       "sha256":  "C4DF125C807B0613501E943A5C92496DD11D2C16604CE396097A8DDE396304D9"
                   },
@@ -318,32 +313,32 @@
                       "sha256":  "ACE214885B5A044E2100BAAC6523438CC75989A6359CC13B9F8B5F6F1E180709"
                   },
                   {
-                      "path":  "_internal/httpx2-2.7.0.dist-info/entry_points.txt",
+                      "path":  "_internal/httpx2-2.12.0.dist-info/entry_points.txt",
                       "size":  45,
                       "sha256":  "DEE899A2B4509500053681DA0F1B8CB2691D8EDDEB5139AE073F35B4B5C57506"
                   },
                   {
-                      "path":  "_internal/httpx2-2.7.0.dist-info/INSTALLER",
+                      "path":  "_internal/httpx2-2.12.0.dist-info/INSTALLER",
                       "size":  4,
                       "sha256":  "CEEBAE7B8927A3227E5303CF5E0F1F7B34BB542AD7250AC03FBCDE36EC2F1508"
                   },
                   {
-                      "path":  "_internal/httpx2-2.7.0.dist-info/METADATA",
-                      "size":  8370,
-                      "sha256":  "527D59BEED6B1E24BDB81AC6935B6FE631D4B28E0AC3FA550939841A023E7955"
+                      "path":  "_internal/httpx2-2.12.0.dist-info/METADATA",
+                      "size":  9466,
+                      "sha256":  "3DD7F2C6BED53E5C9109CCA84C57802610D4EB2FF1DFB87DB393B8D0CFA33483"
                   },
                   {
-                      "path":  "_internal/httpx2-2.7.0.dist-info/RECORD",
-                      "size":  4415,
-                      "sha256":  "58001640008FF43F07C8514F400E5D871D7E09F486F270B9D7F3086AF069956D"
+                      "path":  "_internal/httpx2-2.12.0.dist-info/RECORD",
+                      "size":  4542,
+                      "sha256":  "42B99620D3092D008FEC477DF6794AC31ED9C87392BD1C3829DF91E7890553B9"
                   },
                   {
-                      "path":  "_internal/httpx2-2.7.0.dist-info/WHEEL",
+                      "path":  "_internal/httpx2-2.12.0.dist-info/WHEEL",
                       "size":  87,
-                      "sha256":  "99F7CFCBCC019D9427D959C9514E6313DF4AB316927E2C8C1D5F58B7468B571B"
+                      "sha256":  "CCEC20E2307ACD7DA453DD7437E70C6B08E2BC3EAD3BC3445AF135DA37B56D59"
                   },
                   {
-                      "path":  "_internal/httpx2-2.7.0.dist-info/licenses/LICENSE.md",
+                      "path":  "_internal/httpx2-2.12.0.dist-info/licenses/LICENSE.md",
                       "size":  1589,
                       "sha256":  "7E7D6DBAF7FE160D39FD6E84FD02C33CAB96BCBEA34D36998D545BCEB4A19C30"
                   },
@@ -470,7 +465,7 @@
                   {
                       "path":  "_internal/numpy-2.4.6.dist-info/RECORD",
                       "size":  129259,
-                      "sha256":  "75D7FD2813351488873863C214C2ECC5920BEC5295DCD49BC9AD6FE75BA13FD8"
+                      "sha256":  "CA11B087CBAE434AE9A9ABB82CD1C6F41297F25B4D13DF4E09F607F1979E5C4C"
                   },
                   {
                       "path":  "_internal/numpy-2.4.6.dist-info/WHEEL",
@@ -614,228 +609,228 @@
                   },
                   {
                       "path":  "_internal/pandas/_libs/algos.cp311-win_amd64.pyd",
-                      "size":  1431040,
-                      "sha256":  "DFA7890EC39DB43C086E8726C886D4388A2DC67984D593AA9366199BB5467A17"
+                      "size":  1394688,
+                      "sha256":  "D4296E3E0EDDD11375F91B643CF72649ED14E8050E89F88A0D0CBC0B65615409"
                   },
                   {
                       "path":  "_internal/pandas/_libs/arrays.cp311-win_amd64.pyd",
-                      "size":  79872,
-                      "sha256":  "8E07AE52A76B56108D6C7198B5BB6A95BE886DB3E0C9BE586233ACD339AC2DD1"
+                      "size":  81408,
+                      "sha256":  "3F85D00ABFB800FDD005765685BBCF70FABAF2B925BACC05C999EE713AECA570"
                   },
                   {
                       "path":  "_internal/pandas/_libs/byteswap.cp311-win_amd64.pyd",
-                      "size":  36864,
-                      "sha256":  "2F3CEF53AF40136802F155EF1338D31531716838C35DD23DAA063E255E5D9DCA"
+                      "size":  39936,
+                      "sha256":  "D68A080D6231791ADA48B3250A64B7CC03A03EDE067FFEEEB27AB6AFA9723F66"
                   },
                   {
                       "path":  "_internal/pandas/_libs/groupby.cp311-win_amd64.pyd",
-                      "size":  1704448,
-                      "sha256":  "809BB1562DEF22848C5FE0130673490F6CE0CA5E1FED7C22D4A0494330421D29"
+                      "size":  1677824,
+                      "sha256":  "3D8B63BEB69FCCCE76900A3C5107513AD2EE1D6EFE1C59EA7DC634A743C9EC7C"
                   },
                   {
                       "path":  "_internal/pandas/_libs/hashing.cp311-win_amd64.pyd",
-                      "size":  66560,
-                      "sha256":  "AAFB2A32912570F1EC02181519BB4E1A98045383327FC797423F4E88728DCFFF"
+                      "size":  68096,
+                      "sha256":  "7B617577C640235490ED20873A4FBF146B61F2E05ECAEA1017A4FDBF6E786D11"
                   },
                   {
                       "path":  "_internal/pandas/_libs/hashtable.cp311-win_amd64.pyd",
-                      "size":  1543680,
-                      "sha256":  "C0995D24A4F84E8B25A12C1B2308F31654D867E1CD4197F296C4CACD7B38E32D"
+                      "size":  1528832,
+                      "sha256":  "9C4283FF75A910C766B2150F8AA65BE40899E848430A73F4689191EB7938F798"
                   },
                   {
                       "path":  "_internal/pandas/_libs/index.cp311-win_amd64.pyd",
-                      "size":  515584,
-                      "sha256":  "A89977D25B82EE1CC2D0875B17607598A302CF2E619D40FBC0CEC94575D3F40D"
+                      "size":  517120,
+                      "sha256":  "04EE782453EB4776688EE907158A9EE7B47D1079D5BED0FB6FBA625B98D1B138"
                   },
                   {
                       "path":  "_internal/pandas/_libs/indexing.cp311-win_amd64.pyd",
-                      "size":  45568,
-                      "sha256":  "0EC71CF0F2F0B2095A57887BE1EF7B52563EAAE8C636ACAC7DA071724AAE4BEA"
+                      "size":  47104,
+                      "sha256":  "EB6D0CC91A228BF4A0AF8E1D9A896481650278EE1F5D852E0B9043244877123B"
                   },
                   {
                       "path":  "_internal/pandas/_libs/internals.cp311-win_amd64.pyd",
-                      "size":  200192,
-                      "sha256":  "C4F964FDB68ED3460870FB0625DC739B14C39DFEFB0444786A4FA9E9AA1FE175"
+                      "size":  201216,
+                      "sha256":  "2C774E4D11D16AB9FF7828B3DB84B6BD4AB5DF577FDB4E23E6B04E6F13FF27AC"
                   },
                   {
                       "path":  "_internal/pandas/_libs/interval.cp311-win_amd64.pyd",
-                      "size":  764416,
-                      "sha256":  "15E0A19F0553F370125EDB86BC51EA0C1292FCA4C3260182938FEC2A3B822302"
+                      "size":  746496,
+                      "sha256":  "3038EF7AEDBC480159D178A9D1135E58148BCFA67F6D9AF921F7B85136101518"
                   },
                   {
                       "path":  "_internal/pandas/_libs/join.cp311-win_amd64.pyd",
-                      "size":  761856,
-                      "sha256":  "0FE88422A0BBABABDC2C292030FF3611F36966D53FBEAD450B30DD6E04FDB50D"
+                      "size":  759808,
+                      "sha256":  "4489FFFC16419370638831EC56800D24A44C41851D4DF7B307F75531BDF3F974"
                   },
                   {
                       "path":  "_internal/pandas/_libs/json.cp311-win_amd64.pyd",
-                      "size":  51712,
-                      "sha256":  "3B82BD64A577337CE93737D50532399910C1BB648CF8EE505D4F44712B20852E"
+                      "size":  51200,
+                      "sha256":  "5D42D7E1B7B216F9365C846F4A19DFE7DD2914981166E8630F083CDA16AD52F4"
                   },
                   {
                       "path":  "_internal/pandas/_libs/lib.cp311-win_amd64.pyd",
-                      "size":  442880,
-                      "sha256":  "F7BAD59A66321D46E147146E352F34BBADB3CCD54450ABB1D8F6536B038A9D64"
+                      "size":  442368,
+                      "sha256":  "8CAEFF602D2E38DC0D6B707AEFD55DBD67A027EFEF0159192FB149FEFC92A6F5"
                   },
                   {
                       "path":  "_internal/pandas/_libs/missing.cp311-win_amd64.pyd",
-                      "size":  145920,
-                      "sha256":  "0C9D3B4B43EB673F368C3D085170954A249E7CB2F5A8D4830CD7F44021CD5E61"
+                      "size":  147968,
+                      "sha256":  "1B1706BD7279994CC8BC0E1EEC2F435E94F18E129F9E7E16E1668D03CC469D5E"
                   },
                   {
                       "path":  "_internal/pandas/_libs/ops.cp311-win_amd64.pyd",
-                      "size":  96256,
-                      "sha256":  "5876F605E85EEAC012491FD7C6D4B63984EDCEA181CB8567B0BF78D97D67D9CB"
+                      "size":  96768,
+                      "sha256":  "FFBE208C1846CC9ECFBC067559D174285B054EAFEEEFF0C91AC7EDDE68996B8E"
                   },
                   {
                       "path":  "_internal/pandas/_libs/ops_dispatch.cp311-win_amd64.pyd",
-                      "size":  42496,
-                      "sha256":  "0F488B84870FB2D1E1DAAED31BB5090787A2F123003E1A1006475D1923FFE569"
+                      "size":  45056,
+                      "sha256":  "A56002FC447121A4AFFA0D272F134099A4E7A504BD21FE2906BAF0B841FA3A1D"
                   },
                   {
                       "path":  "_internal/pandas/_libs/pandas_datetime.cp311-win_amd64.pyd",
                       "size":  35840,
-                      "sha256":  "1C7AF0F0B21D98C02DE84D6A06E6B8E15B5547A611737783FA834230EA570CB1"
+                      "sha256":  "EE313465B1E0D065EBACA857B333864EE0B9432CF21B1880D4FFFEB7D7A032D1"
                   },
                   {
                       "path":  "_internal/pandas/_libs/pandas_parser.cp311-win_amd64.pyd",
-                      "size":  30720,
-                      "sha256":  "3A152ADB4381A37C0F72EDCF2EC88C0DCDD5CEEB8A25AC70348DA7C5CD320815"
+                      "size":  30208,
+                      "sha256":  "48687DC59F6E14B0DB3864515A6B7D181CCDC35406FF85A665B08A7C8BBCCBC2"
                   },
                   {
                       "path":  "_internal/pandas/_libs/parsers.cp311-win_amd64.pyd",
-                      "size":  271872,
-                      "sha256":  "57D5CA611C5C59FFA270E577C80AB405A34EC9C9E8529E3057FFC265349645D0"
+                      "size":  273408,
+                      "sha256":  "583E7C23F1EA7A52BF48CC4988B669959B0E03063E255D02E298DB7BE8C49D5B"
                   },
                   {
                       "path":  "_internal/pandas/_libs/properties.cp311-win_amd64.pyd",
-                      "size":  55296,
-                      "sha256":  "6965741F1955D6CB9EA2C4828EC49BF6B48CC5D28CD649D6D60E1CBCA8EFEB1C"
+                      "size":  56832,
+                      "sha256":  "1DD9CE0DD941A45646775FB8A66479830BFF447017D1E32A1EA60FD649FE3F9D"
                   },
                   {
                       "path":  "_internal/pandas/_libs/reshape.cp311-win_amd64.pyd",
-                      "size":  126976,
-                      "sha256":  "42FEA3658C3C5279213F6D5FFB129AE1A989134C2E9A55513CE67C6096BF7CF0"
+                      "size":  127488,
+                      "sha256":  "3BA7A6F96C3F38D4AEBA1F898FF8972A7E3D91357D8CE821EF54816859D28EB7"
                   },
                   {
                       "path":  "_internal/pandas/_libs/sas.cp311-win_amd64.pyd",
-                      "size":  90624,
-                      "sha256":  "B95D53AF7E6A8F1DE096F5485B210FFBE22757688B6B5B4DC07FCC5DB70C9429"
+                      "size":  88064,
+                      "sha256":  "57061D721962864ECBE6B3B0F50019FDDF85850FF83DE91C72B52D20F4AB5922"
                   },
                   {
                       "path":  "_internal/pandas/_libs/sparse.cp311-win_amd64.pyd",
-                      "size":  608768,
-                      "sha256":  "6F590B142212A487D1BDCC061BE6F1ED7AC5DDE47CB786B5651A6AF88D95061E"
+                      "size":  580608,
+                      "sha256":  "AB0AD8C9A9BCCBCAB0356BE88D5350BBD9530F44CDCE2C3CAACEA822F46D92A7"
                   },
                   {
                       "path":  "_internal/pandas/_libs/testing.cp311-win_amd64.pyd",
-                      "size":  71168,
-                      "sha256":  "4C3DA33EB85600B136805054126E733EB7AD8F73A8BE2759FE697B696E730BBA"
+                      "size":  70144,
+                      "sha256":  "A9B497B56CD1E69C8397F75104DFAAE1C4511B5D101750726DFC912E32DBBB11"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslib.cp311-win_amd64.pyd",
-                      "size":  104960,
-                      "sha256":  "315609BE30DD1351292221D5A6CD48D50457EE64CF314A50A84E78D4EFDCE4DC"
+                      "size":  107008,
+                      "sha256":  "6AE3912B90D70EF9FBA330A70C3B96F7D000746269DE105074AA3D0CA496B27C"
                   },
                   {
                       "path":  "_internal/pandas/_libs/writers.cp311-win_amd64.pyd",
-                      "size":  86528,
-                      "sha256":  "40CAC8C8E5043B97727311ABE6FF7EF2C96663C919E96EDDC9BCC167ED4600E7"
+                      "size":  89088,
+                      "sha256":  "40B8B551EAE50700C48A855D793673025D57A473736330E81B8395CF7D64A9E3"
                   },
                   {
                       "path":  "_internal/pandas/_libs/_cyutility.cp311-win_amd64.pyd",
-                      "size":  123904,
-                      "sha256":  "D3D3E533AE53E107838EC4C936F419CA97C4F9CA4D1201DD1DB0D9A45F3839CD"
+                      "size":  122880,
+                      "sha256":  "3C31FED3F7F9F79DE314496750D5C4A7A5E78C3ABEEE156333969F39AF759515"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/base.cp311-win_amd64.pyd",
-                      "size":  41984,
-                      "sha256":  "03A6087A5C7728DFC4BBA9AF00292C0F3ECB011E339E427042210FB640DD975D"
+                      "size":  45056,
+                      "sha256":  "E4BF4BF081A3B7B50E9922F02CE582CF0538F7BFCC8B2E1DC4C704066CDE27CB"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/ccalendar.cp311-win_amd64.pyd",
-                      "size":  57344,
-                      "sha256":  "35B0098162D7DE8F1A9E4A5CE5A80B1D502F504D5CB7A39250809D6F45E4EDF5"
+                      "size":  58880,
+                      "sha256":  "5BA1891B1A0F675A4C717F252C5301A8DD1121C75FBFD494DF6FCDB9B01EB4AC"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/conversion.cp311-win_amd64.pyd",
-                      "size":  123904,
-                      "sha256":  "6BAD0B5A1C208EAC94D7D09148406E3582D16E91252EF941B9A12B0A37EDC49C"
+                      "size":  124416,
+                      "sha256":  "FDF43B324A0B94100B3B049C2E081963ECCFE6357175F1D5EE1E7AC3440F3AC7"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/dtypes.cp311-win_amd64.pyd",
-                      "size":  112128,
-                      "sha256":  "F7AC5772DEB4CB541B2B9726C05B3ECBC1A32A95873D4E78798ACE5BF23BDC33"
+                      "size":  114176,
+                      "sha256":  "CAD6F961DCAE5F40D5176947E7B5658495FC71A3DA6AAF853695E1D56CA8950D"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/fields.cp311-win_amd64.pyd",
-                      "size":  150016,
-                      "sha256":  "94567A1271BB79977F25FADB6140EEC85A9EC6D1389DB61F60FF4BEA6F9AD374"
+                      "size":  151552,
+                      "sha256":  "6189FFDFEF4E1D79B7A63F7D7AD01B534741BBEA1C11A8350824689F05A8F78F"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/nattype.cp311-win_amd64.pyd",
-                      "size":  154624,
-                      "sha256":  "F3AA3CD625EA55615E1C47CC7A5733BF5D1C7297154DE79F06F4B0076FA6E772"
+                      "size":  156672,
+                      "sha256":  "9837FBDDADE389376D8221A3CC6EA9EA4C299DA0A453F1AE9D1E9695248758AE"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/np_datetime.cp311-win_amd64.pyd",
-                      "size":  92160,
-                      "sha256":  "2340370F7257963C723AEAF1EDEB1FE0701383D4CFBCA1321D9BD2E69E69B642"
+                      "size":  93696,
+                      "sha256":  "70AFB34CBAB77FF31E86106C15FF30494447D85BB723BB593FE4D36CCD538953"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/offsets.cp311-win_amd64.pyd",
-                      "size":  733184,
-                      "sha256":  "A88CDB5DFA66665F2D2ADBE6CE2CDC81870B9BC519CD70D8D96C1233DD82F342"
+                      "size":  736256,
+                      "sha256":  "8E0041E0C129C216E14FA60FEC7234E339CA00A4B57353664B8B2BA221038BBD"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/parsing.cp311-win_amd64.pyd",
-                      "size":  157696,
-                      "sha256":  "4CA57EA694F07AB1F8B7617571F7ABDF89FCFCE5AC388A179D1FE508AAADF15B"
+                      "size":  158208,
+                      "sha256":  "6ACDB909C78A99600C1D7D630FB9F30B81673F95EA69826A02197640E5122259"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/period.cp311-win_amd64.pyd",
-                      "size":  266752,
-                      "sha256":  "D0A4EF214EB46FA6C5F5CBFB97941737E7B40395930DB1A4DFE8DF8966FC88B0"
+                      "size":  265728,
+                      "sha256":  "7B49A7D1A3D4BC4EBB8E6F18024C928C494D52F0E6782434CA31E532384F19E8"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/strptime.cp311-win_amd64.pyd",
-                      "size":  156160,
-                      "sha256":  "A59DB8E4A3C84F8C38F423FB3C1EB55233933619F9AC89385BEF06F38F9B8B39"
+                      "size":  154624,
+                      "sha256":  "CD7521018702108F450ED8800FC790EBB66068252FA6DE66B2E3C6792AE6CEE3"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/timedeltas.cp311-win_amd64.pyd",
-                      "size":  339968,
-                      "sha256":  "F3CFC4E0AB949FD44B21EABCF93BB74FC51240D5CFFFC5B693A0E4D6F15921A5"
+                      "size":  337408,
+                      "sha256":  "E641CC9C22C9751045DD9D5FDDDCA887330894C6E6C0BF059F4F58471391D5E0"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/timestamps.cp311-win_amd64.pyd",
-                      "size":  362496,
-                      "sha256":  "1B75945941D3759024606BE388D8A2AE8E3FCEF91B99213024C7ABD818171EDD"
+                      "size":  364032,
+                      "sha256":  "A2B52494372FA23C05F3620C2CE140D8E14FB444B59B0C5AF8AEDB78B7808E71"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/timezones.cp311-win_amd64.pyd",
-                      "size":  116736,
-                      "sha256":  "3CDBD99BC07DB9CF2F2B89EF88A6743D4C9E700EA76C8E7001B3619A20E4A419"
+                      "size":  118272,
+                      "sha256":  "4C033B0227CCBFAF01639318E05AF967F9AA6626E0969651A441284316E2C12B"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/tzconversion.cp311-win_amd64.pyd",
-                      "size":  132096,
-                      "sha256":  "C6B9DF77728C71529D323608BB06FC62E89A4A4ED29EF09A2D45875C96A318F4"
+                      "size":  138752,
+                      "sha256":  "B68A120DBC3B09C8F0A830E305DDAFF70839B0E00E0B1DAD44D679788E0588D4"
                   },
                   {
                       "path":  "_internal/pandas/_libs/tslibs/vectorized.cp311-win_amd64.pyd",
-                      "size":  74752,
-                      "sha256":  "9F74456A859535333C5A0EA767D3CFF753CB8303A9627D7D4EECAE70B403F615"
+                      "size":  77312,
+                      "sha256":  "57BA89814F82AF78208489299C4591DF47B27FD2A40DA8FB6C398392A48865EA"
                   },
                   {
                       "path":  "_internal/pandas/_libs/window/aggregations.cp311-win_amd64.pyd",
-                      "size":  346624,
-                      "sha256":  "6AFF6AF9EDA862F498F283276C8E37F0B2AB1205B604119AD051B4008CC4266A"
+                      "size":  329728,
+                      "sha256":  "0CDEF744C08489F175B597B6F03ED439274996E576C7734BEC86A7F21F4A39DC"
                   },
                   {
                       "path":  "_internal/pandas/_libs/window/indexers.cp311-win_amd64.pyd",
-                      "size":  144896,
-                      "sha256":  "86CBBD026799BBD01D1E64C241492AEA275A638F95B3A1087F378217B169C995"
+                      "size":  142848,
+                      "sha256":  "C4928A4C406F9F9857492A1D8AE39338B57CD1A5210D91C006EF23BC4054F7DD"
                   },
                   {
                       "path":  "_internal/pandas.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll",
@@ -916,46 +911,6 @@
                       "path":  "_internal/resources/product_docs/SC_Product_Maintenance_Document.pdf",
                       "size":  2639325,
                       "sha256":  "BD8E995186C94F6F389DCDFBB9DBD2BB7FA95B2389274B3A2FB8635C03BBCA1E"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/INSTALLER",
-                      "size":  2,
-                      "sha256":  "E6184CE10E266134FDCFA401E8F1A95005BCD4F18D16B62B757323E2833FE9A9"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/METADATA",
-                      "size":  4670,
-                      "sha256":  "A3E38B9EE4326289D4864704F30E299EE769E2309CE9F4A75F0DE1A50AD0A356"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/RECORD",
-                      "size":  1868,
-                      "sha256":  "52A6B8EE0DE15CF7FD99625F43B97CD2E3942AC86F16054EA90DE48E66F29355"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/REQUESTED",
-                      "size":  0,
-                      "sha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/top_level.txt",
-                      "size":  19,
-                      "sha256":  "08EDDF0FDCB29403625E4ACCA38A872D5FE6A972F6B02E4914A82DD725804FE0"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/WHEEL",
-                      "size":  91,
-                      "sha256":  "FF309DDCDD65EBD02BC724DBF2BCC4A0FF53A5B61792A44548D383E4EBB19D3B"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/licenses/LICENSE",
-                      "size":  10278,
-                      "sha256":  "458502E12D97BBF64438606A20044AA85EB05FB0A8A807BB35DBEC253FD1FC04"
-                  },
-                  {
-                      "path":  "_internal/setuptools/_vendor/jaraco/text/Lorem ipsum.txt",
-                      "size":  1335,
-                      "sha256":  "37FEDCFFBF73C4EB9F058F47677CB33203A436FF9390E4D38A8E01C9DAD28E0B"
                   },
                   {
                       "path":  "_internal/tastytrade/account.py",
@@ -4580,7 +4535,7 @@
                   {
                       "path":  "_internal/uvicorn-0.51.0.dist-info/RECORD",
                       "size":  6607,
-                      "sha256":  "9B29CF8D09D4D5B01BFBBF87D098F0A048BB9FC5D205C006F194CC78ED620A8B"
+                      "sha256":  "0721C76CAE7486B4557ABF09ACC1EE07D772088DF8FF6F132D23C944C2EDD657"
                   },
                   {
                       "path":  "_internal/uvicorn-0.51.0.dist-info/REQUESTED",
@@ -4605,45 +4560,40 @@
                   {
                       "path":  "_internal/websockets/speedups.cp311-win_amd64.pyd",
                       "size":  11264,
-                      "sha256":  "47D61E65F970EC62AC376C52C606237E8E3C103448D1A3558AF95A39E6BCCC14"
+                      "sha256":  "FB42C44DD29F1563768E36A16F2E426DA2D6B78C6925B55DE604B17A1A28B228"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/entry_points.txt",
+                      "path":  "_internal/websockets-17.1.dist-info/entry_points.txt",
                       "size":  51,
                       "sha256":  "0E7867E1D9B912C23864C02C1E574617A0B005766B1979D1EDC9CADBE5D1EF36"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/INSTALLER",
+                      "path":  "_internal/websockets-17.1.dist-info/INSTALLER",
                       "size":  4,
                       "sha256":  "CEEBAE7B8927A3227E5303CF5E0F1F7B34BB542AD7250AC03FBCDE36EC2F1508"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/METADATA",
-                      "size":  6978,
-                      "sha256":  "812D57F9CD1E5FD74A67075E44BBD20B516AF4E8827849DDC83CBE8270BBD2EB"
+                      "path":  "_internal/websockets-17.1.dist-info/METADATA",
+                      "size":  6510,
+                      "sha256":  "CE1B2B1CDE9C2681D3D0328A724193475436BE238FD47D8BD866A8195B35563F"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/RECORD",
-                      "size":  7725,
-                      "sha256":  "6972BEAAB10251B469E78230E65D219F26ACA876C937E7E32CDE2BC141F6D04D"
+                      "path":  "_internal/websockets-17.1.dist-info/RECORD",
+                      "size":  8173,
+                      "sha256":  "38272493483E514713B324E09E5EAE8A255ED74D3543E833E54C8F0EDF314331"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/REQUESTED",
-                      "size":  0,
-                      "sha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
-                  },
-                  {
-                      "path":  "_internal/websockets-16.1.dist-info/top_level.txt",
+                      "path":  "_internal/websockets-17.1.dist-info/top_level.txt",
                       "size":  11,
                       "sha256":  "08CA5D2A49712ACBD980283296DC5458E1E26D95D9D6E60856971AF71B10F079"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/WHEEL",
+                      "path":  "_internal/websockets-17.1.dist-info/WHEEL",
                       "size":  101,
-                      "sha256":  "0B81650649FEB673233BD9F4DDAC78C902452A1D8BF79CF7362558225EEDF1C6"
+                      "sha256":  "55AD5E704E1A425731C9B664712BE1D8578DD7F0E50BC21A24D249B02258123D"
                   },
                   {
-                      "path":  "_internal/websockets-16.1.dist-info/licenses/LICENSE",
+                      "path":  "_internal/websockets-17.1.dist-info/licenses/LICENSE",
                       "size":  1538,
                       "sha256":  "0F44514998ACA209D3482D10204A8ADF2AA4296FF157A36A5C0922F2280632D3"
                   },
@@ -4656,16 +4606,16 @@
     "artifacts":  [
                       {
                           "type":  "archive",
-                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260905031139_VALIDATION.zip",
-                          "size":  61677147,
-                          "sha256":  "074920509F82EC258E606F074BB6BFDAC7AEB3B6D6C8157354E56355ADE3F672",
+                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260906024439_VALIDATION.zip",
+                          "size":  57926502,
+                          "sha256":  "1AC127CAA3D7A63FD76C293E47C3E3D49220D103B965A23FF2CA0E5BC7F01132",
                           "authenticode_signed":  false
                       },
                       {
                           "type":  "installer",
-                          "path":  "installer/SC_SM_Setup_v_sm_20260905031139_VALIDATION.exe",
-                          "size":  57622803,
-                          "sha256":  "8260B03AA73B0CE607604E6FC86FD0C28F0D49369BE087361CE7D3E9DE18AAA5",
+                          "path":  "installer/SC_SM_Setup_v_sm_20260906024439_VALIDATION.exe",
+                          "size":  53831193,
+                          "sha256":  "A99AFE5602A9C442327DEA39A4ABD4072F2D017EE39F03B5A558AAB2AEF0DFC4",
                           "authenticode_signed":  false
                       }
                   ]

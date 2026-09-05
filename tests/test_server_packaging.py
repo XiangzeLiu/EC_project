@@ -215,6 +215,8 @@ class ServerPackagingTests(unittest.TestCase):
                 self.assertEqual(digest, expected)
 
     def test_server_manager_source_package_self_test(self):
+        if os.environ.get("SERVER_PACKAGING_TARGET", "").lower() == "ts":
+            self.skipTest("SM source self-test is covered by the SM build")
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp) / "sm-data"
             env = os.environ.copy()
@@ -243,6 +245,8 @@ class ServerPackagingTests(unittest.TestCase):
         self.assertIn("Server Manager package self-test passed", result.stdout)
 
     def test_trader_server_source_package_self_test(self):
+        if os.environ.get("SERVER_PACKAGING_TARGET", "").lower() == "sm":
+            self.skipTest("TS source self-test is covered by the TS build")
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
             env.update(

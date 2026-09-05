@@ -98,7 +98,7 @@ Get-Content .\SHA256SUMS.txt | ForEach-Object {
 
 ## 5. ZIP 与安装版
 
-SM 的正式 Windows 安装入口是 `SC_SM_Setup_<version>.exe`。运行安装器后选择全新部署或升级部署；升级时选择需要迁移的 `data` 目录。安装器会在替换程序前创建事务备份，迁移失败或 SM 本机 `/ping` 探活失败时尝试回滚。
+SM 的正式 Windows 安装入口是 `SC_SM_Setup_<version>.exe`。运行安装器后先执行环境自检，再选择全新部署或升级部署；升级时选择需要迁移的 `data` 目录。安装器使用 staging 目录准备新数据，失败或中断时清理失败产物，并在下一次启动时清理残留状态，不依赖旧程序或旧数据库回滚。
 
 SM 安装版将程序放在用户选择的安装目录，运行数据固定在：
 
@@ -107,9 +107,9 @@ SM 安装版将程序放在用户选择的安装目录，运行数据固定在�
 
 安装器只修改 SM 自身，不修改 Client 或 TS。固定生产入口为 `https://scjrdomain.com:4430`，SM 本地应用端口为 `18800`，公网 HTTP/HTTPS 端口为 `8800/4430`。外部路由和第三方防火墙仍需人工确认。
 
-升级迁移使用 SQLite Backup API 和 staging 目录，旧 data 源目录只读处理，不执行其中的脚本。数据库、账号、TS 节点、审批状态、软件包、DNS 配置和证书按迁移规则处理；运行日志、PID、会话和 Caddy 缓存不作为业务数据迁移。
+升级迁移使用 SQLite Backup API 和 staging 目录，旧 data 源目录只读处理，不执行其中的脚本，且旧 data 源目录不能等于目标 data 目录。数据库、账号、TS 节点、审批状态、软件包、DNS 配置和证书按迁移规则处理；运行日志、PID、会话和 Caddy 缓存不作为业务数据迁移。迁移中断时只清理目标端失败产物，不删除或改写所选旧 data 源目录。
 
-安装器会保留 `%ProgramData%\SC\ServerManager\sm.local.bat`，并将运行目录 ACL 收紧为 `SYSTEM` 和本机管理员组。卸载默认保留 data、证书和事务备份。
+安装器会保留 `%ProgramData%\SC\ServerManager\sm.local.bat`，并将运行目录 ACL 收紧为 `SYSTEM` 和本机管理员组。失败事务的锁、状态和 staging 目录会被清理；卸载默认保留 data 和证书。
 
 ## 6. 安全边界
 

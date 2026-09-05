@@ -17,6 +17,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -72,6 +73,44 @@ def _assert_safe_tree(path: Path) -> None:
             raise InstallerError(f"reparse point or symbolic link is not allowed: {child}")
 
 
+def _set_runtime_acl(path: Path, *, directory: bool = False) -> None:
+    """Apply the installer metadata ACL without relying on parent inheritance."""
+    if os.name != "nt" or not path.exists():
+        return
+    arguments = [
+        "icacls",
+        str(path),
+        "/inheritance:r",
+        "/grant:r",
+        "*S-1-5-18:(OI)(CI)F" if directory else "*S-1-5-18:F",
+        "*S-1-5-32-544:(OI)(CI)F" if directory else "*S-1-5-32-544:F",
+    ]
+    result = _run(arguments)
+    if result.returncode != 0:
+        raise InstallerError(f"unable to protect installer metadata: {path}")
+
+
+def _ensure_installer_directory(runtime_root: Path) -> Path:
+    installer_dir = runtime_root / ".installer"
+    installer_dir.mkdir(parents=True, exist_ok=True)
+    _set_runtime_acl(installer_dir, directory=True)
+    return installer_dir
+
+
+def _remove_file(path: Path) -> None:
+    if not path.exists():
+        return
+    _set_runtime_acl(path)
+    path.unlink()
+
+
+def _required_path(value: str | Path | None, label: str) -> Path:
+    raw = str(value or "").strip()
+    if not raw:
+        raise InstallerError(f"installer state is missing {label}")
+    return _full(raw)
+
+
 def _copy_tree(source: Path, target: Path) -> None:
     _assert_safe_tree(source)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +141,8 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+    if path.name in {"transaction.json", "install.lock"}:
+        _set_runtime_acl(path)
 
 
 def _load_state(path: Path) -> dict[str, Any]:
@@ -128,6 +169,10 @@ def _request_paths(request: dict[str, str]) -> tuple[str, Path, Path, Path | Non
     source_dir = _full(source_text) if source_text else None
     if source_dir and source_dir == app_dir:
         raise InstallerError("source data directory cannot be the application directory")
+    if source_dir and source_dir == data_dir:
+        raise InstallerError(
+            "upgrade source data directory must be different from the target data directory"
+        )
     if mode == "upgrade" and source_dir is None:
         raise InstallerError("upgrade deployment requires a source data directory")
     if mode == "fresh" and source_dir is not None:
@@ -221,7 +266,27 @@ def _process_path(pid: int) -> Path | None:
     return _full(value) if result.returncode == 0 and value else None
 
 
+def _named_processes() -> list[tuple[int, Path | None]]:
+    if os.name != "nt":
+        return []
+    command = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.Name -in @('ServerManager.exe','caddy.exe') } | "
+        "ForEach-Object { '{0}`t{1}' -f $_.ProcessId,$_.ExecutablePath }"
+    )
+    result = _run(["powershell", "-NoProfile", "-Command", command])
+    processes: list[tuple[int, Path | None]] = []
+    for line in (result.stdout or "").splitlines():
+        parts = line.split("\t", 1)
+        if not parts or not parts[0].isdigit():
+            continue
+        processes.append((int(parts[0]), _full(parts[1]) if len(parts) > 1 and parts[1] else None))
+    return processes
+
+
 def _stop_owned_processes(app_dir: Path) -> None:
+    app_dir = _full(app_dir)
+    pids_to_stop: set[int] = set()
     for port in (FIXED_SERVER_PORT, FIXED_PUBLIC_HTTP_PORT, FIXED_PUBLIC_HTTPS_PORT, 2019):
         try:
             port_number = int(port)
@@ -233,18 +298,100 @@ def _stop_owned_processes(app_dir: Path) -> None:
                 raise InstallerError(
                     f"port {port_number} is occupied by an unknown process (pid={pid})"
                 )
-            result = _run(["taskkill", "/PID", str(pid), "/T"], timeout=15)
-            if result.returncode != 0:
-                raise InstallerError(f"unable to stop SM process pid={pid}")
+            pids_to_stop.add(pid)
+    for pid, executable in _named_processes():
+        if executable is not None and _is_within(app_dir, executable):
+            pids_to_stop.add(pid)
+    for pid in sorted(pids_to_stop):
+        result = _run(["taskkill", "/PID", str(pid), "/T"], timeout=15)
+        if result.returncode != 0:
+            raise InstallerError(f"unable to stop SM process pid={pid}")
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if not any(
             _port_is_open(port)
             for port in (FIXED_SERVER_PORT, FIXED_PUBLIC_HTTP_PORT, FIXED_PUBLIC_HTTPS_PORT, 2019)
+        ) and not any(
+            executable is not None and _is_within(app_dir, executable)
+            for _, executable in _named_processes()
         ):
             return
         time.sleep(0.2)
     raise InstallerError("SM application or Caddy ports did not become free")
+
+
+def _port_details(app_dir: Path) -> dict[str, list[dict[str, Any]]]:
+    details: dict[str, list[dict[str, Any]]] = {}
+    for port in (FIXED_SERVER_PORT, FIXED_PUBLIC_HTTP_PORT, FIXED_PUBLIC_HTTPS_PORT, 2019):
+        rows: list[dict[str, Any]] = []
+        for pid in _listening_pids(port):
+            executable = _process_path(pid)
+            rows.append(
+                {
+                    "pid": pid,
+                    "executable": str(executable) if executable else "",
+                    "owned_by_selected_app": bool(
+                        executable and _is_within(app_dir, executable)
+                    ),
+                }
+            )
+        details[str(port)] = rows
+    return details
+
+
+def _probe_writable(path: Path) -> None:
+    parent = _existing_disk_path(path)
+    if not os.access(parent, os.W_OK):
+        raise InstallerError(f"installation path is not writable: {parent}")
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=".sc-sm-preflight-", dir=parent, delete=False
+        ) as stream:
+            probe = Path(stream.name)
+        probe.unlink()
+    except OSError as exc:
+        raise InstallerError(f"installation path is not writable: {parent}") from exc
+
+
+def _environment_report(app_dir: Path, data_dir: Path) -> dict[str, Any]:
+    app_dir = _full(app_dir)
+    data_dir = _full(data_dir)
+    for target in (app_dir, data_dir):
+        if target.exists():
+            _assert_safe_tree(target)
+    disk_paths = {
+        str(_existing_disk_path(app_dir.parent)),
+        str(_existing_disk_path(data_dir.parent)),
+    }
+    disk_free = {}
+    for path_text in sorted(disk_paths):
+        try:
+            disk_free[path_text] = shutil.disk_usage(path_text).free
+        except OSError as exc:
+            raise InstallerError(f"unable to inspect free disk space: {path_text}") from exc
+    if any(free < MINIMUM_FREE_BYTES for free in disk_free.values()):
+        raise InstallerError("insufficient free disk space for SM installation")
+    _probe_writable(app_dir.parent)
+    _probe_writable(data_dir.parent)
+    port_details = _port_details(app_dir)
+    unknown_ports = {
+        port: rows
+        for port, rows in port_details.items()
+        if any(not row["owned_by_selected_app"] for row in rows)
+    }
+    if unknown_ports:
+        raise InstallerError(f"required port is occupied by another process: {unknown_ports}")
+    return {
+        "product": "server_manager",
+        "status": "passed",
+        "app_dir": str(app_dir),
+        "data_dir": str(data_dir),
+        "ports": port_details,
+        "disk_free_bytes": disk_free,
+        "firewall_rules": {
+            name: _firewall_rule_exists(name) for name in MANAGED_FIREWALL_RULES
+        },
+    }
 
 
 def _firewall_rule_exists(name: str) -> bool:
@@ -319,6 +466,7 @@ def _acquire_lock(lock_path: Path, transaction_id: str) -> None:
         os.write(descriptor, transaction_id.encode("ascii"))
     finally:
         os.close(descriptor)
+    _set_runtime_acl(lock_path)
 
 
 def _release_lock(state: dict[str, Any]) -> None:
@@ -625,6 +773,7 @@ def _prepare(request_path: Path, state_path: Path) -> dict[str, Any]:
     _validate_credentials(request, mode)
     runtime_root = data_dir.parent
     runtime_root.mkdir(parents=True, exist_ok=True)
+    _ensure_installer_directory(runtime_root)
     transaction_id = uuid.uuid4().hex
     transaction_root = runtime_root / ".installer" / "transactions" / transaction_id
     transaction_root.mkdir(parents=True, exist_ok=False)
@@ -634,9 +783,6 @@ def _prepare(request_path: Path, state_path: Path) -> dict[str, Any]:
     except Exception:
         _remove_tree(transaction_root)
         raise
-    app_backup = transaction_root / "app-backup"
-    data_backup = transaction_root / "data-backup"
-    source_snapshot = transaction_root / "source-data"
     stop_attempted = False
     try:
         if source_dir is not None and not source_dir.is_dir():
@@ -645,25 +791,17 @@ def _prepare(request_path: Path, state_path: Path) -> dict[str, Any]:
             raise InstallerError("target data directory is not empty; select upgrade deployment")
         stop_attempted = True
         _stop_owned_processes(app_dir)
-        if source_dir is not None and source_dir == data_dir and data_dir.exists():
-            _copy_tree(data_dir, source_snapshot)
-            source_dir = source_snapshot
-        if app_dir.is_dir():
-            _copy_tree(app_dir, app_backup)
-        if data_dir.is_dir():
-            _copy_tree(data_dir, data_backup)
         state = {
             "product": "server_manager",
             "transaction_id": transaction_id,
             "phase": "prepared",
+            "created_at": time.time(),
             "request_path": str(request_path),
             "app_dir": str(app_dir),
             "data_dir": str(data_dir),
             "source_dir": str(source_dir) if source_dir else "",
             "transaction_root": str(transaction_root),
             "lock_path": str(lock_path),
-            "app_backup": str(app_backup) if app_backup.exists() else "",
-            "data_backup": str(data_backup) if data_backup.exists() else "",
             "had_app": app_dir.exists(),
             "had_data": data_dir.exists(),
             "firewall_rules_before": {
@@ -675,6 +813,10 @@ def _prepare(request_path: Path, state_path: Path) -> dict[str, Any]:
     except Exception:
         _release_lock({"lock_path": str(lock_path)})
         _remove_tree(transaction_root)
+        try:
+            _remove_file(state_path)
+        except Exception:
+            pass
         if stop_attempted and (app_dir / "start_sm.bat").is_file():
             try:
                 _start_and_check(app_dir)
@@ -717,44 +859,99 @@ def _start_and_check(app_dir: Path) -> None:
     raise InstallerError("SM local health check did not succeed")
 
 
-def _rollback_state(state: dict[str, Any]) -> None:
-    app_dir = _full(state["app_dir"])
-    data_dir = _full(state["data_dir"])
-    app_backup = _full(state["app_backup"]) if state.get("app_backup") else None
-    data_backup = _full(state["data_backup"]) if state.get("data_backup") else None
-    try:
-        _stop_owned_processes(app_dir)
-    except InstallerError:
-        pass
+def _discard_transaction(
+    state: dict[str, Any],
+    state_path: Path,
+    *,
+    app_dir: Path | None = None,
+    data_dir: Path | None = None,
+) -> None:
+    """Discard failed installer output without touching an external upgrade source."""
+    runtime_root = _full(state_path).parent.parent
+    app_dir = _required_path(app_dir or state.get("app_dir"), "application directory")
+    data_dir = _required_path(data_dir or state.get("data_dir"), "data directory")
+    expected_data_dir = runtime_root / "data"
+    if data_dir != expected_data_dir:
+        raise InstallerError("refusing to discard data outside the SM runtime directory")
+    if (
+        app_dir == app_dir.parent
+        or data_dir == data_dir.parent
+        or app_dir == runtime_root
+        or app_dir == runtime_root.parent
+    ):
+        raise InstallerError("refusing to discard an unsafe installation path")
+
+    _stop_owned_processes(app_dir)
+    _remove_tree(app_dir)
+    _remove_tree(data_dir)
     try:
         _restore_firewall(state)
     except Exception:
         pass
-    if app_backup and app_backup.exists():
-        _remove_tree(app_dir)
-        app_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(app_backup), str(app_dir))
-    elif not state.get("had_app"):
-        _remove_tree(app_dir)
-    if data_backup and data_backup.exists():
-        _remove_tree(data_dir)
-        data_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(data_backup), str(data_dir))
-    elif not state.get("had_data"):
-        _remove_tree(data_dir)
-    restart_error = ""
-    if state.get("had_app"):
+
+    # The state file is diagnostic metadata.  Cleanup is anchored to the
+    # installer directory so a corrupt or tampered transaction path cannot
+    # redirect deletion outside the SM runtime.
+    _remove_tree(runtime_root / ".installer" / "transactions")
+    _remove_file(runtime_root / "sm.local.bat")
+    _remove_file(runtime_root / ".installer" / "install.lock")
+    _remove_file(state_path)
+
+
+def _discard_stale(
+    state_path: Path,
+    runtime_root: Path,
+    app_dir: Path,
+    data_dir: Path,
+) -> None:
+    """Make a failed or unreadable previous transaction non-blocking."""
+    state_path = _full(state_path)
+    runtime_root = _full(runtime_root)
+    installer_dir = runtime_root / ".installer"
+    expected_state_path = installer_dir / "transaction.json"
+    if state_path != expected_state_path:
+        raise InstallerError("installer state path is outside the SM runtime directory")
+    installer_dir = _ensure_installer_directory(runtime_root)
+    lock_path = installer_dir / "install.lock"
+    state: dict[str, Any] = {
+        "product": "server_manager",
+        "app_dir": str(_full(app_dir)),
+        "data_dir": str(_full(data_dir)),
+        "lock_path": str(lock_path),
+        "transaction_root": str(installer_dir / "transactions"),
+        "phase": "stale",
+    }
+    if state_path.is_file():
         try:
-            _start_and_check(app_dir)
-        except Exception as exc:
-            restart_error = str(exc)
-    state["phase"] = "rolled_back"
-    if restart_error:
-        state["restart_error"] = restart_error
-    _write_json(_full(state["transaction_root"]) / "state.json", state)
-    _release_lock(state)
-    if restart_error:
-        raise InstallerError(f"previous SM was restored but could not be restarted: {restart_error}")
+            loaded = _load_state(state_path)
+            state.update(loaded)
+        except InstallerError:
+            # The metadata itself may have a broken ACL or be truncated.
+            _set_runtime_acl(state_path)
+    if state.get("phase") == "committed":
+        # A committed deployment is already live.  Only remove installer
+        # metadata; never treat a stale cleanup as permission to delete app/data.
+        _remove_tree(installer_dir / "transactions")
+        _remove_file(lock_path)
+        _remove_file(state_path)
+        return
+    _discard_transaction(
+        state,
+        state_path,
+        app_dir=app_dir,
+        data_dir=data_dir,
+    )
+
+
+def _environment_preflight(
+    app_dir: Path,
+    data_dir: Path,
+    report_path: Path,
+) -> dict[str, Any]:
+    report = _environment_report(app_dir, data_dir)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(report_path, report)
+    return report
 
 
 def _commit(request_path: Path, state_path: Path) -> dict[str, Any]:
@@ -795,12 +992,19 @@ def _commit(request_path: Path, state_path: Path) -> dict[str, Any]:
             "product", "transaction_id", "phase", "mode", "database", "completed_at"
         )})
         _release_lock(state)
+        try:
+            _remove_tree(transaction_root)
+            _remove_file(state_path)
+        except Exception:
+            # A committed deployment must remain usable even if metadata cleanup
+            # is temporarily blocked; the next installer launch can remove it.
+            pass
         return state
     except Exception as exc:
         try:
-            _rollback_state(state)
+            _discard_transaction(state, state_path)
         except Exception as rollback_error:
-            raise InstallerError(f"installation failed and rollback failed: {rollback_error}") from exc
+            raise InstallerError(f"installation failed and cleanup failed: {rollback_error}") from exc
         if isinstance(exc, InstallerError):
             raise
         raise InstallerError(f"installation failed: {exc}") from exc
@@ -808,17 +1012,7 @@ def _commit(request_path: Path, state_path: Path) -> dict[str, Any]:
 
 def _recover(state_path: Path) -> None:
     state = _load_state(state_path)
-    phase = str(state.get("phase") or "")
-    if phase == "committed":
-        _release_lock(state)
-        return
-    if phase in {"prepared", "committing"}:
-        _rollback_state(state)
-        return
-    if phase == "rolled_back":
-        _release_lock(state)
-        return
-    raise InstallerError(f"unsupported installer transaction phase: {phase}")
+    _discard_transaction(state, state_path)
 
 
 def _preflight(request_path: Path, report_path: Path) -> dict[str, Any]:
@@ -826,36 +1020,16 @@ def _preflight(request_path: Path, report_path: Path) -> dict[str, Any]:
     mode, app_dir, data_dir, source_dir = _request_paths(request)
     _validate_fixed_configuration(request)
     _validate_credentials(request, mode)
-    report: dict[str, Any] = {
-        "product": "server_manager",
-        "mode": mode,
-        "app_dir": str(app_dir),
-        "data_dir": str(data_dir),
-        "source_data": str(source_dir) if source_dir else "",
-        "fixed_public_url": FIXED_PUBLIC_BASE_URL,
-        "ports": {
-            str(port): {"occupied_before_stop": _port_is_open(port)}
-            for port in (FIXED_SERVER_PORT, FIXED_PUBLIC_HTTP_PORT, FIXED_PUBLIC_HTTPS_PORT, 2019)
-        },
-        "source_exists": source_dir.is_dir() if source_dir else True,
-        "external_network_check": "manual",
-    }
-    disk_paths = {
-        str(_existing_disk_path(app_dir.parent)),
-        str(_existing_disk_path(data_dir.parent)),
-    }
-    disk_free = {}
-    for path_text in sorted(disk_paths):
-        try:
-            disk_free[path_text] = shutil.disk_usage(path_text).free
-        except OSError as exc:
-            raise InstallerError(f"unable to inspect free disk space: {path_text}") from exc
-    if any(free < MINIMUM_FREE_BYTES for free in disk_free.values()):
-        raise InstallerError("insufficient free disk space for SM installation")
-    report["disk_free_bytes"] = disk_free
-    report["firewall_rules"] = {
-        name: _firewall_rule_exists(name) for name in MANAGED_FIREWALL_RULES
-    }
+    report = _environment_report(app_dir, data_dir)
+    report.update(
+        {
+            "mode": mode,
+            "source_data": str(source_dir) if source_dir else "",
+            "fixed_public_url": FIXED_PUBLIC_BASE_URL,
+            "source_exists": source_dir.is_dir() if source_dir else True,
+            "external_network_check": "manual",
+        }
+    )
     if source_dir and not source_dir.is_dir():
         raise InstallerError(f"source data directory does not exist: {source_dir}")
     has_requested_certificate = bool(
@@ -889,17 +1063,32 @@ def _preflight(request_path: Path, report_path: Path) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SC Server Manager deployment helper")
+    parser.add_argument("--environment-preflight", action="store_true")
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--prepare", action="store_true")
     parser.add_argument("--commit", action="store_true")
+    parser.add_argument("--discard-stale", action="store_true")
     parser.add_argument("--rollback", action="store_true")
     parser.add_argument("--recover", action="store_true")
+    parser.add_argument("--app-dir", type=Path)
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--request-file", type=Path)
     parser.add_argument("--report-file", type=Path)
     parser.add_argument("--state-file", type=Path)
     args = parser.parse_args(argv)
     try:
-        if args.preflight:
+        if args.environment_preflight:
+            if (
+                not args.app_dir
+                or not args.data_dir
+                or not args.report_file
+            ):
+                raise InstallerError(
+                    "environment preflight requires app, data, and report paths"
+                )
+            _environment_preflight(args.app_dir, args.data_dir, args.report_file)
+        elif args.preflight:
             if not args.request_file or not args.report_file:
                 raise InstallerError("preflight requires request and report files")
             _preflight(args.request_file, args.report_file)
@@ -911,19 +1100,21 @@ def main(argv: list[str] | None = None) -> int:
             if not args.request_file or not args.state_file:
                 raise InstallerError("commit requires request and state files")
             _commit(args.request_file, args.state_file)
-        elif args.rollback:
+        elif args.discard_stale:
+            if not args.state_file or not args.runtime_root or not args.app_dir or not args.data_dir:
+                raise InstallerError(
+                    "discard-stale requires state, runtime, app, and data paths"
+                )
+            _discard_stale(args.state_file, args.runtime_root, args.app_dir, args.data_dir)
+        elif args.rollback or args.recover:
             if not args.state_file:
-                raise InstallerError("rollback requires a state file")
-            _rollback_state(_load_state(args.state_file))
-        elif args.recover:
-            if not args.state_file:
-                raise InstallerError("recover requires a state file")
+                raise InstallerError("discard operation requires a state file")
             _recover(args.state_file)
         else:
             raise InstallerError("one installer operation is required")
         return 0
     except Exception as exc:
-        if args.preflight and args.report_file:
+        if (args.preflight or args.environment_preflight) and args.report_file:
             try:
                 _write_json(
                     args.report_file,

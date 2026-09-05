@@ -25,6 +25,7 @@
 
 [Setup]
 AppId={{8F27C081-DF73-4247-95C3-F2337836FFFB}
+AppMutex=SCServerManagerInstaller
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -118,16 +119,21 @@ end;
 function InitializeSetup: Boolean;
 var
   ExistingStatePath: String;
+  ExistingLockPath: String;
   ResultCode: Integer;
 begin
   Result := True;
   ExistingStatePath := ExpandConstant('{commonappdata}\SC\ServerManager\.installer\transaction.json');
-  if FileExists(ExistingStatePath) then begin
+  ExistingLockPath := ExpandConstant('{commonappdata}\SC\ServerManager\.installer\install.lock');
+  if FileExists(ExistingStatePath) or FileExists(ExistingLockPath) then begin
     ExtractTemporaryFile('SC_SM_InstallerHelper.exe');
     if (not Exec(HelperFilePath,
-        '--recover --state-file ' + QuoteArgument(ExistingStatePath), '', SW_HIDE,
+        '--discard-stale --state-file ' + QuoteArgument(ExistingStatePath) +
+        ' --runtime-root ' + QuoteArgument(ExpandConstant('{commonappdata}\SC\ServerManager')) +
+        ' --app-dir ' + QuoteArgument(ExpandConstant('{app}')) +
+        ' --data-dir ' + QuoteArgument(ExpandConstant('{commonappdata}\SC\ServerManager\data')), '', SW_HIDE,
         ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then begin
-      MsgBox('检测到未完成的 SM 安装事务，且自动恢复失败。已取消本次安装。',
+      MsgBox('上次 SM 安装残留清理失败，请关闭 SM 后重试。',
         mbError, MB_OK);
       Result := False;
     end;
@@ -190,6 +196,21 @@ begin
       mbError, MB_OK);
 end;
 
+function RunEnvironmentPreflight: Boolean;
+var
+  ReportFilePath: String;
+begin
+  ExtractTemporaryFile('SC_SM_InstallerHelper.exe');
+  ReportFilePath := ExpandConstant('{tmp}\SC_SM_EnvironmentPreflight.json');
+  Result := RunHelper(
+    '--environment-preflight --app-dir ' + QuoteArgument(ExpandConstant('{app}')) +
+    ' --data-dir ' + QuoteArgument(ExpandConstant('{commonappdata}\SC\ServerManager\data')) +
+    ' --report-file ' + QuoteArgument(ReportFilePath));
+  if not Result then
+    MsgBox('SM 环境自检失败。请查看检查报告：' + ReportFilePath,
+      mbError, MB_OK);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
@@ -212,7 +233,7 @@ begin
     if not RunHelper(
       '--commit --request-file ' + QuoteArgument(RequestFilePath) +
       ' --state-file ' + QuoteArgument(StateFilePath)) then
-      RaiseException('SM 安装提交失败，安装器已尝试恢复原程序和 data 数据。');
+      RaiseException('SM 安装提交失败，失败产物已清理；升级时选择的旧 data 目录不会被修改。');
     DeleteFile(RequestFilePath);
   end;
 end;
@@ -291,7 +312,9 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if CurPageID = FixedConfigurationPage.ID then begin
+  if CurPageID = wpSelectDir then begin
+    Result := RunEnvironmentPreflight;
+  end else if CurPageID = FixedConfigurationPage.ID then begin
     WriteInstallerRequest;
     Result := RunPreflight;
   end;

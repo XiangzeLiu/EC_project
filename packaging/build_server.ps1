@@ -475,7 +475,17 @@ if ($installerHelperSource) {
 Push-Location $root
 try {
     if ($env:SKIP_TESTS -ne "1") {
-        Invoke-Native -FilePath $python -Arguments @("-m", "unittest", "tests.test_server_packaging") -FailureMessage "Server packaging tests failed"
+        $previousPackagingTarget = $env:SERVER_PACKAGING_TARGET
+        $env:SERVER_PACKAGING_TARGET = $Target
+        try {
+            Invoke-Native -FilePath $python -Arguments @("-m", "unittest", "tests.test_server_packaging") -FailureMessage "Server packaging tests failed"
+        } finally {
+            if ($null -eq $previousPackagingTarget) {
+                Remove-Item Env:SERVER_PACKAGING_TARGET -ErrorAction SilentlyContinue
+            } else {
+                $env:SERVER_PACKAGING_TARGET = $previousPackagingTarget
+            }
+        }
         if ($env:RUN_FULL_TESTS -eq "1") {
             Invoke-Native -FilePath $python -Arguments @("-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py") -FailureMessage "Full regression tests failed"
         }
