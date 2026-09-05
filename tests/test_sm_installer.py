@@ -306,6 +306,20 @@ class SMInstallerHelperTests(unittest.TestCase):
         self.assertIn("sm_deploy_helper.py", packager)
         self.assertIn("SC_SM_InstallerHelper", packager)
 
+    def test_initialize_setup_only_uses_initialized_safe_constants(self):
+        inno = (ROOT / "packaging" / "inno" / "server_manager.iss").read_text(
+            encoding="utf-8"
+        )
+        start = inno.index("function InitializeSetup")
+        end = inno.index("procedure ProtectRequestFile", start)
+        initialize_setup = inno[start:end]
+
+        self.assertNotIn("ExpandConstant('{app}')", initialize_setup)
+        self.assertIn(
+            "ExpandConstant('{autopf}\\SC\\Server Manager')",
+            initialize_setup,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

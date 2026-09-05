@@ -130,7 +130,7 @@ begin
     if (not Exec(HelperFilePath,
         '--discard-stale --state-file ' + QuoteArgument(ExistingStatePath) +
         ' --runtime-root ' + QuoteArgument(ExpandConstant('{commonappdata}\SC\ServerManager')) +
-        ' --app-dir ' + QuoteArgument(ExpandConstant('{app}')) +
+        ' --app-dir ' + QuoteArgument(ExpandConstant('{autopf}\SC\Server Manager')) +
         ' --data-dir ' + QuoteArgument(ExpandConstant('{commonappdata}\SC\ServerManager\data')), '', SW_HIDE,
         ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then begin
       MsgBox('上次 SM 安装残留清理失败，请关闭 SM 后重试。',

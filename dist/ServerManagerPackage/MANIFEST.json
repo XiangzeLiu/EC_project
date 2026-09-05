@@ -1,11 +1,11 @@
 {
     "build":  {
                   "product":  "sm",
-                  "version":  "v_sm_20260906024439",
+                  "version":  "v_sm_20260906034744",
                   "platform":  "windows-x64",
-                  "build_timestamp":  "20260906024439",
+                  "build_timestamp":  "20260906034744",
                   "artifact_suffix":  "_VALIDATION",
-                  "git_commit":  "aec5e662d0ebbb26ce66a7c3ee59444a15b2878b",
+                  "git_commit":  "4ede69691a14e8299c477c74e029e87347b47d43",
                   "git_dirty":  true,
                   "release_build":  false,
                   "inno_commercial_license_confirmed":  false,
@@ -17,7 +17,7 @@
                   "signing_tool_sha256":  "",
                   "timestamp_url":  "",
                   "inno_compiler_sha256":  "0A8757031B33777E4C9CBFFEE40F11A5062B36D25CBE144C1DB73B6102B80AD7",
-                  "installer_helper_sha256":  "15C1474955D36FC253F049A8566C281CC4FE933C7418412D00EB32F484B19DC8",
+                  "installer_helper_sha256":  "B5FBFEED5177E5BE46548A5341B07119DDC1631379B199B7C9CE55AEDBFBCC78",
                   "caddy_version":  "v2.11.4",
                   "caddy_sha256":  "0A37A942F6672AA056458A46C2E4A7D9F4621CFC8D230378BF285C0B38C38AEC"
               },
@@ -25,12 +25,12 @@
                   {
                       "path":  "BUILD_INFO.json",
                       "size":  927,
-                      "sha256":  "2D9BA6AE5F15ADCEDBEE7AA8CBF233C8D53451E6079FC51051BA51A006875B64"
+                      "sha256":  "15D4B60E295658B339100A67D8B31E9150E525ECEAD2A09E0F5470B1A536AFD9"
                   },
                   {
                       "path":  "ServerManager.exe",
                       "size":  13212146,
-                      "sha256":  "41E83D9A9CCFA94664C21A5FFCD14295302D525B11B5CF30715301FC23888125"
+                      "sha256":  "25C98B63E3AE6578F68E096A9D09DEE0A0FF3B2D18156634418A614FF6828856"
                   },
                   {
                       "path":  "sm.env.example",
@@ -60,7 +60,7 @@
                   {
                       "path":  "_internal/base_library.zip",
                       "size":  1443565,
-                      "sha256":  "B0B2EB62F0755188B3E0946E82E76C808AAE95FF0A2AF3CB3EE9203A63BFF4EE"
+                      "sha256":  "B529E74037871F3C80231B9EB731F33A337B5D99970C98486BA0BB94831EF1CB"
                   },
                   {
                       "path":  "_internal/libcrypto-3.dll",
@@ -95,7 +95,7 @@
                   {
                       "path":  "_internal/server_manager_build_info.json",
                       "size":  927,
-                      "sha256":  "2D9BA6AE5F15ADCEDBEE7AA8CBF233C8D53451E6079FC51051BA51A006875B64"
+                      "sha256":  "15D4B60E295658B339100A67D8B31E9150E525ECEAD2A09E0F5470B1A536AFD9"
                   },
                   {
                       "path":  "_internal/sqlite3.dll",
@@ -4606,16 +4606,16 @@
     "artifacts":  [
                       {
                           "type":  "archive",
-                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260906024439_VALIDATION.zip",
-                          "size":  57926502,
-                          "sha256":  "1AC127CAA3D7A63FD76C293E47C3E3D49220D103B965A23FF2CA0E5BC7F01132",
+                          "path":  "archive/SC_SM_Windows_x64_v_sm_20260906034744_VALIDATION.zip",
+                          "size":  57926955,
+                          "sha256":  "4C8F110751D9CCAF2332717BF41B366905E3F4686D8445886BF3314BCD46ED2C",
                           "authenticode_signed":  false
                       },
                       {
                           "type":  "installer",
-                          "path":  "installer/SC_SM_Setup_v_sm_20260906024439_VALIDATION.exe",
-                          "size":  53831193,
-                          "sha256":  "A99AFE5602A9C442327DEA39A4ABD4072F2D017EE39F03B5A558AAB2AEF0DFC4",
+                          "path":  "installer/SC_SM_Setup_v_sm_20260906034744_VALIDATION.exe",
+                          "size":  53834845,
+                          "sha256":  "3735E32DF94BF23F268214CF32991B894925D8D91A5EB72211949788171449C5",
                           "authenticode_signed":  false
                       }
                   ]
