@@ -21,6 +21,18 @@ from Trader_Server.services import config_sync, heartbeat as heartbeat_service, 
 
 
 class InteractiveBrokersAdapterTests(unittest.TestCase):
+    def test_global_route_candidates_match_production_gateway_probe(self):
+        self.assertEqual(
+            ib_module.IB_ROUTE_CANDIDATES,
+            (
+                "SMART", "AMEX", "NYSE", "CBOE", "PHLX", "ISE", "CHX",
+                "ARCA", "NASDAQ", "DRCTEDGE", "BEX", "BATS", "EDGEA",
+                "BYX", "IEX", "EDGX", "FOXRIVER", "PEARL", "NYSENAT",
+                "LTSE", "MEMX", "IBEOS", "OVERNIGHT", "TPLUS0", "PSX",
+                "T24X", "TXSE",
+            ),
+        )
+
     @staticmethod
     def _ready_broker(app, account_id="U123"):
         broker = IBBroker()
@@ -529,7 +541,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         broker = InteractiveBrokersAdapterTests._ready_broker(app)
         self.assertEqual(
             broker.status_detail()["order_options"]["routes"],
-            ["SMART", "ARCA", "NYSE"],
+            list(ib_module.IB_ROUTE_CANDIDATES),
         )
         self.assertIn("IOC", broker.status_detail()["order_options"]["supported_tifs"])
 
@@ -548,7 +560,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        self.assertEqual(routes, ["SMART", "ARCA", "NYSE"])
+        self.assertEqual(routes, list(ib_module.IB_ROUTE_CANDIDATES))
         self.assertEqual(result["order_id"], "901")
         submitted_contract = app.submissions[0][1]
         submitted_order = app.submissions[0][2]

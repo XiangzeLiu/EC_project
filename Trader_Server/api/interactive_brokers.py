@@ -52,7 +52,37 @@ _NON_FATAL_WARNING_CODES = {2176}
 _CONNECTION_CODES = {326, 502, 504, 1100, 1101, 1102, 1300}
 _RUNTIME_CONNECTION_CODES = {1100, 1101, 1102, 1300}
 _MARKET_DATA_CODES = {354, 10089, 10167, 10168}
-IB_ROUTE_CANDIDATES = ("SMART", "ARCA", "NYSE")
+# Fixed settings candidates sampled from production IB ContractDetails.
+# Symbol-specific validExchanges remains authoritative when an order is sent.
+IB_ROUTE_CANDIDATES = (
+    "SMART",
+    "AMEX",
+    "NYSE",
+    "CBOE",
+    "PHLX",
+    "ISE",
+    "CHX",
+    "ARCA",
+    "NASDAQ",
+    "DRCTEDGE",
+    "BEX",
+    "BATS",
+    "EDGEA",
+    "BYX",
+    "IEX",
+    "EDGX",
+    "FOXRIVER",
+    "PEARL",
+    "NYSENAT",
+    "LTSE",
+    "MEMX",
+    "IBEOS",
+    "OVERNIGHT",
+    "TPLUS0",
+    "PSX",
+    "T24X",
+    "TXSE",
+)
 _ACTION_TO_IB = {
     "Buy to Open": "BUY",
     "Buy to Close": "BUY",

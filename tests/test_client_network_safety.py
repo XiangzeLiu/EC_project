@@ -32,6 +32,7 @@ class TSWebSocketRequestSafetyTests(unittest.TestCase):
         self.assertEqual(client._pending_requests, [])
         self.assertEqual(client._response_waiters, {})
 
+
     def test_connection_invalidation_wakes_waiting_request(self):
         client = self._connected_client()
         result: list[object] = []
@@ -53,6 +54,35 @@ class TSWebSocketRequestSafetyTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 0.5)
         self.assertEqual(result, [None])
         self.assertEqual(client._pending_requests, [])
+
+
+class TSNodeRouteEncodingTests(unittest.TestCase):
+    def test_non_ascii_server_id_is_encoded_for_occupy_and_release(self):
+        calls = []
+
+        class FakeHttp:
+            token = "client-token"
+
+            @staticmethod
+            def post(path, body):
+                calls.append((path, body))
+                return 200, {"ok": True}
+
+        coordinator = TSConnectionCoordinator(
+            http_client=FakeHttp(),
+            session_provider=lambda: SimpleNamespace(connected=True),
+            username_provider=lambda: "test",
+            reconnect_allowed_provider=lambda: True,
+            background_runner=lambda callback: callback(),
+        )
+        coordinator._server_id = "node_YT书证_5c156b93"
+        coordinator._connection_id = "conn-1"
+
+        self.assertTrue(coordinator.occupy(connection_id="conn-1"))
+        self.assertTrue(coordinator.release(sync=True))
+
+        self.assertEqual(calls[0][0], "/api/nodes/node_YT%E4%B9%A6%E8%AF%81_5c156b93/occupy")
+        self.assertEqual(calls[1][0], "/api/nodes/node_YT%E4%B9%A6%E8%AF%81_5c156b93/release")
 
 
 class TSWebSocketSendFailureTests(unittest.IsolatedAsyncioTestCase):

@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable, Iterable
 
 from PySide6.QtCore import QEvent, QObject, QTimer
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QContextMenuEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .hotkey_config import ACTION_POLICIES, HotkeyBinding, HotkeyContext, RateLimitPolicy, validate_bindings
@@ -21,6 +21,8 @@ _CONTEXT_PRIORITY = {
     HotkeyContext.ORDERS_TABLE: 2,
     HotkeyContext.POSITIONS_TABLE: 2,
 }
+_KEYBOARD_CONTEXT_MENU_KEY = "shift+f10"
+_CONTEXT_MENU_SUPPRESSION_SECONDS = 0.5
 
 
 def normalize_shortcut_sequence(value: str) -> str:
@@ -69,6 +71,8 @@ class ShortcutController(QObject):
         self._last_triggered: dict[str, float] = {}
         self._repeat_timers: dict[str, QTimer] = {}
         self._active_repeat_bindings: dict[str, HotkeyBinding] = {}
+        self._context_menu_target: QObject | None = None
+        self._context_menu_suppression_until = 0.0
         self._installed = False
         self.errors = validate_bindings(bindings)
         self.errors.extend(validate_shortcut_sequences(bindings))
@@ -111,6 +115,32 @@ class ShortcutController(QObject):
             app.removeEventFilter(self)
         self._installed = False
         self._stop_repeats()
+        self._clear_context_menu_suppression()
+
+    def _clear_context_menu_suppression(self) -> None:
+        self._context_menu_target = None
+        self._context_menu_suppression_until = 0.0
+
+    def _suppress_keyboard_context_menu(self, watched: QObject) -> None:
+        self._context_menu_target = watched
+        self._context_menu_suppression_until = time.monotonic() + _CONTEXT_MENU_SUPPRESSION_SECONDS
+
+    def _consume_keyboard_context_menu(self, watched: QObject, event) -> bool:
+        target = self._context_menu_target
+        if target is None:
+            return False
+        if time.monotonic() > self._context_menu_suppression_until:
+            self._clear_context_menu_suppression()
+            return False
+        if (
+            watched is not target
+            or QApplication.activeWindow() is not self._window
+            or event.reason() != QContextMenuEvent.Keyboard
+        ):
+            return False
+        self._clear_context_menu_suppression()
+        event.accept()
+        return True
 
     def _policy_for(self, binding: HotkeyBinding) -> RateLimitPolicy:
         return ACTION_POLICIES.get(binding.action, RateLimitPolicy())
@@ -168,12 +198,17 @@ class ShortcutController(QObject):
 
     def eventFilter(self, watched, event):
         event_type = event.type()
+        if event_type == QEvent.ContextMenu:
+            return self._consume_keyboard_context_menu(watched, event)
         if event_type in (QEvent.ApplicationDeactivate, QEvent.WindowDeactivate):
             self._stop_repeats()
+            self._clear_context_menu_suppression()
             return False
         if event_type not in (QEvent.KeyPress, QEvent.KeyRelease):
             return False
         key = self._event_sequence(event)
+        if event_type == QEvent.KeyPress:
+            self._clear_context_menu_suppression()
         if QApplication.activeWindow() is not self._window:
             return False
 
@@ -182,6 +217,9 @@ class ShortcutController(QObject):
         binding = max(matches, key=lambda item: _CONTEXT_PRIORITY.get(item.context, 0), default=None)
         if binding is None:
             return False
+
+        if event_type == QEvent.KeyPress and key == _KEYBOARD_CONTEXT_MENU_KEY:
+            self._suppress_keyboard_context_menu(watched)
 
         if event_type == QEvent.KeyRelease:
             if not event.isAutoRepeat():

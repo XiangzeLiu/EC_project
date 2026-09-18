@@ -4,6 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
 from PySide6.QtCore import QObject, Signal
 
@@ -17,6 +18,13 @@ from Client.network.ts_websocket import TSAuthenticationError, TSWebSocketClient
 
 
 _AUTH_FAILURE_CODES = {"AUTH_EXPIRED", "AUTH_INVALID", "AUTH_REVOKED"}
+
+
+def _node_action_path(server_id: str, action: str) -> str:
+    """Build an API path with the node identifier encoded as one path segment."""
+    encoded_server_id = quote(str(server_id or "").strip(), safe="")
+    encoded_action = quote(str(action or "").strip(), safe="")
+    return f"/api/nodes/{encoded_server_id}/{encoded_action}"
 
 
 def _auth_failure_code(status_code: int, response: dict) -> str:
@@ -409,7 +417,7 @@ class TSConnectionCoordinator(QObject):
                 if not self._is_current(generation):
                     return False
                 try:
-                    code, response = self._http.post(f"/api/nodes/{server_id}/occupy", {
+                    code, response = self._http.post(_node_action_path(server_id, "occupy"), {
                         "username": username,
                         "connection_id": requested_connection_id,
                     })
@@ -458,7 +466,7 @@ class TSConnectionCoordinator(QObject):
 
         def do_release() -> bool:
             try:
-                code, _response = self._http.post(f"/api/nodes/{server_id}/release", {
+                code, _response = self._http.post(_node_action_path(server_id, "release"), {
                     "connection_id": connection_id,
                 })
                 if code == 200:
@@ -484,7 +492,7 @@ class TSConnectionCoordinator(QObject):
         if not server_id or not connection_id:
             return False
         try:
-            code, _response = self._http.post(f"/api/nodes/{server_id}/release", {
+            code, _response = self._http.post(_node_action_path(server_id, "release"), {
                 "connection_id": connection_id,
             })
             return code == 200

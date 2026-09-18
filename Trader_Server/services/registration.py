@@ -280,11 +280,16 @@ def await_approval(
                         approved = result.get("approved", False)
 
                         if approved:
-                            log.info(f"★ APPROVED! server_id={result.get('server_id')}")
+                            server_id = str(result.get("server_id") or "").strip()
+                            token = str(result.get("token") or "").strip()
+                            if not server_id or not token:
+                                log.error("Approval response is missing server credentials")
+                                return None
+                            log.info(f"★ APPROVED! server_id={server_id}")
                             # 保存凭证
                             config_saved = save_config({
-                                "server_id": result.get("server_id"),
-                                "token": result.get("token"),
+                                "server_id": server_id,
+                                "token": token,
                                 "manager_url": state.manager_url,
                                 "node_name": state.node_name,
                                 "region": state.region,
@@ -297,10 +302,11 @@ def await_approval(
                                 clear_register_state()
                             else:
                                 log.error("Approved credentials could not be persisted")
+                                return None
 
                             # 更新运行时状态
-                            state.server_id = result.get("server_id", "")
-                            state.token = result.get("token", "")
+                            state.server_id = server_id
+                            state.token = token
                             state.public_ip = result.get("public_ip") or state.public_ip
                             state.assigned_domain = result.get("assigned_domain", "")
                             state.public_endpoint = result.get("public_endpoint", "")
@@ -415,6 +421,7 @@ def check_and_restore_session() -> bool:
     # Case 1: 已有有效凭证
     cfg = load_config()
     if is_registered():
+        clear_register_state()
         state.server_id = cfg["server_id"]
         state.token = cfg["token"]
         state.manager_url = resolve_manager_url(cfg.get("manager_url"))

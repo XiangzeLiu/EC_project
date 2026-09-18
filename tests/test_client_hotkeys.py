@@ -8,10 +8,10 @@ from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QContextMenuEvent, QKeyEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QWidget
 
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt import main_window as client_main_window
@@ -502,6 +502,85 @@ class ShortcutControllerTests(unittest.TestCase):
         window.close()
         self.assertEqual(called, [binding])
 
+    def test_consumed_shift_f10_suppresses_only_matching_keyboard_menu(self):
+        window = QWidget()
+        field = QLineEdit(window)
+        other_field = QLineEdit(window)
+        other_field.move(0, 40)
+        called = []
+        binding = HotkeyBinding(
+            "order",
+            "Shift+F10",
+            HotkeyAction.REFRESH_ORDERS,
+            HotkeyContext.MAIN_WINDOW,
+            True,
+        )
+        controller = ShortcutController(window, [binding], called.append, lambda _binding: True)
+        window.show()
+        window.activateWindow()
+        field.setFocus()
+        self.app.processEvents()
+
+        key_press = QKeyEvent(QEvent.KeyPress, Qt.Key_F10, Qt.ShiftModifier)
+        self.assertTrue(controller.eventFilter(field, key_press))
+        self.assertEqual(called, [binding])
+
+        other_menu = QContextMenuEvent(
+            QContextMenuEvent.Keyboard,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        self.assertFalse(controller.eventFilter(other_field, other_menu))
+
+        keyboard_menu = QContextMenuEvent(
+            QContextMenuEvent.Keyboard,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        self.assertTrue(controller.eventFilter(field, keyboard_menu))
+
+        second_key_press = QKeyEvent(QEvent.KeyPress, Qt.Key_F10, Qt.ShiftModifier)
+        self.assertTrue(controller.eventFilter(field, second_key_press))
+        mouse_menu = QContextMenuEvent(
+            QContextMenuEvent.Mouse,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        self.assertFalse(controller.eventFilter(field, mouse_menu))
+
+        controller.shutdown()
+        window.close()
+
+    def test_unbound_shift_f10_keeps_keyboard_context_menu_available(self):
+        window = QWidget()
+        field = QLineEdit(window)
+        controller = ShortcutController(window, [], lambda _binding: None, lambda _binding: True)
+        window.show()
+        window.activateWindow()
+        field.setFocus()
+        self.app.processEvents()
+
+        key_press = QKeyEvent(QEvent.KeyPress, Qt.Key_F10, Qt.ShiftModifier)
+        keyboard_menu = QContextMenuEvent(
+            QContextMenuEvent.Keyboard,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        self.assertFalse(controller.eventFilter(field, key_press))
+        self.assertFalse(controller.eventFilter(field, keyboard_menu))
+
+        controller.shutdown()
+        window.close()
+
+    def test_context_menu_uses_high_contrast_application_theme(self):
+        qss = client_main_window.theme.APP_QSS
+
+        self.assertIn("QMenu::item:selected", qss)
+        self.assertIn("QMenu::item:disabled", qss)
+        self.assertIn(f"background: {client_main_window.theme.PANEL_BG};", qss)
+        self.assertIn(f"color: {client_main_window.theme.TEXT_PRIMARY};", qss)
+        self.assertIn(f"color: {client_main_window.theme.TEXT_MUTED};", qss)
+
     def test_reserved_production_bindings_do_not_dispatch(self):
         window = QWidget()
         called = []
@@ -562,6 +641,34 @@ class ShortcutControllerTests(unittest.TestCase):
         )
         QApplication.sendEvent(field, auto_repeat)
         self.assertEqual(submitted, [])
+
+    def test_trade_price_input_consumes_keyboard_context_menu(self):
+        field = TradePriceInput()
+        event = QContextMenuEvent(
+            QContextMenuEvent.Keyboard,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+
+        field.contextMenuEvent(event)
+
+        self.assertTrue(event.isAccepted())
+        field.deleteLater()
+
+    def test_trade_price_input_delegates_mouse_context_menu(self):
+        field = TradePriceInput()
+        field.setContextMenuPolicy(Qt.NoContextMenu)
+        event = QContextMenuEvent(
+            QContextMenuEvent.Mouse,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        event.ignore()
+
+        field.contextMenuEvent(event)
+
+        self.assertFalse(event.isAccepted())
+        field.deleteLater()
 
 
 class FakeTradingSession:

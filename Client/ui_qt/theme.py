@@ -270,6 +270,35 @@ QWidget {{
     font-size: 10pt;
 }}
 
+QMenu {{
+    background: {PANEL_BG};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER};
+    padding: 4px 0;
+}}
+
+QMenu::item {{
+    background: transparent;
+    color: {TEXT_PRIMARY};
+    min-height: 24px;
+    padding: 4px 24px 4px 12px;
+}}
+
+QMenu::item:selected {{
+    background: {PANEL_ALT_BG};
+    color: #FFFFFF;
+}}
+
+QMenu::item:disabled {{
+    color: {TEXT_MUTED};
+}}
+
+QMenu::separator {{
+    background: {BORDER_SOFT};
+    height: 1px;
+    margin: 4px 8px;
+}}
+
 QPushButton:focus,
 QCheckBox:focus,
 QRadioButton:focus,

@@ -109,6 +109,8 @@ app.add_middleware(
 # 全局心跳实例
 _heartbeat: HeartbeatSender | None = None
 _approval_broker_task: asyncio.Task | None = None
+_startup_recovery_task: asyncio.Task | None = None
+_startup_error = ""
 _STARTED_AT = time.time()
 
 
@@ -286,8 +288,10 @@ async def api_await_approval(request_id: str = Query(...)):
         async def _apply_terminal_event(result: dict) -> bool:
             approved = bool(result.get("approved"))
             if approved:
-                sid = result.get("server_id", "")
-                tok = result.get("token", "")
+                sid = str(result.get("server_id") or "").strip()
+                tok = str(result.get("token") or "").strip()
+                if not sid or not tok:
+                    raise RuntimeError("Approval response is missing server credentials")
                 log.info(f"[Await Approval] APPROVED server_id={sid}")
                 config_saved = save_config({
                     "server_id": sid,
@@ -302,7 +306,7 @@ async def api_await_approval(request_id: str = Query(...)):
                 if config_saved:
                     clear_register_state()
                 else:
-                    log.error("[Await Approval] Approved credentials could not be persisted")
+                    raise RuntimeError("Approved credentials could not be persisted")
                 state.server_id = sid
                 state.token = tok
                 state.public_ip = result.get("public_ip") or state.public_ip
@@ -395,19 +399,27 @@ async def api_await_approval(request_id: str = Query(...)):
             resp = await loop.run_in_executor(
                 None, lambda: urlopen(req, timeout=3600)
             )
+            event_chunks: list[bytes] = []
             while True:
                 raw_line = await loop.run_in_executor(None, resp.readline)
                 if not raw_line:
-                    if await _handle_event_block(event_lines):
+                    terminal = await _handle_event_block(event_lines)
+                    for event_chunk in event_chunks:
+                        yield event_chunk
+                    if terminal:
                         return
                     break
 
-                yield raw_line
+                event_chunks.append(raw_line)
                 text_line = raw_line.decode("utf-8", errors="replace").rstrip("\\r\\n")
                 if text_line == "":
-                    if await _handle_event_block(event_lines):
+                    terminal = await _handle_event_block(event_lines)
+                    for event_chunk in event_chunks:
+                        yield event_chunk
+                    if terminal:
                         return
                     event_lines = []
+                    event_chunks = []
                 else:
                     event_lines.append(text_line)
 
@@ -667,10 +679,37 @@ async def ws_endpoint(ws: WebSocket):
 
 # ── 启动事件 ─────────────────────────────────────────────────────────────
 
-@app.on_event("startup")
-async def on_startup():
-    """应用启动时执行初始化（UI 模式：不自动注册，由用户通过界面操作）"""
-    global _heartbeat
+async def _restore_registered_node_services(log: logging.Logger) -> None:
+    try:
+        ok, msg = await asyncio.to_thread(test_connection)
+        if ok:
+            log.info("[Startup Recovery] SM connection ready")
+        else:
+            log.warning("[Startup Recovery] SM temporarily unavailable: %s", msg)
+    except Exception:
+        log.exception("[Startup Recovery] SM connection check failed")
+
+    if not state.assigned_domain:
+        return
+
+    try:
+        from .services.caddy_manager import configure_and_start_caddy
+
+        caddy_result = await asyncio.to_thread(
+            configure_and_start_caddy,
+            state.assigned_domain,
+        )
+        if caddy_result.get("ok"):
+            log.info("[Startup Recovery] Caddy setup: %s", caddy_result)
+        else:
+            log.error("[Startup Recovery] Caddy setup failed: %s", caddy_result)
+    except Exception:
+        log.exception("[Startup Recovery] Caddy setup failed")
+
+
+async def _initialize_runtime() -> tuple[str, int]:
+    """Initialize local runtime state without waiting for external recovery."""
+    global _heartbeat, _startup_recovery_task
 
     init_logging("INFO")
     log = logging.getLogger("trader_server.main")
@@ -718,31 +757,6 @@ async def on_startup():
         print("       broker_type: %s" % state.region)
         print()
 
-        # 验证 SM 连通性
-        ok, msg = test_connection()
-        if not ok:
-            print("  [WARN] SM 暂时不可达 (%s)，稍后重试" % msg)
-        else:
-            print("  [OK] SM 连通正常")
-        if state.assigned_domain:
-            try:
-                from .services.caddy_manager import configure_and_start_caddy
-                caddy_result = await asyncio.to_thread(
-                    configure_and_start_caddy,
-                    state.assigned_domain,
-                )
-                if caddy_result.get("ok"):
-                    log.info("[Startup] Caddy setup: %s", caddy_result)
-                else:
-                    log.error("[Startup] Caddy setup failed: %s", caddy_result)
-                    if TS_CADDY_REQUIRED:
-                        raise RuntimeError(
-                            f"Required Caddy setup failed: {caddy_result.get('reason', 'unknown error')}"
-                        )
-            except Exception as caddy_exc:
-                if TS_CADDY_REQUIRED:
-                    raise
-                log.warning("[Startup] Caddy setup failed: %s", caddy_exc)
     else:
         print("  [*] 未发现已保存的凭证")
         print("      请通过桌面控制面板完成注册")
@@ -751,11 +765,6 @@ async def on_startup():
     if state.token and state.status in ("approved", "online", "running"):
         _heartbeat = HeartbeatSender(interval=DEFAULT_HEARTBEAT_INTERVAL)
         await _heartbeat.start()
-
-        await asyncio.sleep(1.5)
-        ok, msg = _heartbeat.send_once_sync()
-        label = "OK" if ok else "FAIL (%s)" % msg
-        print("  [%s] 首次心跳: %s" % (">" if ok else "!", label))
 
         # 启动配置事件监听（配置快速生效）
         try:
@@ -775,10 +784,31 @@ async def on_startup():
     except Exception as finance_exc:
         log.warning("Finance reporter startup skipped: %s", finance_exc)
 
+    if has_creds:
+        _startup_recovery_task = asyncio.create_task(
+            _restore_registered_node_services(log),
+            name="ts-startup-recovery",
+        )
+
 
     # 3) 输出启动信息
+    bind_host = args.bind_host or DEFAULT_BIND_HOST
     ws_port = args.ws_port or DEFAULT_WS_PORT
     print()
+    return bind_host, ws_port
+
+
+@app.on_event("startup")
+async def on_startup():
+    """Start the local API before recovering external services."""
+    global _startup_error
+    _startup_error = ""
+    try:
+        bind_host, ws_port = await _initialize_runtime()
+    except Exception as exc:
+        _startup_error = f"{type(exc).__name__}: {exc}"
+        logging.getLogger("trader_server.main").exception("Trader Server startup failed")
+        raise
     print("-" * 60)
     print("  状态     : %s" % state.status.upper())
     print("  节点名称 : %s" % (state.node_name or "(未设置)"))
@@ -786,7 +816,6 @@ async def on_startup():
     print("  SM 地址  : %s" % state.manager_url)
     print("")
     print("  桌面控制台 : 已自动启动 (PySide6 GUI)")
-    bind_host = args.bind_host or DEFAULT_BIND_HOST
     print("  监听地址   : %s:%d" % (bind_host, ws_port))
     print("  WS 端点    : ws://%s:%d/ws" % (bind_host, ws_port))
     print("  API 状态   : http://%s:%d/api/status" % (bind_host, ws_port))
@@ -802,7 +831,11 @@ async def on_shutdown():
 
     state.request_shutdown()
 
-    global _heartbeat, _approval_broker_task
+    global _heartbeat, _approval_broker_task, _startup_recovery_task
+    if _startup_recovery_task and not _startup_recovery_task.done():
+        _startup_recovery_task.cancel()
+        await asyncio.gather(_startup_recovery_task, return_exceptions=True)
+    _startup_recovery_task = None
     if _approval_broker_task and not _approval_broker_task.done():
         _approval_broker_task.cancel()
         await asyncio.gather(_approval_broker_task, return_exceptions=True)
@@ -865,6 +898,18 @@ def parse_args_from_env_or_default():
         skip_register=os.environ.get("TS_SKIP_REGISTER", "").lower() in ("1", "true"),
         auto_approve=False,
     )
+
+
+def _wait_for_local_server(server, server_thread: threading.Thread, timeout: float = 30.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if server.started:
+            return True
+        if not server_thread.is_alive():
+            return False
+        time.sleep(0.05)
+    server.should_exit = True
+    return False
 
 
 # ── 直接运行 ────────────────────────────────────────────────────────────
@@ -977,23 +1022,32 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    # 后台线程启动 FastAPI 服务（不阻塞 GUI）
+    server_config = uvicorn.Config(
+        app,
+        host=args.bind_host,
+        port=args.ws_port,
+        reload=False,
+        log_level="warning",
+    )
+    local_server = uvicorn.Server(server_config)
     _server_thread = threading.Thread(
-        target=uvicorn.run,
-        args=(app,),
-        kwargs=dict(
-            host=args.bind_host,
-            port=args.ws_port,
-            reload=False,
-            log_level="warning",  # 降低日志噪音，GUI 中查看即可
-        ),
+        target=local_server.run,
+        name="trader-server-api",
         daemon=True,
     )
     _server_thread.start()
 
-    # 等待服务就绪后启动桌面窗口
     print("[*] Starting server in background thread...")
-    time.sleep(1.5)
+    if not _wait_for_local_server(local_server, _server_thread):
+        detail = _startup_error or "服务线程提前退出或启动超时，请查看 TS 运行日志"
+        message = f"Trader Server 本地服务启动失败：{args.bind_host}:{args.ws_port}\n{detail}"
+        logging.getLogger("trader_server.main").error(message.replace("\n", " "))
+        from PySide6.QtWidgets import QApplication, QMessageBox
+
+        error_app = QApplication.instance() or QApplication([])
+        QMessageBox.critical(None, "Trader Server 启动失败", message)
+        del error_app
+        raise SystemExit(1)
 
     # 导入并启动桌面 GUI
     from .ui_qt.main_window import run as run_qt_ui

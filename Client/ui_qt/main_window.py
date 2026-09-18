@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEasingCurve, QEvent, QModelIndex, QObject, QPropertyAnimation, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPen
+from PySide6.QtGui import QContextMenuEvent, QColor, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -302,6 +302,12 @@ class TradePriceInput(QLineEdit):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if event.reason() != QContextMenuEvent.Mouse:
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
 
 def make_input(
