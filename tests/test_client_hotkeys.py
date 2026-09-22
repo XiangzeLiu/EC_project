@@ -1,9 +1,11 @@
 import json
+import ctypes
 import os
 import tempfile
 import time
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QWid
 
 from Client.ui_qt.action_rate_limiter import ActionRateLimiter
 from Client.ui_qt import main_window as client_main_window
+from Client.ui_qt import shortcut_controller as shortcut_controller_module
 from Client.ui_qt.hotkey_config_store import (
     CONFIG_VERSION,
     hotkey_config_path,
@@ -40,8 +43,12 @@ from Client.ui_qt.hotkey_config import (
     validate_hotkey_config,
 )
 from Client.ui_qt.main_window import TradePriceInput, TradingTerminalQt
-from Client.ui_qt.settings_overlay import SettingsOverlay
-from Client.ui_qt.shortcut_controller import ShortcutController, validate_shortcut_sequences
+from Client.ui_qt.settings_overlay import KeyCaptureEdit, SettingsOverlay
+from Client.ui_qt.shortcut_controller import (
+    ShortcutController,
+    WindowsShiftF10NativeFilter,
+    validate_shortcut_sequences,
+)
 from Trader_Server.services import trading_svc
 
 
@@ -238,6 +245,56 @@ class HotkeyConfigTests(unittest.TestCase):
         self.assertTrue(
             any("最多 20 条" in error for error in validate_hotkey_config(too_many))
         )
+
+    def test_order_rules_allow_fifty_and_reject_fifty_one(self):
+        custom_rules = tuple(
+            OrderHotkeyRule(
+                id=f"order_rule_custom_{index}",
+                key=f"Ctrl+Alt+F{index}",
+                enabled=False,
+            )
+            for index in range(1, 39)
+        )
+        fifty = replace(
+            DEFAULT_HOTKEY_CONFIG,
+            order_hotkeys=DEFAULT_HOTKEY_CONFIG.order_hotkeys + custom_rules,
+        )
+        self.assertEqual(len(fifty.order_hotkeys), 50)
+        self.assertFalse(validate_hotkey_config(fifty))
+
+        fifty_one = replace(
+            fifty,
+            order_hotkeys=fifty.order_hotkeys + (
+                OrderHotkeyRule(
+                    id="order_rule_custom_39",
+                    key="Ctrl+Alt+F39",
+                    enabled=False,
+                ),
+            ),
+        )
+        self.assertEqual(len(fifty_one.order_hotkeys), 51)
+        self.assertTrue(
+            any("最多 50 条" in error for error in validate_hotkey_config(fifty_one))
+        )
+
+    def test_fifteen_order_rules_remain_compatible_with_local_config(self):
+        legacy_rules = DEFAULT_HOTKEY_CONFIG.order_hotkeys + tuple(
+            OrderHotkeyRule(
+                id=f"order_rule_custom_{index}",
+                key=f"Alt+F{index}",
+                enabled=False,
+            )
+            for index in range(1, 4)
+        )
+        config = replace(DEFAULT_HOTKEY_CONFIG, order_hotkeys=legacy_rules)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "hotkey.json")
+            save_hotkey_config(config, path=path)
+            loaded = load_hotkey_config(path=path)
+
+        self.assertTrue(loaded.used_local_config)
+        self.assertEqual(len(loaded.config.order_hotkeys), 15)
+        self.assertEqual(loaded.config, config)
 
     def test_old_structured_config_version_falls_back_without_migration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -571,6 +628,91 @@ class ShortcutControllerTests(unittest.TestCase):
 
         controller.shutdown()
         window.close()
+
+    def test_native_shift_f10_dispatches_once_and_consumes_menu_path(self):
+        window = QWidget()
+        field = QLineEdit(window)
+        called = []
+        binding = HotkeyBinding(
+            "order",
+            "Shift+F10",
+            HotkeyAction.REFRESH_ORDERS,
+            HotkeyContext.MAIN_WINDOW,
+            True,
+        )
+        controller = ShortcutController(window, [binding], called.append, lambda _binding: True)
+        native_filter = WindowsShiftF10NativeFilter(
+            lambda: controller.handle_native_shift_f10(field)
+        )
+        window.show()
+        window.activateWindow()
+        field.setFocus()
+        self.app.processEvents()
+
+        self.assertTrue(native_filter.handle_keydown(0x79, shift_pressed=True))
+        self.assertEqual(called, [binding])
+
+        # A platform path may still be followed by Qt key/context events;
+        # neither is allowed to dispatch the same physical key twice.
+        key_press = QKeyEvent(QEvent.KeyPress, Qt.Key_F10, Qt.ShiftModifier)
+        self.assertTrue(controller.eventFilter(field, key_press))
+        self.assertEqual(called, [binding])
+        keyboard_menu = QContextMenuEvent(
+            QContextMenuEvent.Keyboard,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        self.assertTrue(controller.eventFilter(field, keyboard_menu))
+
+        mouse_menu = QContextMenuEvent(
+            QContextMenuEvent.Mouse,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        self.assertFalse(controller.eventFilter(field, mouse_menu))
+        self.assertFalse(native_filter.handle_keydown(0x79, shift_pressed=False))
+
+        controller.shutdown()
+        window.close()
+
+    def test_native_filter_parses_windows_f10_message(self):
+        called = []
+        native_filter = WindowsShiftF10NativeFilter(lambda: called.append(True) or True)
+        message = shortcut_controller_module._WinMsg()
+        message.message = shortcut_controller_module._WM_KEYDOWN
+        message.wParam = shortcut_controller_module._VK_F10
+        address = ctypes.addressof(message)
+
+        with patch.object(shortcut_controller_module.sys, "platform", "win32"):
+            with patch.object(shortcut_controller_module, "_shift_only_pressed", return_value=True):
+                result = native_filter.nativeEventFilter(b"windows_generic_MSG", address)
+
+        self.assertEqual(result, (True, 0))
+        self.assertEqual(called, [True])
+
+    def test_key_capture_shift_f10_records_and_consumes_only_keyboard_menu(self):
+        field = KeyCaptureEdit()
+        field.setContextMenuPolicy(Qt.NoContextMenu)
+        field.capture_shift_f10()
+        self.assertEqual(field.text(), "Shift+F10")
+
+        keyboard_menu = QContextMenuEvent(
+            QContextMenuEvent.Keyboard,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        field.contextMenuEvent(keyboard_menu)
+        self.assertTrue(keyboard_menu.isAccepted())
+
+        mouse_menu = QContextMenuEvent(
+            QContextMenuEvent.Mouse,
+            QPoint(1, 1),
+            QPoint(1, 1),
+        )
+        mouse_menu.ignore()
+        field.contextMenuEvent(mouse_menu)
+        self.assertFalse(mouse_menu.isAccepted())
+        field.deleteLater()
 
     def test_context_menu_uses_high_contrast_application_theme(self):
         qss = client_main_window.theme.APP_QSS
@@ -1478,6 +1620,27 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(added_rule.side, "buy")
         self.assertEqual(added_rule.price_source, "bid")
         self.assertFalse(added_rule.quick_submit)
+
+    def test_order_rule_limit_is_enforced_in_settings(self):
+        self.window._open_settings_overlay()
+        overlay = self.window._settings_overlay
+
+        for _ in range(38):
+            overlay._add_order_rule()
+
+        self.assertEqual(len(overlay._order_rows), 50)
+        self.assertEqual(overlay.order_count_label.text(), "50 / 50")
+        self.assertFalse(overlay.add_order_btn.isEnabled())
+        rule_ids = [str(row["id"]) for row in overlay._order_rows]
+        self.assertIn("order_rule_custom_16", rule_ids)
+        self.assertIn("order_rule_custom_50", rule_ids)
+
+        overlay._add_order_rule()
+        self.assertEqual(len(overlay._order_rows), 50)
+        self.assertIn("最多 50 条", overlay.error_label.text())
+
+        overlay.close_requested.emit()
+        self.app.processEvents()
 
     def test_order_settings_layout_expands_and_scrolls_when_space_is_limited(self):
         self.window.resize(1360, 860)

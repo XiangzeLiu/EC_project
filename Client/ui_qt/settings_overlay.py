@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence, QStandardItemModel
+from PySide6.QtGui import QContextMenuEvent, QKeySequence, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -81,9 +81,22 @@ def set_combo_item_enabled(
 class KeyCaptureEdit(QLineEdit):
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(text, parent)
+        self._suppress_keyboard_context_menu = False
         self.setPlaceholderText("点击后按键")
         self.setMinimumWidth(112)
         self.setAlignment(Qt.AlignCenter)
+
+    def capture_shift_f10(self) -> None:
+        self.setText("Shift+F10")
+        self._suppress_keyboard_context_menu = True
+        self.setFocus()
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if event.reason() == QContextMenuEvent.Keyboard and self._suppress_keyboard_context_menu:
+            self._suppress_keyboard_context_menu = False
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key_Backspace, Qt.Key_Delete):
@@ -96,6 +109,7 @@ class KeyCaptureEdit(QLineEdit):
         sequence = QKeySequence(event.keyCombination()).toString(QKeySequence.PortableText)
         if sequence:
             self.setText(sequence)
+            self._suppress_keyboard_context_menu = sequence.casefold() == "shift+f10"
             event.accept()
             return
         super().keyPressEvent(event)

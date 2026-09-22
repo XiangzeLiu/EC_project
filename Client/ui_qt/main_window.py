@@ -70,7 +70,7 @@ from Client.ui_qt.hotkey_config_store import (
     load_hotkey_config,
     save_hotkey_config,
 )
-from Client.ui_qt.settings_overlay import ORDER_TIFS, SettingsOverlay, set_combo_item_enabled
+from Client.ui_qt.settings_overlay import KeyCaptureEdit, ORDER_TIFS, SettingsOverlay, set_combo_item_enabled
 from Client.ui_qt.hotkey_config import (
     BATCH_CANCEL_POLICY,
     DEFAULT_HOTKEY_CONFIG,
@@ -91,7 +91,11 @@ from Client.ui_qt.hotkey_config import (
     format_hotkey_validation_errors,
     validate_hotkey_config,
 )
-from Client.ui_qt.shortcut_controller import ShortcutController, validate_shortcut_sequences
+from Client.ui_qt.shortcut_controller import (
+    ShortcutController,
+    WindowsShiftF10NativeFilter,
+    validate_shortcut_sequences,
+)
 
 
 APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "icons" / "sc-client.ico"
@@ -602,6 +606,16 @@ class TradingTerminalQt(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.focusChanged.connect(self._on_focus_changed)
+            self._native_shift_f10_filter = WindowsShiftF10NativeFilter(
+                self._handle_native_shift_f10
+            )
+            app.installNativeEventFilter(self._native_shift_f10_filter)
+            native_filter = self._native_shift_f10_filter
+            self.destroyed.connect(
+                lambda _object=None, app=app, native_filter=native_filter: native_filter.uninstall(app)
+            )
+        else:
+            self._native_shift_f10_filter = None
 
         self._build_login_root()
         self._timer = QTimer(self)
@@ -816,6 +830,30 @@ class TradingTerminalQt(QMainWindow):
                 if slot.symbol and (current is slot.symbol or current is slot.symbol.lineEdit()):
                     self._set_enter_target(pid, "SYMBOL")
                 return
+
+    def _handle_native_shift_f10(self) -> bool:
+        """Handle Shift+F10 before Windows creates a keyboard context menu."""
+        if QApplication.activeWindow() is not self:
+            return False
+        focus = QApplication.focusWidget()
+        if (
+            isinstance(focus, KeyCaptureEdit)
+            and self._settings_overlay is not None
+            and self._settings_overlay.isVisible()
+        ):
+            focus.capture_shift_f10()
+            return True
+        controller = self._shortcut_controller
+        if controller is None:
+            return False
+        return controller.handle_native_shift_f10(focus)
+
+    def _remove_native_shift_f10_filter(self) -> None:
+        native_filter = self._native_shift_f10_filter
+        app = QApplication.instance()
+        if native_filter is not None and app is not None:
+            native_filter.uninstall(app)
+        self._native_shift_f10_filter = None
 
     def _setup_shortcuts(self) -> None:
         self._teardown_shortcuts()
@@ -3674,6 +3712,7 @@ class TradingTerminalQt(QMainWindow):
                 self._settings_overlay.hide()
                 self._settings_overlay.deleteLater()
                 self._settings_overlay = None
+            self._remove_native_shift_f10_filter()
             self._teardown_shortcuts()
             self._reset_runtime_action_state()
             self._quote_subscriptions.shutdown()
