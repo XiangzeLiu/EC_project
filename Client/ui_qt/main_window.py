@@ -8,7 +8,7 @@ import re
 import sys
 import threading
 import time
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEasingCurve, QEvent, QModelIndex, QObject, QPropertyAnimation, QSize, Qt, QTimer, Signal
@@ -127,6 +127,44 @@ ORDER_STATUS_COLORS = {
     "Rejected": theme.ACCENT_RED,
     "Expired": theme.TEXT_LOW,
 }
+
+_ONE_DOLLAR = Decimal("1")
+_LOW_PRICE_QUANTUM = Decimal("0.0001")
+_REGULAR_PRICE_QUANTUM = Decimal("0.01")
+
+
+def truncate_order_price(value: object) -> Decimal:
+    """Truncate a positive order price using the configured dollar boundary."""
+    raw = str(value).strip()
+    if not raw:
+        raise InvalidOperation
+    price = Decimal(raw)
+    if not price.is_finite():
+        raise InvalidOperation
+    quantum = _LOW_PRICE_QUANTUM if price < _ONE_DOLLAR else _REGULAR_PRICE_QUANTUM
+    return price.quantize(quantum, rounding=ROUND_DOWN)
+
+
+def format_order_price(value: object) -> str:
+    price = truncate_order_price(value)
+    places = 4 if price < _ONE_DOLLAR else 2
+    return f"{price:.{places}f}"
+
+
+def normalize_price_input_text(value: str) -> str | None:
+    """Normalize user-entered decimal text without rounding its value."""
+    text = str(value or "")
+    if text in {"", "Market"}:
+        return text
+    if text.startswith("."):
+        text = f"0{text}"
+    if not re.fullmatch(r"\d+(?:\.\d*)?", text):
+        return None
+    whole, dot, fraction = text.partition(".")
+    max_places = 2 if Decimal(whole) >= _ONE_DOLLAR else 4
+    if dot:
+        return f"{whole}.{fraction[:max_places]}"
+    return whole
 
 
 def default_ts_target() -> str:
@@ -301,6 +339,43 @@ class SettingsGearButton(QPushButton):
 
 
 class TradePriceInput(QLineEdit):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._accepted_text = ""
+        self.textEdited.connect(self._normalize_user_edit)
+        self.textChanged.connect(self._remember_accepted_text)
+        self.editingFinished.connect(self.normalize_display)
+
+    def _remember_accepted_text(self, text: str) -> None:
+        normalized = normalize_price_input_text(text)
+        if normalized == text:
+            self._accepted_text = text
+
+    def _normalize_user_edit(self, text: str) -> None:
+        normalized = normalize_price_input_text(text)
+        if normalized is None:
+            normalized = self._accepted_text
+        if normalized == text:
+            self._accepted_text = normalized
+            return
+        cursor = self.cursorPosition()
+        if text.startswith(".") and normalized.startswith("0."):
+            cursor += 1
+        self.setText(normalized)
+        self.setCursorPosition(min(cursor, len(normalized)))
+        self._accepted_text = normalized
+
+    def normalize_display(self) -> None:
+        text = self.text().strip()
+        if not text or text == "Market":
+            return
+        try:
+            normalized = format_order_price(text)
+        except (InvalidOperation, ValueError):
+            return
+        if normalized != self.text():
+            self.setText(normalized)
+
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.isAutoRepeat():
             event.accept()
@@ -500,11 +575,13 @@ class TradingSlot:
 
     def update_quote(self, quote: dict) -> None:
         if self.bid:
-            text = f"{float(quote.get('bid', 0) or 0):.2f}"
+            value = float(quote.get("bid", 0) or 0)
+            text = format_order_price(value) if value > 0 else f"{value:.2f}"
             if self.bid.text() != text:
                 self.bid.setText(text)
         if self.ask:
-            text = f"{float(quote.get('ask', 0) or 0):.2f}"
+            value = float(quote.get("ask", 0) or 0)
+            text = format_order_price(value) if value > 0 else f"{value:.2f}"
             if self.ask.text() != text:
                 self.ask.setText(text)
 
@@ -2739,9 +2816,9 @@ class TradingTerminalQt(QMainWindow):
         try:
             current = Decimal(slot.price.text().strip() or "0")
             adjusted = max(Decimal("0"), current + Decimal(str(delta)))
-            slot.price.setText(f"{adjusted.quantize(Decimal('0.01')):.2f}")
+            slot.price.setText(format_order_price(adjusted))
         except (InvalidOperation, ValueError):
-            slot.price.setText("0.00")
+            slot.price.setText("0.0000")
 
     def _place_order_from_panel(self, action: str, pid: int) -> None:
         self._activate_panel(pid)
@@ -2990,11 +3067,11 @@ class TradingTerminalQt(QMainWindow):
             self._log_user_error_once(f"未获取到有效行情，{failure_label}未提交", "warn")
             return
         adjusted = Decimal(str(quote_value)) + Decimal(str(price_offset or 0.0))
-        quote_value = float(max(Decimal("0"), adjusted).quantize(Decimal("0.01")))
+        quote_value = float(truncate_order_price(max(Decimal("0"), adjusted)))
         if slot.price:
             slot.price.setEnabled(order_type != "market")
             if order_type != "market":
-                slot.price.setText(f"{quote_value:.2f}")
+                slot.price.setText(format_order_price(quote_value))
         action = "Buy to Open" if side == "buy" else "Sell to Close"
         if submit_source == "hotkey_quick":
             self._flash_quick_order_target(pid, side)
@@ -3082,10 +3159,14 @@ class TradingTerminalQt(QMainWindow):
                 quote_needs_refresh = True
             if quote_price > 0:
                 adjusted = Decimal(str(quote_price)) + Decimal(str(price_offset or 0.0))
-                quote_price = float(max(Decimal("0"), adjusted).quantize(Decimal("0.01")))
+                quote_price = float(truncate_order_price(max(Decimal("0"), adjusted)))
         if slot.price:
             slot.price.setEnabled(normalized_type != "market")
-            slot.price.setText("Market" if normalized_type == "market" else (f"{quote_price:.2f}" if quote_price > 0 else ""))
+            slot.price.setText(
+                "Market"
+                if normalized_type == "market"
+                else (format_order_price(quote_price) if quote_price > 0 else "")
+            )
             if not submit_immediately:
                 slot.price.setFocus()
                 slot.price.selectAll()
@@ -3135,7 +3216,10 @@ class TradingTerminalQt(QMainWindow):
         if normalized_type == "market":
             self._append_log(f"市价{direction}待确认：{symbol}", "inf")
         elif quote_price > 0:
-            self._append_log(f"限价{direction}待确认：{symbol} @ ${quote_price:.2f}", "inf")
+            self._append_log(
+                f"限价{direction}待确认：{symbol} @ ${format_order_price(quote_price)}",
+                "inf",
+            )
         else:
             self._append_log(f"限价{direction}待确认：{symbol}，请填写价格", "warn")
 
@@ -3246,7 +3330,8 @@ class TradingTerminalQt(QMainWindow):
         sym = slot.symbol_text()
         qty = slot.qty_value()
         order_type = order_type_override or ("market" if slot.order_type and slot.order_type.currentText() == "Market" else "limit")
-        price = float(price_override) if price_override is not None else slot.price_value()
+        raw_price = price_override if price_override is not None else (slot.price.text() if slot.price else "")
+        price = 0.0
         tif = tif_override or (slot.tif.currentText() if slot.tif else "Day")
         requested_route = route_override or (slot.route.currentText() if slot.route else "DEFAULT")
         requested_hidden = bool(hidden_override) if hidden_override is not None else bool(slot.hidden_order and slot.hidden_order.isChecked())
@@ -3270,6 +3355,15 @@ class TradingTerminalQt(QMainWindow):
         if qty <= 0:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u6570\u91cf\u5fc5\u987b\u5927\u4e8e 0")
             return
+        if order_type != "market":
+            try:
+                normalized_price = truncate_order_price(raw_price)
+            except (InvalidOperation, ValueError):
+                self._log_user_error_once("下单失败：限价格式无效")
+                return
+            price = float(normalized_price)
+            if slot.price:
+                slot.price.setText(format_order_price(normalized_price))
         if order_type != "market" and price <= 0:
             self._log_user_error_once("\u4e0b\u5355\u5931\u8d25\uff1a\u9650\u4ef7\u5fc5\u987b\u5927\u4e8e 0")
             return
@@ -3284,7 +3378,7 @@ class TradingTerminalQt(QMainWindow):
         if not decision.allowed:
             self._log_user_error_once(self._rate_limit_message(decision.reason), "warn", window_seconds=1.0)
             return
-        price_str = "Market" if order_type == "market" else f"${price:.2f}"
+        price_str = "Market" if order_type == "market" else f"${format_order_price(price)}"
         action_label = ACTION_LABELS.get(action, action)
         tif_label = TIF_LABELS.get(tif, tif)
         prefix = {
@@ -3302,7 +3396,7 @@ class TradingTerminalQt(QMainWindow):
             sym,
             action,
             qty,
-            f"{price:.4f}" if order_type != "market" else "MKT",
+            format_order_price(price) if order_type != "market" else "MKT",
             order_type,
             tif,
             route,

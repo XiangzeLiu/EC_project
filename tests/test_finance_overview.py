@@ -460,6 +460,59 @@ class FinanceDatabaseTests(unittest.TestCase):
 
 
 class FinanceBrokerSafetyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_tastytrade_positions_use_current_day_gain_and_include_closed_positions(self):
+        today = datetime.now(NY).date()
+        session = object()
+
+        class Account:
+            async def get_positions(self, _session, **kwargs):
+                self.query_kwargs = kwargs
+                return [
+                    SimpleNamespace(
+                        symbol="AAPL",
+                        quantity=0,
+                        quantity_direction="Long",
+                        average_open_price=10,
+                        close_price=11.76,
+                        realized_today=176,
+                        realized_day_gain=100,
+                        realized_day_gain_date=today,
+                    ),
+                    SimpleNamespace(
+                        symbol="MSFT",
+                        quantity=2,
+                        quantity_direction="Long",
+                        average_open_price=100,
+                        close_price=101,
+                        realized_today=500,
+                        realized_day_gain=0,
+                        realized_day_gain_date=today,
+                    ),
+                    SimpleNamespace(
+                        symbol="OLD",
+                        quantity=0,
+                        quantity_direction="Long",
+                        average_open_price=10,
+                        close_price=11,
+                        realized_today=50,
+                        realized_day_gain=50,
+                        realized_day_gain_date=today - timedelta(days=1),
+                    ),
+                ]
+
+        account = Account()
+        broker = TastytradeBroker()
+        broker._get_fresh = AsyncMock(return_value=(session, account))
+
+        positions = await broker.get_positions()
+        by_symbol = {position["symbol"]: position for position in positions}
+
+        self.assertEqual(account.query_kwargs, {"include_closed": True})
+        self.assertEqual(set(by_symbol), {"AAPL", "MSFT"})
+        self.assertEqual(by_symbol["AAPL"]["quantity"], 0.0)
+        self.assertEqual(by_symbol["AAPL"]["realized_today"], 100.0)
+        self.assertEqual(by_symbol["MSFT"]["realized_today"], 0.0)
+
     async def test_tastytrade_reversal_does_not_double_count_trade(self):
         day = datetime.now(NY).date()
 

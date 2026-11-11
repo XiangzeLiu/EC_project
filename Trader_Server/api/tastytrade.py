@@ -13,7 +13,7 @@ import datetime
 import hashlib
 import logging
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -77,6 +77,19 @@ def _finance_float(value: Any, *, nullable: bool = False) -> float | None:
     if result != result or result in {float("inf"), float("-inf")}:
         return None if nullable else 0.0
     return result
+
+
+def _format_limit_price(value: Any) -> str:
+    try:
+        price = abs(Decimal(str(value)))
+        if not price.is_finite():
+            raise InvalidOperation
+    except (InvalidOperation, TypeError, ValueError):
+        return "0.00"
+    quantum = Decimal("0.0001") if price < Decimal("1") else Decimal("0.01")
+    truncated = price.quantize(quantum, rounding=ROUND_DOWN)
+    places = 4 if truncated < Decimal("1") else 2
+    return f"{truncated:.{places}f}"
 
 
 def _enum_text(value: Any) -> str:
@@ -1089,17 +1102,35 @@ class TastytradeBroker(BaseBrokerAPI):
     async def get_positions(self, filters: dict | None = None) -> list[dict]:
         """获取持仓列表"""
         s, a = await self._get_fresh()
-        raw_positions = await a.get_positions(s)
+        raw_positions = await a.get_positions(s, include_closed=True)
+        today = datetime.datetime.now(ZoneInfo("America/New_York")).date()
 
         result = []
         for p in raw_positions:
+            quantity = float(p.quantity)
+            realized_date = getattr(p, "realized_day_gain_date", None)
+            if isinstance(realized_date, str):
+                try:
+                    realized_date = datetime.date.fromisoformat(realized_date)
+                except ValueError:
+                    realized_date = None
+
+            raw_realized = getattr(p, "realized_day_gain", None)
+            if raw_realized is None:
+                raise RuntimeError("Tastytrade daily realized P&L is unavailable")
+            realized_today = float(raw_realized)
+            if realized_date is not None and realized_date != today:
+                realized_today = 0.0
+            if quantity == 0 and realized_date != today:
+                continue
+
             result.append({
                 "symbol": p.symbol,
-                "quantity": float(p.quantity),
+                "quantity": quantity,
                 "direction": getattr(p, "quantity_direction", "Long"),
                 "average_open_price": float(p.average_open_price or 0),
                 "close_price": float(p.close_price or 0),
-                "realized_today": float(getattr(p, "realized_today", 0) or 0),
+                "realized_today": realized_today,
             })
 
         # 可选过滤
@@ -1553,7 +1584,7 @@ class TastytradeBroker(BaseBrokerAPI):
                 "symbol":     leg.symbol if leg else "\u2014",
                 "action":     str(leg.action) if leg else "\u2014",
                 "qty":        str(leg.quantity) if leg else "\u2014",
-                "price":      f"{abs(float(order_obj.price)):.2f}" if order_obj.price else "MKT",
+                "price":      _format_limit_price(order_obj.price) if order_obj.price else "MKT",
                 "type":       str(order_obj.order_type).split(".")[-1] if order_obj.order_type else "\u2014",
                 "tif":        str(order_obj.time_in_force).split(".")[-1] if hasattr(order_obj, "time_in_force") else "\u2014",
                 "status":     str(order_obj.status).split(".")[-1] if order_obj.status else "\u2014",

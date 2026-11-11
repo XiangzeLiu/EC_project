@@ -129,6 +129,42 @@ class TastytradeBrokerSelectionTests(unittest.IsolatedAsyncioTestCase):
         )
         account.place_order.assert_awaited_once_with(session, built_order, dry_run=False)
 
+    async def test_sub_dollar_limit_price_reaches_tastytrade_order_unchanged(self):
+        broker = TastytradeBroker()
+        session = object()
+        account = SimpleNamespace(
+            place_order=AsyncMock(
+                return_value=SimpleNamespace(
+                    order=SimpleNamespace(id="TT-PENNY-1", status="Received", reject_reason="")
+                )
+            )
+        )
+        leg = object()
+        broker._get_fresh = AsyncMock(return_value=(session, account))
+        broker._get_equity = AsyncMock(
+            return_value=SimpleNamespace(build_leg=Mock(return_value=leg))
+        )
+
+        built_order = SimpleNamespace()
+        with patch.object(tt_module, "NewOrder", return_value=built_order) as new_order:
+            result = await broker.place_order({
+                "symbol": "PENNY",
+                "qty": 10,
+                "price": 0.9533,
+                "action": "Buy to Open",
+                "order_type": "limit",
+                "tif": "Day",
+            })
+
+        self.assertTrue(result["success"])
+        new_order.assert_called_once_with(
+            time_in_force=tt_module.OrderTimeInForce.DAY,
+            order_type=tt_module.OrderType.LIMIT,
+            legs=[leg],
+            price=Decimal("-0.9533"),
+        )
+        account.place_order.assert_awaited_once_with(session, built_order, dry_run=False)
+
     async def test_explicit_missing_account_fails_without_fallback(self):
         broker = TastytradeBroker()
         broker._get_account_records = AsyncMock(return_value=[_record("A-1")])

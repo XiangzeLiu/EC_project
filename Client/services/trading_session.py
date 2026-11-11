@@ -5,6 +5,7 @@ Trading Session
 """
 
 import datetime
+import math
 import re
 import threading
 import time
@@ -519,7 +520,19 @@ class TradingSession:
                     message=self._pos_error,
                 )
 
-            return QueryResult(True, self._calc_today_activity(pos_rows, orders_raw))
+            activity = self._calc_today_activity(pos_rows, orders_raw)
+            if any(
+                item.get("realized_today") is None
+                or not math.isfinite(float(item["realized_today"]))
+                for item in activity
+            ):
+                self._pos_error = "券商未返回有效的当日已实现盈亏，持仓数据未更新"
+                return QueryResult(
+                    False,
+                    error_code="POSITION_PNL_UNAVAILABLE",
+                    message=self._pos_error,
+                )
+            return QueryResult(True, activity)
         except Exception:
             self._pos_error = "持仓查询失败，请稍后刷新"
             return QueryResult(False, error_code="POSITION_QUERY_FAILED", message=self._pos_error)
@@ -550,7 +563,10 @@ class TradingSession:
                 avg = float(p.get("average_open_price", 0) or 0)
                 cpx = float(p.get("close_price", 0) or 0)
                 dirn = p.get("direction", "Long")
-                real = float(p.get("realized_today", 0) or 0)
+                raw_realized = p.get("realized_today")
+                real = None if raw_realized is None else float(raw_realized)
+                if real is not None and not math.isfinite(real):
+                    real = None
                 pos_map[sym] = dict(
                     symbol=sym, qty=qty, direction=dirn,
                     avg_open=avg, close_px=cpx,
@@ -670,47 +686,35 @@ class TradingSession:
         except Exception:
             pass
 
-        # Step 3: 多空分开计算 P&L
+        # Step 3: Keep broker P&L authoritative; derive only fill statistics here.
         for sym, trades in ledger.items():
             exes = trades["exes"]
 
-            # 多头部分
             long_buys = trades["long_buys"]
-            long_sells = trades["long_sells"]
             lbq = sum(q for q, _ in long_buys)
             lbc = sum(q * p for q, p in long_buys)
             long_avg = lbc / lbq if lbq > 0 else 0
-            lsq = sum(q for q, _ in long_sells)
-            lsp = sum(q * p for q, p in long_sells)
-            long_realized = round(lsp - long_avg * lsq, 2) if long_avg > 0 else 0
-
-            # 空头部分
             short_sells = trades["short_sells"]
             short_buys = trades["short_buys"]
             ssq = sum(q for q, _ in short_sells)
             ssc = sum(q * p for q, p in short_sells)
             short_avg = ssc / ssq if ssq > 0 else 0
             sbq = sum(q for q, _ in short_buys)
-            sbp = sum(q * p for q, p in short_buys)
-            short_realized = round((short_avg * sbq) - sbp, 2) if short_avg > 0 else 0
-
-            realized = round(long_realized + short_realized, 2)
+            long_sells = trades["long_sells"]
 
             qty_bot = lbq + sbq
-            qty_sld = lsq + ssq
+            qty_sld = sum(q for q, _ in long_sells) + ssq
 
             if sym in pos_map:
                 pos_map[sym]["qty_bot"] = qty_bot
                 pos_map[sym]["qty_sld"] = qty_sld
                 pos_map[sym]["exes"] = exes
-                if pos_map[sym]["realized_today"] == 0 and realized != 0:
-                    pos_map[sym]["realized_today"] = realized
             else:
                 display_avg = long_avg if long_avg > 0 else short_avg
                 pos_map[sym] = dict(
                     symbol=sym, qty=0, direction="—",
                     avg_open=round(display_avg, 4), close_px=0.0,
-                    unrealized=0.0, realized_today=realized,
+                    unrealized=0.0, realized_today=None,
                     qty_bot=qty_bot, qty_sld=qty_sld, exes=exes,
                 )
 

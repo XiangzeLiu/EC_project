@@ -113,9 +113,46 @@ class InteractiveBrokersAdapterTests(unittest.TestCase):
         self.assertEqual(serialized["id"], "41")
         self.assertEqual(serialized["action"], "Buy to Open")
         self.assertEqual(serialized["type"], "LIMIT")
+        self.assertEqual(serialized["price"], "189.25")
         self.assertEqual(serialized["tif"], "EXT")
         self.assertEqual(serialized["status"], "Filled")
         self.assertEqual(serialized["legs"][0]["fills"][0]["quantity"], "10")
+
+    def test_serialized_sub_dollar_limit_price_is_truncated_to_four_places(self):
+        broker = IBBroker()
+        order = SimpleNamespace(
+            orderId=42,
+            permId=100,
+            account="U123",
+            orderRef="EC:BTO",
+            totalQuantity=10,
+            orderType="LMT",
+            lmtPrice=0.95339,
+            tif="DAY",
+            outsideRth=False,
+        )
+        item = {
+            "order_id": 42,
+            "perm_id": 100,
+            "order": order,
+            "contract": SimpleNamespace(symbol="PENNY", secType="STK", currency="USD"),
+            "status": "Filled",
+            "filled": 10,
+            "remaining": 0,
+        }
+        fills = {
+            ("order", 42): [
+                {"fill_price": "0.95339", "quantity": "10", "filled_at": ""}
+            ]
+        }
+
+        serialized = broker._serialize_order(item, fills)
+
+        self.assertEqual(serialized["price"], "0.9533")
+        self.assertEqual(serialized["legs"][0]["fills"][0]["fill_price"], "0.95339")
+
+        order.lmtPrice = 1.239
+        self.assertEqual(broker._serialize_order(item, fills)["price"], "1.23")
 
     def test_client_status_hides_detailed_ib_connection_reason(self):
         original = (
@@ -750,7 +787,16 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
                         "market_price": 110.5,
                         "unrealized_pnl": 46.25,
                         "realized_pnl": 12.5,
-                    }
+                    },
+                    "102": {
+                        "account": "U123",
+                        "contract": msft,
+                        "position": 0,
+                        "average_cost": 200,
+                        "market_price": 210,
+                        "unrealized_pnl": 0,
+                        "realized_pnl": 100,
+                    },
                 }
 
         app = FakeApp()
@@ -758,7 +804,7 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         positions = await broker.get_positions({"symbols": ["aapl", "msft"]})
 
         self.assertEqual(app.requested_account, "U123")
-        self.assertEqual(len(positions), 1)
+        self.assertEqual(len(positions), 2)
         self.assertEqual(
             positions[0],
             {
@@ -771,6 +817,27 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "realized_today": 12.5,
             },
         )
+        self.assertEqual(positions[1]["symbol"], "MSFT")
+        self.assertEqual(positions[1]["quantity"], 0.0)
+        self.assertEqual(positions[1]["realized_today"], 100.0)
+
+    async def test_positions_fail_when_ib_portfolio_enrichment_is_unavailable(self):
+        aapl = SimpleNamespace(symbol="AAPL", secType="STK", currency="USD")
+
+        class FakeApp:
+            @staticmethod
+            def isConnected():
+                return True
+
+            async def request_positions(self):
+                return [{"account": "U123", "contract": aapl, "position": 5, "average_cost": 100}]
+
+            async def request_portfolio(self, _account_id):
+                raise TimeoutError("portfolio request timed out")
+
+        broker = InteractiveBrokersAdapterTests._ready_broker(FakeApp())
+        with self.assertRaisesRegex(TimeoutError, "portfolio request timed out"):
+            await broker.get_positions()
 
     async def test_place_order_builds_official_ib_order_for_limit_and_market(self):
         contract = SimpleNamespace(symbol="AAPL", secType="STK", currency="USD")
@@ -858,6 +925,41 @@ class InteractiveBrokersRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(limit_ioc_order.tif, "IOC")
         self.assertFalse(limit_ioc_order.outsideRth)
         self.assertEqual(limit_ioc_order.orderRef, "EC:BTO")
+
+    async def test_sub_dollar_limit_price_reaches_ib_order_unchanged(self):
+        contract = SimpleNamespace(symbol="PENNY", secType="STK", currency="USD")
+
+        class FakeApp:
+            def __init__(self):
+                self.submitted_order = None
+
+            @staticmethod
+            def isConnected():
+                return True
+
+            @staticmethod
+            def allocate_order_id():
+                return 703
+
+            async def place_order_and_wait(self, _order_id, _contract, order):
+                self.submitted_order = order
+                return {"status": "Live"}
+
+        app = FakeApp()
+        broker = InteractiveBrokersAdapterTests._ready_broker(app)
+        broker._contract_cache["PENNY"] = contract
+
+        result = await broker.place_order({
+            "symbol": "PENNY",
+            "qty": 10,
+            "price": 0.9533,
+            "action": "Buy to Open",
+            "order_type": "limit",
+            "tif": "Day",
+        })
+
+        self.assertEqual(result["order_id"], "703")
+        self.assertEqual(app.submitted_order.lmtPrice, 0.9533)
 
     async def test_order_query_merges_sources_and_filters_unowned_orders(self):
         stock = SimpleNamespace(symbol="AAPL", secType="STK", currency="USD")
@@ -1260,6 +1362,78 @@ class InteractiveBrokersClientCompatibilityTests(unittest.TestCase):
         self.assertEqual(activity[0]["unrealized"], 40.0)
         self.assertEqual(activity[0]["qty_bot"], 2.0)
         self.assertEqual(activity[0]["exes"], 1)
+
+    def test_client_today_activity_uses_broker_net_pnl_and_preserves_real_zero(self):
+        session = self._ib_session()
+        session_time = datetime.datetime.combine(
+            datetime.datetime.now(session._ET).date(),
+            datetime.time(12, 0),
+            tzinfo=session._ET,
+        ).isoformat()
+        server_realized = [100.0]
+        orders = [
+            {
+                "status": "Filled",
+                "updated_at": session_time,
+                "legs": [{
+                    "symbol": "AAPL",
+                    "action": "Buy to Open",
+                    "quantity": "100",
+                    "fills": [{"fill_price": "10.00", "quantity": "100"}],
+                }],
+            },
+            {
+                "status": "Filled",
+                "updated_at": session_time,
+                "legs": [{
+                    "symbol": "AAPL",
+                    "action": "Sell to Close",
+                    "quantity": "100",
+                    "fills": [{"fill_price": "11.76", "quantity": "100"}],
+                }],
+            },
+        ]
+
+        def fake_request(msg_type, _payload, timeout=10.0):
+            if msg_type == "POSITION_QUERY":
+                return {"payload": {"success": True, "positions": [{
+                    "symbol": "AAPL",
+                    "quantity": 0,
+                    "direction": "Long",
+                    "average_open_price": 0,
+                    "close_price": 0,
+                    "realized_today": server_realized[0],
+                }]}}
+            if msg_type == "ORDER_QUERY":
+                return {"payload": {"success": True, "orders": orders}}
+            self.fail(f"Unexpected message type: {msg_type}")
+
+        session._request_se = fake_request
+        result = session.query_today_activity(force_orders=True)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.data[0]["realized_today"], 100.0)
+        self.assertEqual(result.data[0]["qty_bot"], 100.0)
+        self.assertEqual(result.data[0]["qty_sld"], 100.0)
+        self.assertEqual(result.data[0]["exes"], 2)
+
+        server_realized[0] = 0.0
+        zero_result = session.query_today_activity(force_orders=True)
+        self.assertTrue(zero_result.success)
+        self.assertEqual(zero_result.data[0]["realized_today"], 0.0)
+
+    def test_client_rejects_missing_broker_pnl_instead_of_calculating_gross(self):
+        session = self._ib_session()
+        responses = iter([
+            {"payload": {"success": True, "positions": [{"symbol": "AAPL", "realized_today": None}]}},
+            {"payload": {"success": True, "orders": []}},
+        ])
+        session._request_se = lambda *_args, **_kwargs: next(responses)
+
+        result = session.query_today_activity(force_orders=True)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "POSITION_PNL_UNAVAILABLE")
 
     def test_client_today_activity_counts_only_actual_partial_fills(self):
         session = self._ib_session()

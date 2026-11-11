@@ -8,6 +8,7 @@ import logging
 import math
 import re
 import threading
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -131,6 +132,19 @@ def _format_quantity(value: Any) -> str:
     if number.is_integer():
         return str(int(number))
     return f"{number:.8f}".rstrip("0").rstrip(".")
+
+
+def _format_limit_price(value: Any) -> str:
+    try:
+        price = abs(Decimal(str(value)))
+        if not price.is_finite():
+            raise InvalidOperation
+    except (InvalidOperation, TypeError, ValueError):
+        return "0.00"
+    quantum = Decimal("0.0001") if price < Decimal("1") else Decimal("0.01")
+    truncated = price.quantize(quantum, rounding=ROUND_DOWN)
+    places = 4 if truncated < Decimal("1") else 2
+    return f"{truncated:.{places}f}"
 
 
 def _ib_time_to_iso(value: Any) -> str:
@@ -2123,18 +2137,16 @@ class IBBroker(BaseBrokerAPI):
         app = self._require_app(require_account=True)
         async with self._positions_lock:
             positions = await app.request_positions()
-            try:
-                portfolio = await app.request_portfolio(self._account_id)
-            except Exception as exc:
-                log.warning("IB portfolio enrichment unavailable: %s", exc)
-                portfolio = {}
+            portfolio = await app.request_portfolio(self._account_id)
 
         portfolio_by_symbol = {
             str(getattr(item.get("contract"), "symbol", "")).upper(): item
             for item in portfolio.values()
             if item.get("contract") is not None
+            and str(item.get("account") or self._account_id) == self._account_id
         }
         result = []
+        result_symbols = set()
         for item in positions:
             contract = item["contract"]
             if item["account"] != self._account_id:
@@ -2146,6 +2158,9 @@ class IBBroker(BaseBrokerAPI):
             symbol = str(getattr(contract, "symbol", "")).upper()
             quantity = _to_float(item["position"])
             enriched = portfolio_by_symbol.get(symbol, {})
+            realized = _finance_number(enriched.get("realized_pnl"))
+            if not enriched or realized is None:
+                raise RuntimeError(f"IB daily realized P&L unavailable for {symbol}")
             average_cost = _to_float(enriched.get("average_cost"), _to_float(item["average_cost"]))
             result.append(
                 {
@@ -2155,9 +2170,39 @@ class IBBroker(BaseBrokerAPI):
                     "average_open_price": average_cost,
                     "close_price": _to_float(enriched.get("market_price")),
                     "unrealized": _to_float(enriched.get("unrealized_pnl")),
-                    "realized_today": _to_float(enriched.get("realized_pnl")),
+                    "realized_today": realized,
                 }
             )
+            result_symbols.add(symbol)
+
+        for item in portfolio.values():
+            contract = item.get("contract")
+            if contract is None:
+                continue
+            if str(item.get("account") or self._account_id) != self._account_id:
+                continue
+            if str(getattr(contract, "secType", "")).upper() != "STK":
+                continue
+            if str(getattr(contract, "currency", "")).upper() != "USD":
+                continue
+            symbol = str(getattr(contract, "symbol", "")).upper()
+            if not symbol or symbol in result_symbols or _to_float(item.get("position")) != 0:
+                continue
+            realized = _finance_number(item.get("realized_pnl"))
+            if realized is None:
+                continue
+            result.append(
+                {
+                    "symbol": symbol,
+                    "quantity": 0.0,
+                    "direction": "Long",
+                    "average_open_price": _to_float(item.get("average_cost")),
+                    "close_price": _to_float(item.get("market_price")),
+                    "unrealized": _to_float(item.get("unrealized_pnl")),
+                    "realized_today": realized,
+                }
+            )
+            result_symbols.add(symbol)
 
         if filters and filters.get("symbols"):
             allowed = {str(symbol).strip().upper() for symbol in filters["symbols"]}
@@ -2350,7 +2395,7 @@ class IBBroker(BaseBrokerAPI):
         order_type = str(getattr(order, "orderType", "") or "").upper()
         price = "MKT"
         if order_type == "LMT":
-            price = f"{_to_float(getattr(order, 'lmtPrice', 0)):.2f}"
+            price = _format_limit_price(getattr(order, "lmtPrice", 0))
         symbol = str(getattr(contract, "symbol", "") or "").upper()
         quantity = _format_quantity(getattr(order, "totalQuantity", 0))
         return {

@@ -4,6 +4,7 @@ import asyncio
 import threading
 import time
 import unittest
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -336,6 +337,36 @@ class TastytradeOrderEventTests(unittest.TestCase):
         self.assertEqual(serialized["status"], "Rejected")
         self.assertEqual(serialized["status_message"], "price outside allowed range")
         self.assertFalse(serialized["can_cancel"])
+
+    def test_sub_dollar_order_serialization_keeps_four_places_and_raw_fills(self):
+        order = SimpleNamespace(
+            id=8,
+            status="Filled",
+            reject_reason="",
+            cancellable=False,
+            updated_at="2026-08-01T00:00:00Z",
+            price=Decimal("-0.95339"),
+            order_type="Limit",
+            time_in_force="Day",
+            legs=[SimpleNamespace(
+                symbol="PENNY",
+                action="Buy to Open",
+                quantity=1,
+                fills=[SimpleNamespace(
+                    fill_price=Decimal("0.95339"),
+                    quantity=1,
+                    filled_at="2026-08-01T00:00:00Z",
+                )],
+            )],
+        )
+
+        serialized = TastytradeBroker.serialize_order(order)
+
+        self.assertEqual(serialized["price"], "0.9533")
+        self.assertEqual(serialized["legs"][0]["fills"][0]["fill_price"], "0.95339")
+
+        order.price = Decimal("-1.239")
+        self.assertEqual(TastytradeBroker.serialize_order(order)["price"], "1.23")
 
     def test_immediate_rejected_response_is_not_reported_as_success(self):
         response = SimpleNamespace(order=SimpleNamespace(

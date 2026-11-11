@@ -42,7 +42,12 @@ from Client.ui_qt.hotkey_config import (
     validate_bindings,
     validate_hotkey_config,
 )
-from Client.ui_qt.main_window import TradePriceInput, TradingTerminalQt
+from Client.ui_qt.main_window import (
+    TradePriceInput,
+    TradingTerminalQt,
+    format_order_price,
+    normalize_price_input_text,
+)
 from Client.ui_qt.settings_overlay import KeyCaptureEdit, SettingsOverlay
 from Client.ui_qt.shortcut_controller import (
     ShortcutController,
@@ -784,6 +789,52 @@ class ShortcutControllerTests(unittest.TestCase):
         QApplication.sendEvent(field, auto_repeat)
         self.assertEqual(submitted, [])
 
+    def test_order_price_helpers_truncate_at_dollar_boundary(self):
+        self.assertEqual(format_order_price("0.95339"), "0.9533")
+        self.assertEqual(format_order_price("0.95"), "0.9500")
+        self.assertEqual(format_order_price("0.99999"), "0.9999")
+        self.assertEqual(format_order_price("1.239"), "1.23")
+        self.assertEqual(format_order_price("1.0000"), "1.00")
+        self.assertEqual(normalize_price_input_text(".95339"), "0.9533")
+        self.assertIsNone(normalize_price_input_text("9.533e-1"))
+        self.assertIsNone(normalize_price_input_text("0,9533"))
+
+    def test_trade_price_input_truncates_typing_and_normalizes_display(self):
+        field = TradePriceInput()
+        field.show()
+        field.setFocus()
+
+        QTest.keyClicks(field, ".95339")
+        self.assertEqual(field.text(), "0.9533")
+
+        field.clear()
+        QTest.keyClicks(field, "1.239")
+        self.assertEqual(field.text(), "1.23")
+
+        field.setText("0.95")
+        field.normalize_display()
+        self.assertEqual(field.text(), "0.9500")
+
+        field.setText("1.0000")
+        field.normalize_display()
+        self.assertEqual(field.text(), "1.00")
+        field.deleteLater()
+
+    def test_trade_price_input_truncates_paste_and_threshold_edit(self):
+        field = TradePriceInput()
+        field.show()
+        field.setFocus()
+
+        QApplication.clipboard().setText("0.95339")
+        field.paste()
+        self.assertEqual(field.text(), "0.9533")
+
+        field.setText("0.9999")
+        field.setSelection(0, 1)
+        QTest.keyClicks(field, "1")
+        self.assertEqual(field.text(), "1.99")
+        field.deleteLater()
+
     def test_trade_price_input_consumes_keyboard_context_menu(self):
         field = TradePriceInput()
         event = QContextMenuEvent(
@@ -945,6 +996,34 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.window._on_price_enter(1)
         self.assertEqual(self.session.orders[-1], ("AAPL", 100, 185.25, "Buy to Open", "limit", "Day"))
         self.assertEqual(len(self.session.orders), 2)
+
+    def test_manual_low_price_is_truncated_before_submission(self):
+        slot = self.window.slots[1]
+        slot.price.setText("0.95339")
+
+        self.window._place_order_from_panel("Buy to Open", 1)
+
+        self.assertEqual(slot.price.text(), "0.9533")
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 0.9533, "Buy to Open", "limit", "Day"),
+        )
+
+    def test_zero_price_cannot_be_submitted(self):
+        slot = self.window.slots[1]
+        slot.price.setText("0.0000")
+
+        self.window._place_order_from_panel("Buy to Open", 1)
+
+        self.assertEqual(self.session.orders, [])
+
+    def test_quote_display_uses_four_places_below_one_and_two_above(self):
+        slot = self.window.slots[1]
+
+        slot.update_quote({"bid": 0.95339, "ask": 1.0001})
+
+        self.assertEqual(slot.bid.text(), "0.9533")
+        self.assertEqual(slot.ask.text(), "1.00")
 
     def test_enter_target_starts_empty_and_mouse_buy_selects_buy(self):
         slot = self.window.slots[1]
@@ -2161,6 +2240,14 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.window.slots[1].symbol_text(), "AAPL")
         self.assertEqual(requested, [(2, "MU")])
 
+    def test_price_adjustment_truncates_after_crossing_one_dollar(self):
+        slot = self.window.slots[1]
+        slot.price.setText("0.9950")
+
+        self.window._adj_price(0.01, 1)
+
+        self.assertEqual(slot.price.text(), "1.00")
+
     def test_numpad_quantity_does_not_capture_main_keyboard_digits(self):
         self.window._setup_shortcuts()
         self.window.show()
@@ -2269,6 +2356,52 @@ class ClientTradeCompatibilityTests(unittest.TestCase):
 
         self.window._handle_enter_target(1)
         self.assertEqual(len(self.session.orders), 1)
+
+    def test_configured_quick_limit_preserves_sub_dollar_precision(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 0.95339,
+            "ask": 0.95439,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "price_source": "ask",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(self.window.slots[1].price.text(), "0.9543")
+        self.assertEqual(
+            self.session.orders[-1],
+            ("AAPL", 100, 0.9543, "Buy to Open", "limit", "Day"),
+        )
+
+    def test_configured_quick_limit_truncates_after_offset_crosses_one(self):
+        self.window.current_quote["AAPL"] = {
+            "symbol": "AAPL",
+            "bid": 0.9450,
+            "ask": 0.9550,
+            "received_monotonic": time.monotonic(),
+            "connection_generation": self.window._se_generation,
+        }
+
+        self.window._prepare_configured_order({
+            "side": "buy",
+            "order_type": "limit",
+            "tif": "Day",
+            "route": "DEFAULT",
+            "price_offset": 0.05,
+            "price_source": "ask",
+            "quick_submit": True,
+        }, 1)
+
+        self.assertEqual(self.window.slots[1].price.text(), "1.00")
+        self.assertEqual(self.session.orders[-1][2], 1.0)
 
     def test_configured_quick_limit_uses_stale_quote_from_current_connection(self):
         self.window.current_quote["AAPL"] = {
